@@ -1,5 +1,22 @@
 # Exam Grader progress
 
+## Git checkpoint — 2026-09-10
+
+Local Git is initialized on `main`; no remote is configured and nothing has
+been pushed. Clean baseline commit: `2f1479e` (`chore: establish stable
+exam-grader baseline`). The baseline tracks source, tests, specs, progress,
+tools, templates, models, answer-sheet references, and vol.1/vol.2/vol.3
+regression fixtures. Generated/manual `docs/evidence`, build artifacts,
+caches, virtualenv, `vol.4`, and `.DS_Store` files are intentionally outside
+the baseline. An existing Codex snapshot ref keeps approximately 402 MiB in
+`.git`; it predates this baseline and was left untouched to avoid deleting
+system-managed history.
+
+Next work is a separate feature task: `Custom Answer-Sheet Template /
+Calibration System`. It must start from the baseline above and preserve all
+current safety and scoring contracts. Do not treat this checkpoint as general
+accuracy evidence.
+
 ## Current status — 2026-09-09 UI friction extension
 
 The bounded UI follow-up is implemented and visually checked. Home now keeps
@@ -116,17 +133,28 @@ packaged self-check และ smoke-ui ผ่าน
 หรือสร้าง roster จากเลขที่สูงสุดเอง. Fresh Cocoa UAT รอบนี้เปิดหน้าต่างไม่ได้ใน
 headless session; ใช้ offscreen UAT และภาพผลลัพธ์ที่ตรวจแล้วเป็นหลักฐานปัจจุบัน
 
-### Prompt สำหรับแชทใหม่
+### Prompt สำหรับแชทใหม่ — TASK: Custom Answer-Sheet Template / Calibration System
 
-ทำงานต่อใน `/Users/zubinpijit/private/exam-grader` โดยอ่าน `progress.md` และ
-หลักฐานล่าสุดก่อน ตรวจ source/UI จริง แล้ว polish เฉพาะ friction ที่ยังเหลือใน flow
-นักเรียน/ตรวจทาน/export ให้ครูแทบไม่ต้องทำอะไรเพิ่ม. รักษา key confirmation,
-sparse-roster skip/restore, immutable originals, provenance, stale-key protection,
-multi-answer scoring และ fail-closed uncertainty; ห้ามอ่าน frozen teacher labels
-เข้า algorithm และห้าม claim accuracy ทั่วไป. ใช้ vol.1/vol.2/vol.3 เป็น regression
-baseline, ตรวจ visual output ทุกครั้ง และรัน pytest, Ruff, Mypy, build, codesign,
-self-check, smoke-ui และ real-fixture UAT ก่อนรายงานผล. เมื่อชัดแล้วทำต่อจนมีหลักฐาน
-ตรวจรับได้.
+ทำงานต่อใน `/Users/zubinpijit/private/exam-grader` โดยอ่าน `progress.md`,
+`docs/TASK_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/DECISIONS.md` และหลักฐานล่าสุด
+ก่อนลงมือ. ให้ agy จัดการ feature ใหญ่เรื่อง Custom Answer-Sheet Template /
+Calibration System แบบ production-minded แต่เปลี่ยนเฉพาะ scope ที่จำเป็น.
+
+ต้องรักษา business logic เดิมที่ผ่าน regression แล้ว: key confirmation,
+sparse-roster skip/restore, immutable originals, provenance, stale-key
+protection, multi-answer scoring และ fail-closed uncertainty. ห้ามอ่าน frozen
+teacher labels เข้า algorithm, ห้ามเดาเงียบ, ห้ามทำลายข้อมูลเดิม และห้าม claim
+accuracy ทั่วไปจาก vol.1/vol.2/vol.3. ใช้ vol.1/vol.2/vol.3 เป็น regression
+baseline และเพิ่มหลักฐานเฉพาะ calibration/template แยกจากผลเดิม.
+
+ก่อนแก้ให้ตรวจ source/data contract จริงและทำ checkpoint เล็ก ๆ ตาม Git history.
+ออกแบบให้ครูส่ง template/เฉลย/answer sheets แล้วทำงานอัตโนมัติที่สุด แต่ทุก
+calibration ที่ไม่แน่ใจต้องมี provenance, diagnostics, preview และ human
+confirmation ที่ fail-closed. ห้ามเริ่มจากการปรับ threshold เพื่อให้ตัวเลขดูดี.
+ตรวจ visual output ทุกครั้ง และรัน pytest, Ruff, Mypy, build, codesign,
+self-check, smoke-ui และ real-fixture UAT ก่อนรายงานผล. แยก engineering/UAT
+evidence ออกจาก accuracy claim และอย่ารายงาน completion จนกว่าผลลัพธ์ภาพและ
+quality gates จะผ่านจริง.
 
 `DETAIL: [รอ Product Owner บอกใน chat ใหม่]`
 
