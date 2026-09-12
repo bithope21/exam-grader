@@ -1,8 +1,23 @@
 # Antigravity handoff
 
-## Current handoff — 2026-09-09
+## Current handoff — 2026-09-12
 
 The current task is the vol.2 low-light/sparse-roster repair. Start with `../progress.md` and `evidence/vol2/validation.md`; historical foundation gates below are retained only as history.
+
+### Windows UAT Status
+
+Windows packaging and UAT have **never been executed**. See [WINDOWS_UAT.md](WINDOWS_UAT.md) for the full investigation, known risks, and next steps.
+
+**Current Windows readiness:**
+- PyInstaller build on Windows: **NOT RUN**
+- Inno Setup installer: **NOT RUN**
+- Tesseract OCR (Windows binary): **NOT TESTED**
+- OpenCV SIFT / PySide6 on Windows: **NOT TESTED**
+- Thai font rendering on Windows: **NOT TESTED**
+- Self-check / smoke-ui from packaged build: **NOT TESTED**
+- Clean-machine non-developer UAT: **NOT TESTED**
+
+This blocks G1 (packaging spike requires separate Mac/Windows evidence per `docs/ROADMAP.md`) and G7 (release requires clean installation on declared OS/CPU matrix).
 
 Source now uses OMR `omr-illumination-v4`, student-number `student-number-adaptive-roi-v4`, and schema 11 (`skipped_numbers`). Latest-key teacher confirmation gates student import and export. Sparse uploads do not imply a continuous roster; explicitly configured missing numbers can be skipped/restored without inventing scores. Review controls operate inline and clear stale row widgets.
 
