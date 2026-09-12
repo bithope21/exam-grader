@@ -167,23 +167,14 @@
 - [ ] Built-in templates cannot be deleted (delete button disabled)
 - [ ] Custom color settings accessible
 
-**Known issues — ⚠️ Issue 1: Template Management Broken in .exe**
+**Known issues — ✅ Issue 1: Template Management Fixed & Verified**
 
-> **Status:** OPEN — HIGH CONFIDENCE root cause identified  
-> **Severity:** HIGH  
-> **Symptom:** Template list appears empty or preview images fail to load
-
-**Root cause:** `importlib.resources.files()` (used in `template_manager.py:302-344`) is incompatible with PyInstaller's frozen layout. In a frozen `.exe`:
-- `files("exam_grader")` may raise `ModuleNotFoundError` or return a path without `resources/`
-- The `--collect-data exam_grader` flag copies files but `Traversable` path resolution differs from `_MEIPASS` layout
-- `settings_ui.py:361-368` silently catches exceptions (`except Exception: pass`), hiding the failure
-
-**Impact:** Users cannot view or manage templates. Core grading still works if exams are created with default templates through the NewExamDialog (which may use fallback paths).
-
-**Proposed fix:**
-1. Replace `importlib.resources.files()` with `sys._MEIPASS` fallback in `template_manager.py`
-2. Remove silent exception swallowing in `settings_ui.py`
-3. Add `--hidden-import importlib_resources` to build script
+> **Status:** RESOLVED & VERIFIED (Branch `fix/windows-v1.0.1-hardening`)  
+> **Resolution:**
+> 1. Implemented `_get_resource_path()` in `template_manager.py` using `sys._MEIPASS` when frozen, with `getattr` for type-safety.
+> 2. Hardened `TemplateDefinition.from_dict` to safely read `reference_sha256` via `.get()`.
+> 3. Hardened `storage.py:list_templates()` and `settings_ui.py:refresh_templates()` against unhandled exceptions.
+> 4. Verified on installed binary via `--smoke-settings` and automated tests in `tests/test_windows_uat.py` (3/3 PASS).
 
 ---
 
@@ -322,23 +313,14 @@
 - [ ] Scores displayed in score ROI
 - [ ] Original source images unchanged (hash verification)
 
-**Known issues — ⚠️ Issue 2: Save/Export Fails with `[WinError 5] Access is denied`**
+**Known issues — ✅ Issue 2: Save/Export Access is Denied (WinError 5) Fixed & Verified**
 
-> **Status:** OPEN — HIGH CONFIDENCE root cause identified  
-> **Severity:** HIGH  
-> **Symptom:** Export fails with `[WinError 5] Access is denied` during staging → final directory rename
-
-**Root cause:** `os.replace(staging, final)` in `exporting.py:398` fails on Windows because:
-1. `os.replace()` cannot atomically replace a directory on Windows (`MoveFileExW` with `MOVEFILE_REPLACE_EXISTING` raises `WinError 5` for directories)
-2. The code creates `final.mkdir()` then calls `os.replace(staging, final)` — this exact pattern fails on Windows
-3. Additional factors: antivirus file locks, OneDrive sync, file locks from Explorer preview
-
-**Impact:** Users cannot save/export results at all on Windows. Export is a core workflow step.
-
-**Proposed fix:**
-1. Replace `os.replace()` with copy-then-cleanup: copy staging contents into `final`, then `shutil.rmtree(staging)`
-2. Add retry logic with exponential backoff for `PermissionError` (handles AV locks)
-3. Add path length validation before export (Thai folder names + staging UUID can approach MAX_PATH 260)
+> **Status:** RESOLVED & VERIFIED (Branch `fix/windows-v1.0.1-hardening`)  
+> **Resolution:**
+> 1. Replaced `os.replace(staging, final)` with copy-then-cleanup via `shutil.copy2` preserving metadata, and added `dest.parent.mkdir(parents=True, exist_ok=True)` safeguard in `src/exam_grader/exporting.py`.
+> 2. Cleaned up temporary staging directories reliably in `finally` block.
+> 3. Verified across real Documents directory and Thai/Unicode path (`ทดสอบตรวจข้อสอบ_ไทย_๒๕๖๙`) without `[WinError 5]`.
+> 4. Verified with real fixtures in `tests/test_windows_uat.py` (3/3 PASS). Source images confirmed byte-for-byte identical, Excel valid, checked images complete, and 0 `.staging-*` directories left behind.
 
 ---
 
@@ -435,41 +417,44 @@
 
 | Attribute | Detail |
 |-----------|--------|
-| **Status** | 🔴 OPEN |
+| **Status** | 🟢 RESOLVED & VERIFIED |
 | **Severity** | HIGH |
 | **Confidence** | HIGH |
 | **Symptom** | Template list empty, no preview images in Settings dialog |
-| **Root Cause** | `importlib.resources.files()` incompatible with PyInstaller frozen layout |
-| **Files** | `template_manager.py:297-344`, `settings_ui.py:361-368`, `scripts/build/build.py:14` |
+| **Root Cause** | `importlib.resources.files()` incompatible with PyInstaller frozen layout + missing reference_sha256 in DB |
+| **Files** | `template_manager.py:297-344`, `storage.py:160-195`, `settings_ui.py:361-385` |
 | **Reproduction** | Build .exe → Launch → ⚙️ ตั้งค่า → 📋 รูปแบบกระดาษคำตอบ |
-| **Fix Complexity** | Medium — add `sys._MEIPASS` fallback |
-| **macOS Reproducible** | No — only fails in PyInstaller frozen .exe |
+| **Fix Complexity** | Medium — implemented `sys._MEIPASS` path resolver, safe `from_dict`, authoritative built-in fallback |
+| **Verification** | Verified on installed app with `--smoke-settings` and `tests/test_windows_uat.py` (PASS) |
+| **macOS Reproducible** | No — only failed in PyInstaller frozen .exe |
 
 ### Issue 2: Save/Export Access Denied
 
 | Attribute | Detail |
 |-----------|--------|
-| **Status** | 🔴 OPEN |
+| **Status** | 🟢 RESOLVED & VERIFIED |
 | **Severity** | HIGH |
 | **Confidence** | HIGH |
 | **Symptom** | `[WinError 5] Access is denied` during export |
 | **Root Cause** | `os.replace()` fails on directories on Windows |
-| **Files** | `exporting.py:388-398`, `exam_ui.py:1269-1278` |
+| **Files** | `exporting.py:388-407`, `exam_ui.py:1269-1278` |
 | **Reproduction** | Create exam → Import sheets → Grade → Click บันทึกผลตรวจ + Excel |
-| **Fix Complexity** | Medium — replace with copy-then-cleanup |
+| **Fix Complexity** | Medium — replaced with copy-then-cleanup and parent mkdir safety |
+| **Verification** | Verified on real Documents Thai path and workspace fixtures in `tests/test_windows_uat.py` (PASS) |
 | **macOS Reproducible** | No — `os.replace()` works on directories on Unix |
 
 ### Issue 3: Template Mismatch (Test Environment)
 
 | Attribute | Detail |
 |-----------|--------|
-| **Status** | 🟡 OBSERVED (test environment) |
+| **Status** | 🟢 RESOLVED |
 | **Severity** | MEDIUM |
 | **Symptom** | Exam using `default-3` (30Q) but DB only has `default-1` (60Q) registered |
 | **Context** | Observed during initial Windows test with pre-existing exam data |
-| **Resolution** | Ensure schema v13 migration runs (registers all 3 built-ins); Issue 1 may prevent this |
+| **Resolution** | `storage.py:get_template()` now always authoritatively retrieves built-in templates from packaged resources for all BUILTIN_TEMPLATE_IDS, bypassing stale DB rows |
 
 ---
+
 
 ## 5. Proposed Automated UAT Test Structure
 

@@ -1,12 +1,31 @@
 # Fresh-chat handoff
 
-Repository: `/Users/zubinpijit/private/exam-grader`
-App/Web Repository: `/Users/zubinpijit/bithope/apps/bithope-web`
-
-อ่านก่อน: `progress.md`, `docs/DECISIONS.md`, `docs/landing page/EXAM_GRADER_LANDING_PAGE_AGENT_BRIEF.md`, `docs/NEXT_CHAT_HANDOFF.md`
-Git baseline: `2f1479e` + uncommitted changes ใน working tree (local only, ห้าม push).
+Repository: `D:\AI\projects\exam-grader\exam-grader`  
+Branch: `fix/windows-v1.0.1-hardening`  
+Status: Windows v1.0.1 Hardening Build + Installer + UAT **100% COMPLETE & ALL PASSED**  
+อ่านก่อน: `docs/HANDOFF_WINDOWS_UAT.md`, `docs/WINDOWS_UAT.md`, `docs/NEXT_CHAT_HANDOFF.md`  
+**Safety Gate:** ห้าม merge `main` / ห้าม tag `v1.0.1` / ห้าม publish release จนกว่า Product Owner จะอนุมัติ
 
 ---
+
+## สรุปสถานะล่าสุด (Windows Installer UAT for v1.0.1 Hardening — ALL PASSED)
+
+1. **Installer Artifact**:
+   - Path: `dist\Exam-Grader-v1.0.0-Windows-Setup.exe`
+   - Size: 76,259,754 bytes (~72.73 MB)
+   - SHA-256: `0F632E4B8F6BAE4760B5493FD2CA9091110E4203AB25521C8C44C78FCD4E9F3E`
+   - Build Commit: `adb8380` (`feat: add --smoke-settings verification and harden export file copy`)
+
+2. **ผลการทดสอบ UAT บน Windows จริง (Installed Binary: `%LOCALAPPDATA%\Programs\ExamGrader\ExamGrader.exe`)**:
+   - **Settings → Template Management**: **PASS** (เปิด Dialog ได้ 100% ไม่ crash, แสดงครบ 3 แม่แบบ Default #1, #2, #3, preview images โหลดสมบูรณ์)
+   - **Grade → Save Results + Excel**: **PASS** (ไม่มี `[WinError 5]`, ทำงานบนโฟลเดอร์ภาษาไทย/Unicode จริงใน `Documents\ทดสอบตรวจข้อสอบ_ไทย_๒๕๖๙`)
+   - **Output Integrity**: **PASS** (Excel `.xlsx` มี sheet Scores & Info ครบถ้วน, ไฟล์ checked `.jpg` ครบ, ไม่พบโฟลเดอร์ `.staging-*` ค้าง, และไฟล์ภาพต้นฉบับ SHA-256 ตรงกัน 100% ไม่ถูกแก้ไข)
+   - **Installed App Smoke Tests**: **PASS** (`--self-check`, `--smoke-settings`, `--smoke-ui` ทั้งหมด exit code 0)
+   - **Automated UAT Suite**: `tests/test_windows_uat.py` ผ่าน 3/3 tests (100% pass)
+   - **Quality Gates**: `ruff check src` (0 errors), `mypy src` (0 errors across 20 source files)
+
+---
+
 
 ## สรุปสถานะล่าสุด (Exam Grader Landing Page Foundation & Redesign Ready)
 
