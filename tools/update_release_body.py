@@ -14,6 +14,8 @@ sha_path = ROOT / 'dist' / 'Exam-Grader-v1.0.0-macOS-Apple-Silicon.dmg.sha256'
 with open(sha_path) as f:
     sha = f.read().split()[0]
 
+win_sha = "3453953a43ee1b0c5de162458291f155f120a73327e59188e79b7d231b224280"
+
 release_id = 387446800
 
 bt = '`'
@@ -30,12 +32,14 @@ Official release of Exam Grader — a 100% offline exam grading desktop applicat
 - **Excel & Visual Export:** Detailed .xlsx gradebook + marked answer sheets with green/red verification checks and printed scores.
 
 ### Download Artifacts
-- **macOS (Apple Silicon M1–M4):** {bt}Exam-Grader-v1.0.0-macOS-Apple-Silicon.dmg{bt}
+- **macOS (Apple Silicon M1–M4):** {bt}Exam-Grader-v1.0.0-macOS-Apple-Silicon.dmg{bt} (104 MB)
   - SHA-256: {bt}{sha}{bt}
-- **Windows (10/11 64-bit):** {bt}Exam-Grader-v1.0.0-Windows-Setup.exe{bt}
+- **Windows (10/11 64-bit):** {bt}Exam-Grader-v1.0.0-Windows-Setup.exe{bt} (74 MB)
+  - SHA-256: {bt}{win_sha}{bt}
 
-### First-Launch Note for macOS
-As an independent open-source release, macOS Gatekeeper may prompt on first launch. Go to **System Settings** → **Privacy & Security** and select **Open Anyway**.
+### First-Launch Guidance
+- **macOS:** As an independent open-source release, macOS Gatekeeper may prompt on first launch. Go to **System Settings** → **Privacy & Security** and select **Open Anyway** (or right-click `ExamGrader.app` → Open).
+- **Windows:** If Microsoft Defender SmartScreen prompts on first install, click **More info** → **Run anyway**.
 """
 
 req = urllib.request.Request(
