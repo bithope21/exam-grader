@@ -368,10 +368,13 @@ class TemplateSettingsDialog(QDialog):
                 pass
 
         # Custom from DB
-        custom_templates = self.application.exams.list_templates()
-        for t in custom_templates:
-            if t.template_id not in BUILTIN_TEMPLATE_IDS:
-                self.templates_list.append(t)
+        try:
+            custom_templates = self.application.exams.list_templates()
+            for t in custom_templates:
+                if t.template_id not in BUILTIN_TEMPLATE_IDS:
+                    self.templates_list.append(t)
+        except Exception:
+            pass
 
         current_def = default_template_id()
 

@@ -182,7 +182,7 @@ class TemplateDefinition:
             answer_blocks=blocks,
             student_number_roi=student_roi,  # type: ignore[arg-type]
             score_roi=score_roi,  # type: ignore[arg-type]
-            reference_sha256=data["reference_sha256"],
+            reference_sha256=data.get("reference_sha256", ""),
             cell_inset=int(data.get("cell_inset", 4)),
             registration_config=dict(data.get("registration_config", {})),
             created_at=data.get("created_at", ""),
@@ -224,7 +224,7 @@ def _get_resource_path(relative_path: str | Path) -> Path:
     """Get resource path that works in both dev and frozen (PyInstaller) mode."""
     if getattr(sys, "frozen", False):
         # Running as PyInstaller .exe
-        base = Path(sys._MEIPASS)
+        base = Path(getattr(sys, "_MEIPASS", ""))
         candidate = base / relative_path
         if candidate.exists():
             return candidate
