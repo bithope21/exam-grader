@@ -1,0 +1,69 @@
+name: Release Exam Grader
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows Installer (64-bit)
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install Inno Setup
+        run: |
+          choco install innosetup --no-progress
+          echo "C:\Program Files (x86)\Inno Setup 6" >> $env:GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Build Windows binary with PyInstaller
+        run: |
+          python scripts/build/build.py
+
+      - name: Verify Windows binary (self-check)
+        run: |
+          .\dist\ExamGrader\ExamGrader.exe --self-check
+
+      - name: Compile Inno Setup installer
+        run: |
+          iscc scripts/build/windows-installer.iss
+
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $file = "dist\Exam-Grader-v1.0.0-Windows-Setup.exe"
+          $hash = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLower()
+          "$hash  Exam-Grader-v1.0.0-Windows-Setup.exe" | Out-File -FilePath "$file.sha256" -Encoding utf8
+          Write-Host "SHA256: $hash"
+
+      - name: Upload Windows Installer to Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name || inputs.tag }}
+        shell: pwsh
+        run: |
+          $tag = $env:TAG_NAME
+          gh release upload $tag dist/Exam-Grader-v1.0.0-Windows-Setup.exe dist/Exam-Grader-v1.0.0-Windows-Setup.exe.sha256 --clobber
