@@ -411,6 +411,17 @@ class ExamStore:
     def get_template(
         self, template_id: str, version: int | None = None
     ) -> TemplateDefinition | None:
+        from exam_grader.template_manager import BUILTIN_TEMPLATE_IDS, load_builtin_template
+
+        if template_id in BUILTIN_TEMPLATE_IDS:
+            try:
+                builtin = load_builtin_template(template_id)
+                if version is not None and builtin.version != version:
+                    return None
+                return builtin
+            except (ValueError, FileNotFoundError):
+                pass
+
         with closing(sqlite3.connect(self.path)) as connection:
             if version is not None:
                 row = connection.execute(
@@ -423,17 +434,11 @@ class ExamStore:
                     (template_id,),
                 ).fetchone()
         if row is not None:
-            return TemplateDefinition.from_dict(json.loads(row[0]))
-        # Fallback to built-in if not in DB
-        try:
-            from exam_grader.template_manager import load_builtin_template
-
-            builtin = load_builtin_template(template_id)
-            if version is not None and builtin.version != version:
-                return None
-            return builtin
-        except (ValueError, FileNotFoundError):
-            return None
+            try:
+                return TemplateDefinition.from_dict(json.loads(row[0]))
+            except Exception:
+                pass
+        return None
 
     def list_templates(self, include_deleted: bool = False) -> list[TemplateDefinition]:
         with closing(sqlite3.connect(self.path)) as connection:
@@ -444,7 +449,10 @@ class ExamStore:
         seen: set[str] = set()
         templates: list[TemplateDefinition] = []
         for row in rows:
-            td = TemplateDefinition.from_dict(json.loads(row[0]))
+            try:
+                td = TemplateDefinition.from_dict(json.loads(row[0]))
+            except Exception:
+                continue
             if td.template_id not in seen:
                 seen.add(td.template_id)
                 templates.append(td)

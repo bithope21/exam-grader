@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from dataclasses import asdict, dataclass, field
-from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
@@ -182,7 +182,7 @@ class TemplateDefinition:
             answer_blocks=blocks,
             student_number_roi=student_roi,  # type: ignore[arg-type]
             score_roi=score_roi,  # type: ignore[arg-type]
-            reference_sha256=data["reference_sha256"],
+            reference_sha256=data.get("reference_sha256", ""),
             cell_inset=int(data.get("cell_inset", 4)),
             registration_config=dict(data.get("registration_config", {})),
             created_at=data.get("created_at", ""),
@@ -220,9 +220,27 @@ def cell_rect_for_template(
     return x + inset, y + inset, w - 2 * inset, h - 2 * inset
 
 
+def _get_resource_path(relative_path: str | Path) -> Path:
+    """Get resource path that works in both dev and frozen (PyInstaller) mode."""
+    if getattr(sys, "frozen", False):
+        # Running as PyInstaller .exe
+        base = Path(getattr(sys, "_MEIPASS", ""))
+        candidate = base / relative_path
+        if candidate.exists():
+            return candidate
+        candidate_pkg = base / "exam_grader" / relative_path
+        if candidate_pkg.exists():
+            return candidate_pkg
+        return candidate
+    else:
+        # Running in development
+        base = Path(__file__).parent
+        return base / relative_path
+
+
 def default_1_template_definition() -> TemplateDefinition:
     """Construct TemplateDefinition wrapping existing built-in Default #1."""
-    data = json.loads(files("exam_grader").joinpath("resources/template.json").read_text())
+    data = json.loads(_get_resource_path("resources/template.json").read_text(encoding="utf-8"))
     groups = data["groups"]
     rows = data["rows"]
     blocks: list[AnswerBlock] = []
@@ -299,17 +317,17 @@ def load_builtin_template(template_id: str) -> TemplateDefinition:
     if template_id == "default-1":
         return default_1_template_definition()
     if template_id == "default-2":
-        path = files("exam_grader").joinpath("resources/template_default2.json")
+        path = _get_resource_path("resources/template_default2.json")
         try:
-            content = path.read_text()
+            content = path.read_text(encoding="utf-8")
             data = json.loads(content)
             return TemplateDefinition.from_dict(data)
         except (FileNotFoundError, ModuleNotFoundError) as err:
             raise ValueError("แม่แบบ Default #2 ยังไม่ได้ถูกบรรจุหรือยังอยู่ระหว่างการปรับเทียบ") from err
     if template_id == "default-3":
-        path = files("exam_grader").joinpath("resources/template_default3.json")
+        path = _get_resource_path("resources/template_default3.json")
         try:
-            content = path.read_text()
+            content = path.read_text(encoding="utf-8")
             data = json.loads(content)
             return TemplateDefinition.from_dict(data)
         except (FileNotFoundError, ModuleNotFoundError) as err:
@@ -353,11 +371,11 @@ def get_reference_image(
 
     if template_def.kind == "builtin":
         if template_def.template_id == "default-1":
-            data = files("exam_grader").joinpath("resources/reference.png").read_bytes()
+            data = _get_resource_path("resources/reference.png").read_bytes()
         elif template_def.template_id == "default-2":
-            data = files("exam_grader").joinpath("resources/reference_default2.png").read_bytes()
+            data = _get_resource_path("resources/reference_default2.png").read_bytes()
         elif template_def.template_id == "default-3":
-            data = files("exam_grader").joinpath("resources/reference_default3.png").read_bytes()
+            data = _get_resource_path("resources/reference_default3.png").read_bytes()
         else:
             raise ValueError(f"ไม่รู้จัก built-in template: {template_def.template_id}")
     else:

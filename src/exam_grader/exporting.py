@@ -395,7 +395,16 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
                 break
             except FileExistsError:
                 sequence += 1
-        os.replace(staging, final)
+        # Copy staging contents into final directory (Windows-safe alternative
+        # to os.replace which fails on directories with WinError 5).
+        for item in staging.rglob("*"):
+            rel = item.relative_to(staging)
+            dest = final / rel
+            if item.is_dir():
+                dest.mkdir(parents=True, exist_ok=True)
+            else:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(item, dest)
         published = True
         flow.record_export(exam_id, str(final), run_id, snapshot_fingerprint)
         return final

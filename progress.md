@@ -17,6 +17,10 @@ Calibration System`. It must start from the baseline above and preserve all
 current safety and scoring contracts. Do not treat this checkpoint as general
 accuracy evidence.
 
+## Current status — 2026-09-12 Windows UAT Investigation Documented
+
+Created `docs/WINDOWS_UAT.md` tracking the full Windows readiness investigation. All Windows packaging, build, and UAT areas are confirmed NOT RUN / NOT TESTED. This is now cross-referenced in `docs/AGENT_HANDOFF.md` under the current handoff section. Key risks identified: Tesseract binary bundling, OpenCV contrib on Windows, Thai font fallback, PyInstaller hooks, DPI scaling, and SQLite locking semantics. Blocked gates: G1 (requires separate Mac/Windows evidence) and G7 (requires clean OS/CPU matrix installation).
+
 ## Current status — 2026-09-12 Exam Grader Landing Page Foundation & Redesign Ready
 
 Built initial landing page foundation for Exam Grader at route `/exam-grader` on `bithope-web` (`/Users/zubinpijit/bithope/apps/bithope-web`), ready for user-guided redesign:

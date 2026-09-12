@@ -1114,6 +1114,8 @@ Investigate Apple Gatekeeper/notarization implications and document them separat
 
 ## Windows
 
+> **Current status (2026-09-12):** Windows build/installer/UAT has **never been executed**. See [`docs/WINDOWS_UAT.md`](docs/WINDOWS_UAT.md) for the full investigation and remaining risks.
+
 Aim for:
 
 - bundled executable/app directory,

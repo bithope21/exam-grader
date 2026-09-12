@@ -17,6 +17,11 @@ def main() -> int:
     parser.add_argument(
         "--smoke-ui", action="store_true", help="Open and close the UI for build verification"
     )
+    parser.add_argument(
+        "--smoke-settings",
+        action="store_true",
+        help="Open template settings dialog and verify all templates load for build verification",
+    )
     parser.add_argument("--report", type=Path, help="Write self-check JSON to this path")
     args = parser.parse_args()
     try:
@@ -49,7 +54,7 @@ def main() -> int:
             args.report.write_text(report, encoding="utf-8")
         if sys.stdout is not None:
             print(report)
-    if (args.self_check or args.report) and not args.smoke_ui:
+    if (args.self_check or args.report) and not args.smoke_ui and not args.smoke_settings:
         return 0
     from PySide6.QtWidgets import QApplication
 
@@ -68,6 +73,36 @@ def main() -> int:
 
     qt = QApplication(sys.argv[:1])
     apply_appearance_theme(qt)
+
+    if args.smoke_settings:
+        from exam_grader.settings_ui import TemplateSettingsDialog
+        from exam_grader.template_manager import get_reference_image
+
+        dlg = TemplateSettingsDialog(application)
+        templates = []
+        for r in range(dlg.table.rowCount()):
+            item = dlg.table.item(r, 0)
+            if item is not None:
+                templates.append(item.text())
+        if len(dlg.templates_list) < 3:
+            print(f"FAILED: Expected at least 3 templates, got {len(dlg.templates_list)}", file=sys.stderr)
+            return 1
+        for b_name in ("Default #1", "Default #2", "Default #3"):
+            if not any(b_name in n for n in templates):
+                print(f"FAILED: Missing template {b_name} in {templates}", file=sys.stderr)
+                return 1
+        for t in dlg.templates_list:
+            if t.kind == "builtin":
+                ref = get_reference_image(t, application.data_dir)
+                if ref is None or ref.size == 0:
+                    print(f"FAILED: Reference image empty for {t.template_id}", file=sys.stderr)
+                    return 1
+        print(json.dumps({
+            "smoke_settings": "ok",
+            "template_count": len(dlg.templates_list),
+            "templates": templates,
+        }, ensure_ascii=False))
+        return 0
     icon_path = Path(__file__).resolve().parent / "resources" / "icon.png"
     if icon_path.exists():
         from PySide6.QtGui import QIcon
