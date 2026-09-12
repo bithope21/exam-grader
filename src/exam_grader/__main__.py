@@ -58,6 +58,11 @@ def main() -> int:
 
     qt = QApplication(sys.argv[:1])
     apply_appearance_theme(qt)
+    icon_path = Path(__file__).resolve().parent / "resources" / "icon.png"
+    if icon_path.exists():
+        from PySide6.QtGui import QIcon
+
+        qt.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow(application)
     window.show()
     if args.smoke_ui:

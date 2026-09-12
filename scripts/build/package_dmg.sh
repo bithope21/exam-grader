@@ -24,6 +24,12 @@ mkdir -p "$TEMP_DMG_DIR"
 cp -R "$APP_PATH" "$TEMP_DMG_DIR/"
 ln -s /Applications "$TEMP_DMG_DIR/Applications"
 
+if [ -f "$ROOT_DIR/resources/icons/icon.icns" ]; then
+    cp "$ROOT_DIR/resources/icons/icon.icns" "$TEMP_DMG_DIR/.VolumeIcon.icns"
+    SetFile -c icnC "$TEMP_DMG_DIR/.VolumeIcon.icns" 2>/dev/null || true
+    SetFile -a C "$TEMP_DMG_DIR" 2>/dev/null || true
+fi
+
 echo "Creating compressed UDZO DMG..."
 hdiutil create \
     -volname "Exam Grader" \

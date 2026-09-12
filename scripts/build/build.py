@@ -16,6 +16,13 @@ cmd = [
 ]
 if sys.platform == "darwin":
     cmd.extend(["--osx-bundle-identifier", "com.bithope.examgrader"])
+    icon = root / "resources" / "icons" / "icon.icns"
+    if icon.exists():
+        cmd.extend(["--icon", str(icon)])
+elif sys.platform == "win32":
+    icon = root / "resources" / "icons" / "icon.ico"
+    if icon.exists():
+        cmd.extend(["--icon", str(icon)])
 cmd.append(str(root / "src/exam_grader/__main__.py"))
 
 subprocess.run(cmd, cwd=root, check=True, env=environment)

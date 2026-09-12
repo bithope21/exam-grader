@@ -10,6 +10,7 @@ OutputDir=..\..\dist
 OutputBaseFilename=Exam-Grader-v1.0.0-Windows-Setup
 Compression=lzma2
 SolidCompression=yes
+SetupIconFile=..\..\resources\icons\icon.ico
 UninstallDisplayIcon={app}\ExamGrader.exe
 
 [Files]
