@@ -14,7 +14,7 @@ sha_path = ROOT / 'dist' / 'Exam-Grader-v1.0.0-macOS-Apple-Silicon.dmg.sha256'
 with open(sha_path) as f:
     sha = f.read().split()[0]
 
-win_sha = "3453953a43ee1b0c5de162458291f155f120a73327e59188e79b7d231b224280"
+win_sha = "0f45f359e9966216b54cf2e13e9a4108c3e7c34b3585aa51d96830f1b62d8e01"
 
 release_id = 387446800
 
@@ -25,14 +25,15 @@ Official release of Exam Grader — a 100% offline exam grading desktop applicat
 
 ### Highlights
 - **100% Offline & Private:** Runs entirely on-device; no cloud dependencies or student data transmission.
-- **Official Master Icon:** High-resolution icons for macOS (.icns) and Windows (.ico) generated from the master brand artwork.
+- **Official Master Icon:** Clean, multi-resolution transparent icons for macOS (.icns) and Windows (.ico) without white borders or padding.
 - **Multiple Built-in Templates:** Default #1 (60 questions), Default #2 (40 questions), Default #3 (30 questions).
+- **High-Performance Import Flow:** Accelerated OMR registration with fast scaled ECC, precomputed feature caching, and instant image reuse.
 - **Custom Template Calibration:** Calibrate and save custom answer sheet layouts for school-specific paper formats.
 - **Side-by-Side Review:** Fast inspector with pan/zoom and bulk editing capabilities.
 - **Excel & Visual Export:** Detailed .xlsx gradebook + marked answer sheets with green/red verification checks and printed scores.
 
 ### Download Artifacts
-- **macOS (Apple Silicon M1–M4):** {bt}Exam-Grader-v1.0.0-macOS-Apple-Silicon.dmg{bt} (104 MB)
+- **macOS (Apple Silicon M1–M4):** {bt}Exam-Grader-v1.0.0-macOS-Apple-Silicon.dmg{bt} (108 MB)
   - SHA-256: {bt}{sha}{bt}
 - **Windows (10/11 64-bit):** {bt}Exam-Grader-v1.0.0-Windows-Setup.exe{bt} (74 MB)
   - SHA-256: {bt}{win_sha}{bt}
