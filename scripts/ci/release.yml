@@ -8,8 +8,8 @@ on:
     inputs:
       tag:
         description: "Release tag (e.g. v1.0.1)"
-        required: true
-        default: "v1.0.1"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -55,20 +55,53 @@ jobs:
         shell: pwsh
         run: |
           $file = (Get-ChildItem dist\Exam-Grader-*-Windows-Setup.exe | Select-Object -First 1).FullName
+          if (-not $file) {
+            Write-Error "No Windows setup executable found in dist\"
+            exit 1
+          }
           $filename = Split-Path -Leaf $file
           $hash = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLower()
           "$hash  $filename" | Out-File -FilePath "$file.sha256" -Encoding utf8
           Write-Host "SHA256 ($filename): $hash"
 
+      - name: Archive build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Exam-Grader-Windows-Setup
+          path: |
+            dist/Exam-Grader-*-Windows-Setup.exe
+            dist/Exam-Grader-*-Windows-Setup.exe.sha256
+
       - name: Upload Windows Installer to Release
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.ref_name || inputs.tag }}
         shell: pwsh
         run: |
-          $tag = $env:TAG_NAME
-          if ($tag -eq "main" -or $tag -eq "master" -or -not $tag) {
-            $tag = "v1.0.1"
+          $tag = "${{ inputs.tag }}"
+          if (-not $tag -or $tag -eq "") {
+            $tag = "${{ github.ref_name }}"
           }
+          if ($tag -eq "main" -or $tag -eq "master" -or -not $tag) {
+            $match = Select-String -Path pyproject.toml -Pattern '^version\s*=\s*"(.*)"'
+            if ($match) {
+              $ver = $match.Matches.Groups[1].Value
+              $tag = "v$ver"
+            } else {
+              $tag = "v1.0.1"
+            }
+          }
+          Write-Host "Target Release Tag: $tag"
           $files = Get-ChildItem dist/Exam-Grader-*-Windows-Setup.exe* | ForEach-Object { $_.FullName }
-          gh release upload $tag @files --clobber
+          $releaseExists = $false
+          try {
+            gh release view $tag --json id 2>$null
+            if ($LASTEXITCODE -eq 0) { $releaseExists = $true }
+          } catch {
+            $releaseExists = $false
+          }
+          if ($releaseExists) {
+            gh release upload $tag @files --clobber
+          } else {
+            Write-Host "Release $tag does not exist yet. Artifacts are preserved in workflow run and will be attached to the release."
+          }
