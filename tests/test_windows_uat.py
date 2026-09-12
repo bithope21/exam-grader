@@ -12,7 +12,6 @@ import hashlib
 import shutil
 from pathlib import Path
 
-import cv2
 import openpyxl
 import pytest
 from PySide6.QtWidgets import QApplication
@@ -104,7 +103,6 @@ def test_windows_export_real_documents_thai_unicode_path():
 
         importer = ImportService(app.exams.path)
         flow = Workflow(app.exams.path)
-        t3 = load_builtin_template("default-3")
 
         # Use real fixture image from vol.6
         vol6_dir = Path("tests/fixtures/real/vol.6")
