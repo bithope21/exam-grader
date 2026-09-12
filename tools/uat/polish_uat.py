@@ -45,11 +45,15 @@ def capture(dialog: ReviewDialog, output: Path, prefix: str) -> list[dict]:
         settle()
         path = output / f"{prefix}-{width}x{height}.png"
         assert dialog.grab().save(str(path))
-        record = {"requested": [width, height], "actual": [dialog.width(), dialog.height()],
-                  "dpr": dialog.devicePixelRatioF(), "screenshot": str(path),
-                  "table_scroll_max": dialog.table.horizontalScrollBar().maximum(),
-                  "column_widths": [dialog.table.columnWidth(i) for i in range(3)],
-                  "table_viewport_width": dialog.table.viewport().width()}
+        record = {
+            "requested": [width, height],
+            "actual": [dialog.width(), dialog.height()],
+            "dpr": dialog.devicePixelRatioF(),
+            "screenshot": str(path),
+            "table_scroll_max": dialog.table.horizontalScrollBar().maximum(),
+            "column_widths": [dialog.table.columnWidth(i) for i in range(3)],
+            "table_viewport_width": dialog.table.viewport().width(),
+        }
         assert record["table_scroll_max"] == 0
         assert sum(record["column_widths"]) <= record["table_viewport_width"]
         records.append(record)
@@ -58,8 +62,14 @@ def capture(dialog: ReviewDialog, output: Path, prefix: str) -> list[dict]:
         settle()
         path = output / f"{prefix}-maximized.png"
         assert dialog.grab().save(str(path))
-        records.append({"maximized": dialog.isMaximized(), "actual": [dialog.width(), dialog.height()],
-                        "dpr": dialog.devicePixelRatioF(), "screenshot": str(path)})
+        records.append(
+            {
+                "maximized": dialog.isMaximized(),
+                "actual": [dialog.width(), dialog.height()],
+                "dpr": dialog.devicePixelRatioF(),
+                "screenshot": str(path),
+            }
+        )
     return records
 
 
@@ -72,7 +82,11 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=True)
     truth = json.loads(args.truth.read_text())
     fixture_root = Path("tests/fixtures/real")
-    hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture_root.iterdir() if p.is_file()}
+    hashes = {
+        p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in fixture_root.iterdir()
+        if p.is_file()
+    }
     qt = QApplication.instance() or QApplication([])
     qt.setApplicationName("Exam Grader · Engineering UAT")
     app = initialize(Path(tempfile.mkdtemp(prefix="exam-grader-polish-")))
@@ -80,11 +94,19 @@ def main() -> int:
     flow = Workflow(app.exams.path)
     importer = ImportService(app.exams.path)
     app.exams.set_output_root(exam.id, output / "exports")
-    reports: dict = {"kind": "engineering UI replay of historical teacher decisions",
-                     "platform": QApplication.platformName(), "truth_file": str(args.truth.resolve()),
-                     "data_dir": str(app.data_dir), "exam_id": exam.id, "ui": [], "numbers": []}
-    for purpose, paths in (("key", [fixture_root / "key.JPG"]),
-                           ("student", sorted(fixture_root.glob("IMG*")))):
+    reports: dict = {
+        "kind": "engineering UI replay of historical teacher decisions",
+        "platform": QApplication.platformName(),
+        "truth_file": str(args.truth.resolve()),
+        "data_dir": str(app.data_dir),
+        "exam_id": exam.id,
+        "ui": [],
+        "numbers": [],
+    }
+    for purpose, paths in (
+        ("key", [fixture_root / "key.JPG"]),
+        ("student", sorted(fixture_root.glob("IMG*"))),
+    ):
         worker = BatchWorker(app.exams.path, exam.id, paths, purpose)
         worker.start()
         assert worker.wait(90000)
@@ -108,12 +130,21 @@ def main() -> int:
         row = by_name[source["original_name"]]
         assert source["sha256"] == row["source_sha256"]
         detection = flow.latest_detection(source["id"])
-        observed = observe(importer.verified_bytes(source), detection["registration"]["matrix"],
-                           diagnostics_dir=output / "numbers" / Path(row["filename"]).stem)
+        observed = observe(
+            importer.verified_bytes(source),
+            detection["registration"]["matrix"],
+            diagnostics_dir=output / "numbers" / Path(row["filename"]).stem,
+        )
         assert observed == detection["student_number_observation"]
-        reports["numbers"].append({"filename": row["filename"], "truth": row["student_number"],
-                                  "correct": observed["candidate"] == row["student_number"],
-                                  "truth_review_id": row["review_id"], "observation": observed})
+        reports["numbers"].append(
+            {
+                "filename": row["filename"],
+                "truth": row["student_number"],
+                "correct": observed["candidate"] == row["student_number"],
+                "truth_review_id": row["review_id"],
+                "observation": observed,
+            }
+        )
         dialog = ReviewDialog(app.exams.path, source)
         dialog.number.setText(row["student_number"])
         for combo, answer in zip(dialog.combos, row["answers"]):
@@ -138,8 +169,11 @@ def main() -> int:
     headers, grids = [], []
     for result in snapshot["results"]:
         image = decode((final / result["checked_image"]).read_bytes())
-        aligned = cv2.warpPerspective(image, np.array(result["detection"]["registration"]["matrix"]),
-                                      (template()["width"], template()["height"]))
+        aligned = cv2.warpPerspective(
+            image,
+            np.array(result["detection"]["registration"]["matrix"]),
+            (template()["width"], template()["height"]),
+        )
         header = cv2.resize(aligned[:145, 520:], None, fx=3, fy=3)
         grid = cv2.resize(aligned[227:714, 18:425], None, fx=1.5, fy=1.5)
         stem = Path(result["source"]["original_name"]).stem
@@ -161,14 +195,26 @@ def main() -> int:
         reopened.reveal_result()
         settle()
     reopened.close()
-    assert hashes == {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in fixture_root.iterdir() if p.is_file()}
+    assert hashes == {
+        p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in fixture_root.iterdir()
+        if p.is_file()
+    }
     reports["original_hashes_unchanged"] = True
     reports["review_required"] = 5
     reports["auto_accept"] = 0
     reports["candidate_correct"] = sum(r["correct"] for r in reports["numbers"])
     (output / "report.json").write_text(json.dumps(reports, ensure_ascii=False, indent=2) + "\n")
-    print(json.dumps({"output": str(final), "candidate_correct": reports["candidate_correct"],
-                      "scores": reports["scores"], "platform": QApplication.platformName()}))
+    print(
+        json.dumps(
+            {
+                "output": str(final),
+                "candidate_correct": reports["candidate_correct"],
+                "scores": reports["scores"],
+                "platform": QApplication.platformName(),
+            }
+        )
+    )
     return 0
 
 

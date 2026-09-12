@@ -31,9 +31,21 @@ def evaluate(root: Path) -> dict:
         try:
             prediction = analyze(data)
         except RegistrationError as error:
-            record.update({"status": "registration_or_decode_rejected", "reason": str(error), "diagnostics": error.diagnostics})
+            record.update(
+                {
+                    "status": "registration_or_decode_rejected",
+                    "reason": str(error),
+                    "diagnostics": error.diagnostics,
+                }
+            )
         except ValueError as error:
-            record.update({"status": "registration_or_decode_rejected", "reason": str(error), "diagnostics": {"stage": "decode"}})
+            record.update(
+                {
+                    "status": "registration_or_decode_rejected",
+                    "reason": str(error),
+                    "diagnostics": {"stage": "decode"},
+                }
+            )
         else:
             expected = entry.get("answers", {})
             exact = 0
@@ -41,13 +53,17 @@ def evaluate(root: Path) -> dict:
                 truth = expected.get(str(item["question"]), [])
                 if item["selected"] == truth:
                     exact += 1
-            record.update({
-                "status": "predicted_review_required" if prediction["requires_review"] else "predicted",
-                "exact_selected_questions": exact,
-                "questions": len(prediction["answers"]),
-                "registration": prediction["registration"],
-                "stage_timings": prediction.get("stage_timings", {}),
-            })
+            record.update(
+                {
+                    "status": "predicted_review_required"
+                    if prediction["requires_review"]
+                    else "predicted",
+                    "exact_selected_questions": exact,
+                    "questions": len(prediction["answers"]),
+                    "registration": prediction["registration"],
+                    "stage_timings": prediction.get("stage_timings", {}),
+                }
+            )
         record["seconds"] = round(time.perf_counter() - started, 4)
         records.append(record)
     statuses = Counter(record["status"] for record in records)
@@ -71,7 +87,9 @@ def evaluate(root: Path) -> dict:
         "review_rate": round(review_count / len(records), 6) if records else 0.0,
         "stage_timings": {
             "sum_seconds": round(sum(r["seconds"] for r in records), 4),
-            "mean_seconds": round(sum(r["seconds"] for r in records) / len(records), 4) if records else 0.0,
+            "mean_seconds": round(sum(r["seconds"] for r in records) / len(records), 4)
+            if records
+            else 0.0,
             "max_seconds": round(max((r["seconds"] for r in records), default=0.0), 4),
         },
         # Production auto-accept remains contractually disabled in this draft pipeline.
@@ -88,8 +106,24 @@ def main() -> int:
     args = parser.parse_args()
     report = evaluate(args.fixtures.resolve())
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({key: report[key] for key in ("dataset_name", "manifest_total", "evaluated", "status_counts", "auto_accept_count")}, ensure_ascii=False))
+    args.output.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {
+                key: report[key]
+                for key in (
+                    "dataset_name",
+                    "manifest_total",
+                    "evaluated",
+                    "status_counts",
+                    "auto_accept_count",
+                )
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

@@ -3,12 +3,21 @@
 import hashlib
 import json
 from importlib.resources import files
+from pathlib import Path
 from time import perf_counter
 
 import cv2
 import numpy as np
 from PySide6.QtCore import QBuffer, QByteArray, QIODevice
 from PySide6.QtGui import QImage, QImageReader
+
+from exam_grader.template_manager import (
+    AnswerBlock,
+    TemplateDefinition,
+    cell_rect_for_template,
+    default_1_template_definition,
+    get_reference_image,
+)
 
 CHOICES = "ABCDE"
 OMR_PIPELINE_VERSION = "omr-illumination-v5-boundary-cross-v1"
@@ -24,16 +33,29 @@ def classify_ink(densities: list[float], cores: list[float]) -> tuple[list[str],
     resolved multiple answer, not an unreadable image. Scores are not calibrated
     probabilities and thresholds are independent of the student's answer/key.
     """
-    selected = [CHOICES[i] for i, value in enumerate(densities) if value >= SELECTED_DENSITY_THRESHOLD]
+    selected = [
+        CHOICES[i] for i, value in enumerate(densities) if value >= SELECTED_DENSITY_THRESHOLD
+    ]
     peak = max(densities)
-    weak = [i for i, value in enumerate(densities) if UNCERTAIN_DENSITY_THRESHOLD <= value < SELECTED_DENSITY_THRESHOLD]
-    unresolved = [i for i in weak if not (selected and densities[i] < 0.06
-                  and densities[i] < peak * 0.35 and cores[i] < 0.08)]
+    weak = [
+        i
+        for i, value in enumerate(densities)
+        if UNCERTAIN_DENSITY_THRESHOLD <= value < SELECTED_DENSITY_THRESHOLD
+    ]
+    unresolved = [
+        i
+        for i in weak
+        if not (selected and densities[i] < 0.06 and densities[i] < peak * 0.35 and cores[i] < 0.08)
+    ]
     if unresolved or (not selected and peak >= 0.012):
         return selected, "uncertain", "faint-or-competing-ink"
     if not selected:
         return [], "blank", "no-answer-ink"
-    return selected, "multiple" if len(selected) > 1 else "single_mark", "core-dominance" if weak else "clear-ink"
+    return (
+        selected,
+        "multiple" if len(selected) > 1 else "single_mark",
+        "core-dominance" if weak else "clear-ink",
+    )
 
 
 class RegistrationError(ValueError):
@@ -73,7 +95,11 @@ def decode(data: bytes) -> np.ndarray:
     return cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
 
-def cell_rect(question: int, choice: int) -> tuple[int, int, int, int]:
+def cell_rect(
+    question: int, choice: int, *, template_def: TemplateDefinition | None = None
+) -> tuple[int, int, int, int]:
+    if template_def is not None:
+        return cell_rect_for_template(template_def, question, choice)
     if not 1 <= question <= 60 or not 0 <= choice < 5:
         raise ValueError("Invalid cell")
     geometry = template()
@@ -84,9 +110,23 @@ def cell_rect(question: int, choice: int) -> tuple[int, int, int, int]:
     return xs[choice] + 4, ys[row] + 4, xs[choice + 1] - xs[choice] - 8, ys[row + 1] - ys[row] - 8
 
 
-def register(image: np.ndarray, *, refined: bool = False) -> tuple[np.ndarray, dict]:
+def register(
+    image: np.ndarray,
+    *,
+    template_def: TemplateDefinition | None = None,
+    refined: bool = False,
+    app_data_dir: Path | None = None,
+    reference_override: np.ndarray | None = None,
+) -> tuple[np.ndarray, dict]:
     started = perf_counter()
-    reference = reference_image()
+    if template_def is not None:
+        reference = get_reference_image(
+            template_def, app_data_dir=app_data_dir, reference_override=reference_override
+        )
+    elif reference_override is not None:
+        reference = reference_override
+    else:
+        reference = reference_image()
     if image.shape == reference.shape and np.array_equal(image, reference):
         return image.copy(), {
             "matrix": np.eye(3).tolist(),
@@ -100,72 +140,214 @@ def register(image: np.ndarray, *, refined: bool = False) -> tuple[np.ndarray, d
     kp1, desc1 = extractor.detectAndCompute(cv2.cvtColor(working, cv2.COLOR_BGR2GRAY), None)
     kp2, desc2 = extractor.detectAndCompute(cv2.cvtColor(reference, cv2.COLOR_BGR2GRAY), None)
     if desc1 is None or desc2 is None:
-        raise RegistrationError("หาตารางไม่พบ กรุณาตรวจภาพต้นฉบับ", diagnostics={"stage": "features", "seconds": round(perf_counter() - started, 6)})
-    matches = cv2.BFMatcher(cv2.NORM_L2 if refined else cv2.NORM_HAMMING).knnMatch(desc1, desc2, k=2)
+        raise RegistrationError(
+            "หาตารางไม่พบ กรุณาตรวจภาพต้นฉบับ",
+            diagnostics={"stage": "features", "seconds": round(perf_counter() - started, 6)},
+        )
+    matches = cv2.BFMatcher(cv2.NORM_L2 if refined else cv2.NORM_HAMMING).knnMatch(
+        desc1, desc2, k=2
+    )
     good = [
         pair[0] for pair in matches if len(pair) == 2 and pair[0].distance < 0.7 * pair[1].distance
     ]
     if len(good) < 24:
-        raise RegistrationError("จัดแนวภาพไม่ได้ กรุณาตรวจหรือถ่ายภาพใหม่", diagnostics={"stage": "matches", "good_matches": len(good), "seconds": round(perf_counter() - started, 6)})
+        raise RegistrationError(
+            "จัดแนวภาพไม่ได้ กรุณาตรวจหรือถ่ายภาพใหม่",
+            diagnostics={
+                "stage": "matches",
+                "good_matches": len(good),
+                "seconds": round(perf_counter() - started, 6),
+            },
+        )
     src = np.asarray([kp1[m.queryIdx].pt for m in good], dtype=np.float32)
     dst = np.asarray([kp2[m.trainIdx].pt for m in good], dtype=np.float32)
     matrix, mask = cv2.findHomography(src, dst, cv2.RANSAC, 2.5)
-    if matrix is None or mask is None or mask.sum() < 20 or mask.mean() < 0.45:
-        raise RegistrationError("ภาพไม่ตรงแบบหลัก หรือจัดแนวไม่ชัดเจน", diagnostics={"stage": "homography", "good_matches": len(good), "seconds": round(perf_counter() - started, 6)})
+
+    def _is_valid_homography(m: np.ndarray | None, k: np.ndarray | None) -> bool:
+        if m is None or k is None:
+            return False
+        inliers = int(k.sum())
+        ratio = float(k.mean())
+        if inliers < 20:
+            return False
+        if ratio >= 0.45:
+            return True
+        # For dense keypoint matching where paper background textures generate matches,
+        # high inlier counts (>50 or >100) are mathematically impossible by chance with RANSAC
+        if inliers >= 80 and ratio >= 0.35:
+            return True
+        if inliers >= 150 and ratio >= 0.30:
+            return True
+        return False
+
+    if not _is_valid_homography(matrix, mask):
+        if refined:
+            matrix_alt, mask_alt = cv2.findHomography(src, dst, cv2.RANSAC, 3.5)
+            if _is_valid_homography(matrix_alt, mask_alt):
+                matrix, mask = matrix_alt, mask_alt
+            else:
+                raise RegistrationError(
+                    "ภาพไม่ตรงแบบหลัก หรือจัดแนวไม่ชัดเจน",
+                    diagnostics={
+                        "stage": "homography",
+                        "good_matches": len(good),
+                        "seconds": round(perf_counter() - started, 6),
+                    },
+                )
+        else:
+            raise RegistrationError(
+                "ภาพไม่ตรงแบบหลัก หรือจัดแนวไม่ชัดเจน",
+                diagnostics={
+                    "stage": "homography",
+                    "good_matches": len(good),
+                    "seconds": round(perf_counter() - started, 6),
+                },
+            )
     inlier_points = dst[mask.ravel().astype(bool)]
     span = np.ptp(inlier_points, axis=0)
-    if span[0] < 500 or span[1] < (300 if refined else 400):
-        raise RegistrationError("พบตารางไม่ครบทั้งหน้า", diagnostics={"stage": "coverage", "anchor_span": [float(span[0]), float(span[1])], "seconds": round(perf_counter() - started, 6)})
+    min_span_x = 500 if template_def is None else int(reference.shape[1] * 0.45)
+    min_span_y = (
+        (300 if refined else 400)
+        if template_def is None
+        else int(reference.shape[0] * (0.25 if refined else 0.35))
+    )
+    if span[0] < min_span_x or span[1] < min_span_y:
+        raise RegistrationError(
+            "พบตารางไม่ครบทั้งหน้า",
+            diagnostics={
+                "stage": "coverage",
+                "anchor_span": [float(span[0]), float(span[1])],
+                "seconds": round(perf_counter() - started, 6),
+            },
+        )
     matrix = matrix @ np.diag([scale, scale, 1.0])
     aligned = cv2.warpPerspective(
         image, matrix, (reference.shape[1], reference.shape[0]), borderValue=(255, 255, 255)
     )
-    # Refine against printed green geometry, excluding neutral handwriting.
-    def form_signal(pixels):
-        values = pixels.astype(np.float32)
-        green = values[:, :, 1] - (values[:, :, 0] + values[:, :, 2]) / 2
-        return cv2.GaussianBlur(green, (5, 5), 0)
+
+    theme = (
+        template_def.registration_config.get("color_theme", "green") if template_def else "green"
+    )
+    if theme == "green":
+
+        def form_signal(pixels):
+            values = pixels.astype(np.float32)
+            green = values[:, :, 1] - (values[:, :, 0] + values[:, :, 2]) / 2
+            return cv2.GaussianBlur(green, (5, 5), 0)
+    else:
+
+        def form_signal(pixels):
+            gray_sig = cv2.cvtColor(pixels, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            return cv2.GaussianBlur(gray_sig, (5, 5), 0)
+
     try:
         if not refined:
             raise cv2.error("refinement not requested")
-        _, correction = cv2.findTransformECC(form_signal(reference), form_signal(aligned),
-                                             np.eye(3, dtype=np.float32), cv2.MOTION_HOMOGRAPHY,
-                                             (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 60, 1e-5))
-        corners = np.array([[[30., 180.], [814., 180.], [814., 714.], [30., 714.]]], np.float32)
-        if np.max(np.linalg.norm(cv2.perspectiveTransform(corners, correction) - corners, axis=2)) < 25:
+        _, correction = cv2.findTransformECC(
+            form_signal(reference),
+            form_signal(aligned),
+            np.eye(3, dtype=np.float32),
+            cv2.MOTION_HOMOGRAPHY,
+            (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 60, 1e-5),
+        )
+        corners = np.array(
+            [
+                [
+                    [30.0, 180.0],
+                    [float(reference.shape[1] - 30), 180.0],
+                    [float(reference.shape[1] - 30), float(reference.shape[0] - 100)],
+                    [30.0, float(reference.shape[0] - 100)],
+                ]
+            ],
+            np.float32,
+        )
+        if (
+            np.max(np.linalg.norm(cv2.perspectiveTransform(corners, correction) - corners, axis=2))
+            < 25
+        ):
             matrix = np.linalg.inv(correction) @ matrix
-            aligned = cv2.warpPerspective(image, matrix, (reference.shape[1], reference.shape[0]), borderValue=(255, 255, 255))
+            aligned = cv2.warpPerspective(
+                image, matrix, (reference.shape[1], reference.shape[0]), borderValue=(255, 255, 255)
+            )
     except cv2.error:
         pass
+
     coverage = cv2.warpPerspective(
         np.ones(image.shape[:2], np.uint8), matrix, (reference.shape[1], reference.shape[0])
     )
-    if coverage[227:714, 56:814].mean() < 0.995:
-        raise RegistrationError("ภาพตัดตารางคำตอบไม่ครบ", diagnostics={"stage": "coverage", "coverage": float(coverage[227:714, 56:814].mean()), "seconds": round(perf_counter() - started, 6)})
+    if template_def is None:
+        table_cov = float(coverage[227:714, 56:814].mean())
+    else:
+        ymin = min(b.row_boundaries[0] for b in template_def.answer_blocks)
+        ymax = max(b.row_boundaries[-1] for b in template_def.answer_blocks)
+        xmin = min(b.col_boundaries[0] for b in template_def.answer_blocks)
+        xmax = max(b.col_boundaries[-1] for b in template_def.answer_blocks)
+        table_cov = float(coverage[ymin:ymax, xmin:xmax].mean())
+
+    if table_cov < 0.995:
+        raise RegistrationError(
+            "ภาพตัดตารางคำตอบไม่ครบ",
+            diagnostics={
+                "stage": "coverage",
+                "coverage": table_cov,
+                "seconds": round(perf_counter() - started, 6),
+            },
+        )
     return aligned, {
         "matrix": matrix.tolist(),
         "inliers": int(mask.sum()),
-        "method": "sift-ransac-green-ecc-v2" if refined else "orb-ransac-draft-v1",
+        "method": "sift-ransac-ecc-v2" if refined else "orb-ransac-draft-v1",
         "good_matches": len(good),
         "inlier_ratio": round(float(mask.mean()), 6),
-        "table_coverage": float(coverage[227:714, 56:814].mean()),
+        "table_coverage": table_cov,
         "seconds": round(perf_counter() - started, 6),
     }
 
 
-def analyze(data: bytes, *, refined: bool = False) -> dict:
+def analyze(
+    data: bytes,
+    *,
+    template_def: TemplateDefinition | None = None,
+    refined: bool = False,
+    app_data_dir: Path | None = None,
+    reference_override: np.ndarray | None = None,
+) -> dict:
     decode_started = perf_counter()
     decoded = decode(data)
     decode_seconds = perf_counter() - decode_started
     registration_started = perf_counter()
     try:
-        aligned, registration = register(decoded, refined=refined)
+        aligned, registration = register(
+            decoded,
+            template_def=template_def,
+            refined=refined,
+            app_data_dir=app_data_dir,
+            reference_override=reference_override,
+        )
     except RegistrationError:
         if refined:
             raise
-        return analyze(data, refined=True)
+        return analyze(
+            data,
+            template_def=template_def,
+            refined=True,
+            app_data_dir=app_data_dir,
+            reference_override=reference_override,
+        )
     registration_seconds = perf_counter() - registration_started
-    reference = cv2.cvtColor(reference_image(), cv2.COLOR_BGR2GRAY).astype(np.float32)
+
+    effective_template = (
+        template_def if template_def is not None else default_1_template_definition()
+    )
+    if template_def is not None:
+        ref_img = get_reference_image(
+            template_def, app_data_dir=app_data_dir, reference_override=reference_override
+        )
+    elif reference_override is not None:
+        ref_img = reference_override
+    else:
+        ref_img = reference_image()
+    reference = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY).astype(np.float32)
     gray = cv2.cvtColor(aligned, cv2.COLOR_BGR2GRAY).astype(np.float32)
     # Raw pixel subtraction is invalid for photographs with exposure/illumination
     # differences. Local darkness is a conservative mark feature that suppresses
@@ -176,45 +358,88 @@ def analyze(data: bytes, *, refined: bool = False) -> dict:
         darkness = darkness * 180 / np.maximum(local_background, 30)
     omr_started = perf_counter()
     answers = []
-    for question in range(1, 61):
+
+    q_to_block: dict[int, AnswerBlock] = {}
+    for block in effective_template.answer_blocks:
+        for q in range(block.question_start, block.question_end + 1):
+            q_to_block[q] = block
+
+    total_q = effective_template.question_count
+    for question in range(1, total_q + 1):
+        block = q_to_block[question]
+        choice_count = block.choice_count
         densities = []
         cores = []
-        for choice in range(5):
-            x, y, w, h = cell_rect(question, choice)
+        for choice in range(choice_count):
+            x, y, w, h = cell_rect(question, choice, template_def=effective_template)
             ink = darkness[y : y + h, x : x + w] > (16 if refined else INK_DARKNESS_THRESHOLD)
-            cores.append(float(ink[h // 4:3 * h // 4, w // 4:3 * w // 4].mean()))
-            densities.append(
-                float(
-                    ink.mean()
-                )
-            )
+            cores.append(float(ink[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4].mean()))
+            densities.append(float(ink.mean()))
         selected, classification, reason = classify_ink(densities, cores)
         winner = int(np.argmax(densities))
-        rivals = [i for i in range(5) if i != winner]
-        if refined and classification == "uncertain" and densities[winner] >= .045 and cores[winner] >= .08:
-            if all(densities[i] < densities[winner] * .38 and cores[i] < .08 for i in rivals):
-                selected, classification, reason = [CHOICES[winner]], "single_mark", "relative-contrast-dominance"
-        if refined and not selected and max(densities) >= .025:
-            x, y, w, h = cell_rect(question, winner)
-            faint = darkness[y:y+h, x:x+w] > 12
-            if faint.mean() >= .05 and faint[h//4:3*h//4, w//4:3*w//4].mean() >= .07 and all(densities[i] < .01 for i in rivals):
-                selected, classification, reason = [CHOICES[winner]], "single_mark", "coherent-faint-ink"
-        if refined and classification in {"uncertain", "multiple"} and max(cores) < .08:
-            geometry = template()
-            xs = geometry["groups"][(question - 1) // 15]
-            y1, y2 = geometry["rows"][(question - 1) % 15:(question - 1) % 15 + 2]
-            strip = aligned[y1+3:y2-3, xs[0]:xs[-1]].astype(np.float32)
-            green = strip[:, :, 1] - (strip[:, :, 0] + strip[:, :, 2]) / 2
-            mask = ((darkness[y1+3:y2-3, xs[0]:xs[-1]] > 16) & (green < 10)).astype(np.uint8)
+        rivals = [i for i in range(choice_count) if i != winner]
+        if (
+            refined
+            and classification == "uncertain"
+            and densities[winner] >= 0.045
+            and cores[winner] >= 0.08
+        ):
+            if all(densities[i] < densities[winner] * 0.38 and cores[i] < 0.08 for i in rivals):
+                selected, classification, reason = (
+                    [CHOICES[winner]],
+                    "single_mark",
+                    "relative-contrast-dominance",
+                )
+        if refined and not selected and max(densities) >= 0.025:
+            x, y, w, h = cell_rect(question, winner, template_def=effective_template)
+            faint = darkness[y : y + h, x : x + w] > 12
+            if (
+                faint.mean() >= 0.05
+                and faint[h // 4 : 3 * h // 4, w // 4 : 3 * w // 4].mean() >= 0.07
+                and all(densities[i] < 0.01 for i in rivals)
+            ):
+                selected, classification, reason = (
+                    [CHOICES[winner]],
+                    "single_mark",
+                    "coherent-faint-ink",
+                )
+        if refined and classification in {"uncertain", "multiple"} and max(cores) < 0.08:
+            xs = block.col_boundaries
+            row_idx = question - block.question_start
+            y1 = block.row_boundaries[row_idx]
+            y2 = block.row_boundaries[row_idx + 1]
+            strip = aligned[y1 + 3 : y2 - 3, xs[0] : xs[-1]].astype(np.float32)
+            theme = effective_template.registration_config.get("color_theme", "green")
+            if theme == "green":
+                green = strip[:, :, 1] - (strip[:, :, 0] + strip[:, :, 2]) / 2
+                mask = ((darkness[y1 + 3 : y2 - 3, xs[0] : xs[-1]] > 16) & (green < 10)).astype(
+                    np.uint8
+                )
+            else:
+                mask = (darkness[y1 + 3 : y2 - 3, xs[0] : xs[-1]] > 16).astype(np.uint8)
             _, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
             if len(stats) > 1:
                 component = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
                 area = int(stats[component, cv2.CC_STAT_AREA])
-                mass = [int((labels[:, xs[c]-xs[0]:xs[c+1]-xs[0]] == component).sum()) for c in range(5)]
-                other_area = max((int(s[cv2.CC_STAT_AREA]) for i, s in enumerate(stats[1:], 1) if i != component), default=0)
-                if area > 100 and other_area < area * .3 and np.count_nonzero(mass) > 1:
-                    if max(mass) / area >= .6:
-                        selected, classification, reason = [CHOICES[int(np.argmax(mass))]], "single_mark", "connected-mark-majority"
+                mass = [
+                    int((labels[:, xs[c] - xs[0] : xs[c + 1] - xs[0]] == component).sum())
+                    for c in range(choice_count)
+                ]
+                other_area = max(
+                    (
+                        int(s[cv2.CC_STAT_AREA])
+                        for i, s in enumerate(stats[1:], 1)
+                        if i != component
+                    ),
+                    default=0,
+                )
+                if area > 100 and other_area < area * 0.3 and np.count_nonzero(mass) > 1:
+                    if max(mass) / area >= 0.6:
+                        selected, classification, reason = (
+                            [CHOICES[int(np.argmax(mass))]],
+                            "single_mark",
+                            "connected-mark-majority",
+                        )
                     else:
                         # A single connected stroke that genuinely spans two
                         # cells is a resolved invalid answer. It earns zero,
@@ -247,13 +472,22 @@ def analyze(data: bytes, *, refined: bool = False) -> dict:
     omr_seconds = perf_counter() - omr_started
     if not refined and any(a["classification"] == "uncertain" for a in answers):
         try:
-            rescued = analyze(data, refined=True)
-            if sum(a["classification"] == "uncertain" for a in rescued["answers"]) < sum(a["classification"] == "uncertain" for a in answers):
+            rescued = analyze(
+                data,
+                template_def=template_def,
+                refined=True,
+                app_data_dir=app_data_dir,
+                reference_override=reference_override,
+            )
+            if sum(a["classification"] == "uncertain" for a in rescued["answers"]) < sum(
+                a["classification"] == "uncertain" for a in answers
+            ):
                 return rescued
         except RegistrationError:
             pass  # Retain the valid conservative observation if rescue fails.
+    out_template_id = template()["id"] if template_def is None else template_def.template_id
     return {
-        "template_id": template()["id"],
+        "template_id": out_template_id,
         "pipeline_version": OMR_PIPELINE_VERSION,
         "registration": registration,
         "answers": answers,

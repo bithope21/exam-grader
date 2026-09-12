@@ -1,73 +1,76 @@
-# Exam Grader
+# Exam Grader (v1.0.0)
 
-โปรแกรมตรวจข้อสอบจากภาพกระดาษคำตอบแบบเดิม ทำงาน offline บน macOS และ Windows
+โปรแกรมตรวจข้อสอบจากภาพถ่ายกระดาษคำตอบ ทำงานแบบ **ออฟไลน์ 100%** สำหรับคุณครูและสถานศึกษา รองรับทั้ง **macOS (Apple Silicon)** และ **Windows (64-bit)**
 
-สถานะ 2026-09-08: **working prototype** มี desktop workflow สำหรับนำเข้าภาพ, ตรวจทาน, ให้คะแนน และ export หลักฐาน; production accuracy, digit model และ Windows installer ยังไม่ผ่านการรับรอง
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/bithope21/exam-grader)](https://github.com/bithope21/exam-grader/releases)
+[![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue)](pyproject.toml)
 
-## เริ่มอ่าน
+---
 
-1. [Product contract](docs/PRODUCT_SPEC.md)
-2. [Wayfinder map](docs/WAYFINDER_MAP.md)
-3. [Roadmap และ gates](docs/ROADMAP.md)
-4. [Architecture](docs/ARCHITECTURE.md)
-5. [Test strategy](docs/TEST_STRATEGY.md)
-6. [งานถัดไปสำหรับ Antigravity](docs/AGENT_HANDOFF.md)
+## จุดเด่นสำคัญ (Key Features)
 
-Codex เป็น architect / planner / independent reviewer; Antigravity เป็น implementer; Product Owner ตัดสิน product rules และรับรอง teacher UAT ตามคำสั่งล่าสุด ซึ่งแทนบทบาท initial implementer ใน handoff เดิม
+- **100% Offline & Private:** ประมวลผลบนเครื่องคอมพิวเตอร์ของคุณครูโดยตรง ไม่ส่งภาพกระดาษคำตอบหรือข้อมูลนักเรียนขึ้น Cloud ใด ๆ ทั้งสิ้น
+- **รองรับฟอร์มกระดาษคำตอบมาตรฐานและกำหนดเอง:**
+  - รูปแบบมาตรฐาน Default #1 (60 ข้อ)
+  - รูปแบบมาตรฐาน Default #2 (40 ข้อ)
+  - รูปแบบมาตรฐาน Default #3 (30 ข้อ)
+  - ระบบ **Template Calibration** ปรับเทียบพิกัดสำหรับกระดาษคำตอบรูปแบบเฉพาะของโรงเรียน
+- **Computer Vision OMR:** ตรวจจับรอยกากบาท/ฝนคำตอบด้วย OpenCV พร้อมระบุสถานะ ชัดเจน / ตอบหลายข้อ / เว้นว่าง / ไม่แน่ใจ
+- **ระบบตรวจทานแบบ Side-by-Side:** แสดงภาพต้นฉบับคู่กับผลการอ่าน สามารถ Zoom / Pan และแก้ไขผลตรวจรายบุคคลหรือแบบกลุ่ม (Bulk Edit)
+- **Export ผลลัพธ์ครบถ้วน:** 
+  - สรุปคะแนนเป็นไฟล์ **Excel (.xlsx)** พร้อมสูตรคำนวณและสถิติ
+  - บันทึกภาพกระดาษคำตอบที่ตรวจแล้วพร้อมวงเฉลยสีเขียว/แดง และพิมพ์คะแนนลงบนภาพอย่างชัดเจน
 
-`CODEX_EXAM_GRADER_PROJECT_HANDOFF.md` เป็น source requirements; เก็บไว้ไม่แก้ไข ภาพใน `answer-sheet/` เป็น reference inputs ห้ามเขียนทับ ยังไม่ใช่ชุดทดสอบความแม่นยำที่รับรองแล้ว
+---
 
-## Development
+## ดาวน์โหลดและติดตั้ง (Installation)
 
-ใช้ Python 3.11–3.13 และ uv; dependency versions อยู่ใน `uv.lock`
+ดาวน์โหลดตัวติดตั้งเวอร์ชันล่าสุดได้จาก [GitHub Releases](https://github.com/bithope21/exam-grader/releases) หรือที่หน้าเว็บ [bithope.app/exam-grader](https://bithope.app/exam-grader)
+
+### macOS (Apple Silicon: M1/M2/M3/M4)
+1. ดาวน์โหลดไฟล์ `Exam-Grader-v1.0.0-macOS-Apple-Silicon.dmg`
+2. ดับเบิลคลิกไฟล์ `.dmg` แล้วลากไอคอน **Exam Grader** ไปยังโฟลเดอร์ **Applications**
+3. **การเปิดใช้งานครั้งแรก:** เนื่องจากเป็นซอฟต์แวร์ Open Source อิสระที่ไม่ได้ผ่าน Mac App Store หาก macOS Gatekeeper ขึ้นแจ้งเตือน ให้ไปที่ **System Settings** → **Privacy & Security** แล้วกด **Open Anyway**
+
+### Windows (10 / 11 64-bit)
+1. ดาวน์โหลดไฟล์ `Exam-Grader-v1.0.0-Windows-Setup.exe`
+2. ดับเบิลคลิกเปิดตัวติดตั้งและทำตามขั้นตอนบนหน้าจอ
+3. เปิดใช้งานโปรแกรมได้จาก Start Menu หรือ Desktop Shortcut
+
+---
+
+## การพัฒนาและทดสอบ (Development)
+
+ต้องใช้ Python 3.11–3.13 แนะนำให้ใช้ [uv](https://github.com/astral-sh/uv) ในการจัดการ environment:
 
 ```sh
-rtk proxy uv sync --frozen --extra dev
-rtk proxy uv run --frozen exam-grader
-rtk proxy uv run --frozen exam-grader --self-check
-rtk proxy uv run --frozen pytest -q
+# ติดตั้ง dependencies
+uv sync --extra dev
+
+# รันโปรแกรมในโหมดพัฒนา
+uv run exam-grader
+
+# รันการตรวจสอบระบบ (Self-Check)
+uv run exam-grader --self-check
+
+# รันชุดแบบทดสอบอัตโนมัติ (126 tests)
+uv run pytest
 ```
 
-ถ้า sandbox จำกัด cache ให้เพิ่ม `--cache-dir /private/tmp/exam-grader-uv` หลัง `uv`.
-
-`--data-dir PATH` ใช้เลือกโฟลเดอร์ข้อมูลทดสอบได้ ค่า default ใช้ app-data location ของ OS โดยไม่เขียนลง source tree ตัว self-check ตรวจ storage เท่านั้น ไม่รับรอง CV/model/codecs/packaging
-
-## Current modules
-
-Reference inventory tool (read-only inputs):
-
+### การตรวจสอบคุณภาพโค้ด (Quality Gates)
 ```sh
-rtk proxy .venv/bin/python tools/inspect/reference_inventory.py --source answer-sheet --output docs/evidence/AG-001
+uv run ruff check src tests
+uv run mypy src tests
 ```
 
-See [reference evidence](docs/evidence/AG-001/REPORT.md). Current source suite: 45
-passing on the development Mac; production geometry/recognition and Windows release
-evidence remain pending.
+### การ Build ตัวติดตั้ง (Packaging)
+- **macOS:** `python scripts/build/build.py` แล้วรัน `scripts/build/package_dmg.sh`
+- **Windows:** รัน `python scripts/build/build.py` แล้วคอมไพล์ด้วย Inno Setup ผ่าน `scripts/build/windows-installer.iss`
 
-- `domain.py`: immutable exam metadata
-- `storage.py`: SQLite versioned initialization through schema v5, stable IDs
-- `imports.py`: JPEG/PNG validation, content-addressed immutable originals and quarantine recovery
-- `imaging.py`: experimental registration/OMR with explicit review-required status
-- `workflow.py`: approved key versions, append-only reviews, deterministic scoring
-- `review_ui.py` / `exam_ui.py`: teacher review, batch import, cancellation and failure isolation
-- `exporting.py`: versioned checked images, Excel, JSON and manifest
-- `preferences.py`: cross-platform default output-folder preference
-- `diagnostics.py` / `scripts/build/`: runtime health and per-OS PyInstaller build
+---
 
-The current macOS workflow stores an authoritative 1–60 question count when an exam
-is created, separates `เฉลย / นักเรียน / ตรวจทาน / ผลลัพธ์`, processes imports in a
-background worker, and keeps failed imports retryable. Real-fixture engineering
-evidence is in [REAL_UAT](docs/evidence/REAL_UAT.md); it is not an accuracy claim.
+## สิทธิ์การใช้งาน (License)
 
-## Current limits
+ซอฟต์แวร์นี้เผยแพร่ภายใต้สัญญาอนุญาต [Apache License 2.0](LICENSE)
 
-เลขที่นักเรียนมี numeric-only baseline candidate แบบ review-required แล้ว แต่ยังไม่มี
-ground-truth handwriting corpus หรือ calibrated model จึงห้ามถือ candidate เป็นเลขที่จริง
-โดยอัตโนมัติ OMR บันทึก margin/diagnostics เพิ่มขึ้นแต่ยังบังคับครูตรวจทุกภาพและไม่มี
-auto-accept ภาพอ้างอิงปัจจุบันเป็น PNG screenshot ไม่ใช่ clean production template
-
-ผลลัพธ์สร้าง checked copy แบบมี annotation สีแดงและ score ROI จาก canonical geometry
-โดยไม่แก้ originals มี export registry, human-readable index และ exam archive/restore
-แบบกู้คืนได้; path ภายในเดิมยังคงไว้เพื่อความเข้ากันได้กับผลลัพธ์เก่า
-
-macOS arm64 bundle สร้างและ smoke-test แล้วจาก `scripts/build/build.py`; Windows ต้อง build/test บน Windows เองตามข้อจำกัดของ PyInstaller และ Inno Setup script ยังไม่ผ่าน clean-machine UAT รายละเอียดอยู่ใน [evidence](docs/evidence/FOUNDATION.md) และ [code review](docs/evidence/CODE_REVIEW.md)

@@ -18,6 +18,32 @@ Revisit: มี blocker พร้อม evidence และ Product Owner เป�
 
 ## Open
 
+## 2026-09-12 — Exam Grader Landing Page Architecture & Truthful Marketing Gate
+
+Decision: Build the Exam Grader product landing page at route `/exam-grader` within `bithope-web` (`/Users/zubinpijit/bithope/apps/bithope-web`) strictly isolated from shared business logic. Enforce a Truthful Marketing Gate: claim only real, verified capabilities (Offline 100%, Human Review, Bulk Edit, Custom Template, and Excel .xlsx + Checked image export); keep unverified features (PDF, CSV, Windows installer) as Beta/Coming Soon or omitted. Centralize all download/external links in `constants.ts`. Use transparent 2D assets and real app Qt screenshots.
+
+Why: User requested a dedicated landing page for Exam Grader in the bithope ecosystem with 2D assets, authentic app screenshots, and zero regression to existing routes. The user also required truthful marketing claims based on verified codebase inspection.
+
+Consequence:
+- Clean modular components in `src/app/exam-grader/components/`.
+- Assets in `public/exam-grader/` (`screenshots/`, `illustrations/`, `icons/`).
+- Central link wiring in `src/app/exam-grader/constants.ts`.
+- Ready for redesign in a fresh session.
+
+## 2026-09-11 — Review Multi-Select Checkbox Architecture and State Synchronization
+
+Decision: Replace table `cellClicked` callback toggle with a dedicated `CheckBoxDelegate(QStyledItemDelegate)` for Column 0 of `issue_table`. Provide single-source-of-truth selection tracking via stable issue keys (`self.selected_issue_keys: set[tuple]`).
+
+Why: The prior implementation suffered from a double-trigger race condition: clicking the checkbox indicator triggered Qt delegate toggle followed by `cellClicked` which inverted it back, making direct checkbox clicks fail or unchecking impossible. Moreover, selections were cleared unconditionally on table refresh.
+
+Implementation & Constraints:
+- `CheckBoxDelegate.editorEvent` captures Left-click release across the entire cell rectangle (52px wide) and Space keypress, updating `Qt.ItemDataRole.CheckStateRole` once and consuming the event (`return True`).
+- Mouse press on LeftButton is consumed to prevent rubber-band drag glitches.
+- Indicator is painted centered horizontally and vertically within the cell.
+- `selected_issue_keys` uses stable issue tuples independent of row indexing or sorting.
+- Preserves selection across `populate_issues()`, refreshes, and prunes keys upon bulk resolution.
+- 100% backward compatible with existing single-row review and bulk edit services.
+
 ## 2026-09-09 — Bounded teacher-friction polish
 
 Accepted key answers may be a single choice or a validated set such as `A,B`;
@@ -99,3 +125,95 @@ Consequence: old exports are not renamed or migrated; new runs are human-readabl
 collision-safe and revealable from the UI while immutable source/provenance records
 remain intact. Native macOS visual evidence and fresh packaged checks are recorded
 under `docs/evidence/polish/`.
+
+## 2026-09-10 — Custom Answer-Sheet Template and Calibration System
+
+Decision: Introduce a versioned, template-driven OMR architecture supporting multiple built-in layouts (Default #1: 60Q/5C/4×15, Default #2: 60Q/4C/3×20) and teacher-defined custom templates.
+
+Key Architectural Decisions:
+1. **Single Unified Pipeline**: Retain a single unified grading and OMR registration pipeline across all answer-sheet variants. Do not branch or fork grading logic per template.
+2. **Template-Driven Choice Count & Geometry**: Choice count (2–5) is an explicit property of the template. For 4-choice sheets (Default #2), only choices A–D are analyzed; the non-existent 5th choice is never read or synthesized. Cell insets (e.g. 6px for Default #2) are explicitly configured per template to prevent thick-border bleeding.
+3. **Canonical Internal Choices**: Paper-facing choice labels (e.g. ก, ข, ค, ง, จ or A, B, C, D, E) are strictly mapped to internal canonical choices `(A, B, C, D, E)`. Grading, scoring, and key logic only ever operate on canonical choices, keeping scoring logic independent of paper headers.
+4. **Schema Migration v12 → v13**: SQLite schema upgraded to v13 with automatic `.v12.bak` pre-migration backup. Adds `templates` table and binds `template_id` / `template_version` to `exams`. Existing exams are backfilled safely to `default-1` v1. Deletion of templates referenced by existing exams is blocked.
+5. **Content-Addressed Reference Storage**: Custom reference images are stored in app-data content-addressed file storage (`<app_data>/templates/references/<sha256>.png`) rather than SQLite BLOBs, preventing database bloat and simplifying migrations. Built-in templates are bundled within package resources.
+6. **Built-in Default #2 Calibration**: Calibrated using real fixtures (`default#2.JPG`), verified via visual inspection overlays (`docs/evidence/default2_full_overlay.png` and `docs/evidence/default2_checked_example.jpg`), and frozen into built-in assets (`template_default2.json`, `reference_default2.png`).
+7. **Customizable Annotation Colors**: Teacher preferences for checked export marks (correct, incorrect, uncertain, score) are persisted via `preferences.py` (QSettings) with instant live preview and reset-to-defaults capabilities.
+8. **Visible In-Window Settings & Calibration Entry Points**: On macOS, `QMenuBar` defaults to the screen-top system menu bar, making settings invisible to teachers looking at the app window. To eliminate friction, explicit in-window controls are provided:
+   - Header `⚙️ ตั้งค่า` button with dropdown popup in `MainWindow` (access to Template Manager, Annotation Colors, Output Directory, and Archives).
+   - Inline `⚙️ จัดการแม่แบบ…` button beside the template selector in `NewExamDialog` with automatic template reload upon dialog close.
+   - Cross-dialog navigation in `TemplateSettingsDialog` to open `AnnotationColorSettingsDialog`.
+   - Dedicated `🎨 สีรอยตรวจ…` action in `ExamDialog` results tab before exporting.
+
+## 2026-09-10 — Polish UI/UX, vol.5 Default #2 Registration Robustness & Fail-Closed Purge Safety
+
+Decision: Enhance registration robustness for dense-keypoint answer sheets (e.g. Default #2 pink paper vol.5), ensure fail-closed safety, make deletion semantics clear and complete, and eliminate UI friction across calibration, review, and export.
+
+Key Architectural Decisions:
+1. **Dense Inlier Registration & Fail-Closed Safety**:
+   - SIFT registration accepts dense inlier sets (`inliers >= 80 and ratio >= 0.35`, `inliers >= 150 and ratio >= 0.30`) with standard RANSAC 2.5 and fallback 3.5.
+   - Preserves 100% fail-closed safety: Cross-template attempts (Default #2 on Default #1, Default #1 on Default #2), truncated images, and random noise fail registration completely.
+2. **True Disk-Level Purge with Accurate UI Claims**:
+   - `ExamStorage.purge(exam_id)` transactionally purges all database entities and unlinks unshared source images from `<app_data>/input/originals/`.
+   - UI confirmation dialog avoids overclaiming: explicitly informs teachers that system records and internal images are permanently removed, while previously exported Excel directories remain untouched.
+3. **Dynamic Template Geometry in UI Previews**:
+   - Both `ReviewDialog` and `ExamDialog.populate_issues()` dynamically warp using `template_def.canonical_width` and `template_def.canonical_height`, correctly slicing thumbnails for all templates without clipping or empty artifacts.
+4. **Failed Sheet Friction Elimination**:
+   - Added direct dismiss/delete actions in the Student failure table, Issue table, and Review dialog, preventing teachers from getting trapped on corrupt/unreadable uploads.
+5. **Interactive Calibration Nudge Controls**:
+   - Added directional nudge controls (1px, 5px, 10px) to `CalibrationCanvas` and `CalibrationDialog` for fast manual adjustments, paired with actionable photography guidance.
+6. **Export Metadata Tracking**:
+   - Added dedicated `Info` sheet in `scores.xlsx` documenting exam metadata and active template name without altering the `Scores` tabular format.
+
+## 2026-09-11 — Built-in Default #3 Integration, Theme Design System & Iterative Visual QA
+
+Decision: Integrate Default #3 (สุทธิอนุสรณ์ 30 ข้อ 4 ตัวเลือก 3 ชุด) as an immutable built-in template, centralize appearance themes (Light/Dark/System), resolve Thai typography clipping, ensure honest fixture evaluation, and enforce an iterative generate-inspect-fix Visual QA loop.
+
+Key Architectural Decisions:
+1. **Immutable Built-in Default #3 (`default-3`)**:
+   - Packaged canonical warped reference image `resources/reference_default3.png` (1200 × 1720 px, SHA256: `3e60d1a3d85b5bd106bc305298253088234634ac1ff867be985f736d25a4ea6e`).
+   - Packaged `resources/template_default3.json` with kind `builtin`, 30 questions, 4 choices (`A`–`D` / `ก`–`ง`), 3 blocks × 10 rows.
+   - Built-in geometry frozen and verified against real fixture `tests/fixtures/default3/default#3.PNG` (`docs/evidence/default3_full_overlay.png`):
+     - Student Number ROI `(468, 440, 776, 515)` cleanly captures "เลขที่ ............." without text interference.
+     - Score ROI `(813, 224, 1076, 527)` snugly frames the "คะแนนรวม" score box.
+     - Cell grids across all 3 blocks align centered within printed cell boundaries.
+2. **Fixture Honesty (Zero Synthetic Claims)**:
+   - For Default #3, only the real reference sheet `tests/fixtures/default3/default#3.PNG` exists.
+   - Strictly deleted simulated photo fixtures (`photo.jpg`) and removed hypothetical `table_coverage >= 0.85` claims. Unit and UAT tests only claim what is backed by real physical fixtures.
+3. **Centralized Semantic Theme System (`preferences.py`)**:
+   - Unified `create_theme_palette` with full semantic `QPalette` color roles and comprehensive QSS design tokens for Light and Dark modes.
+   - Eliminated dark mode white rectangular view flashes, popup white-on-white text, and unstyled list widgets.
+4. **Thai Typography & Adaptive Layout Containment**:
+   - Enforced minimum item heights (58px on home list, 52px on student rows) preventing upper/lower Thai vowel and tone mark clipping.
+   - Simplified Template Manager table to 2 columns (`ชื่อแม่แบบ`, `ชนิด`) without horizontal scrollbars.
+   - Bounded Calibration Dialog within `screen.availableGeometry()`, placed parameter controls in vertical `QScrollArea`, and pinned the action bar permanently at the bottom.
+5. **Iterative Visual QA Loop**:
+   - Automated generation of 10 screenshots across all 5 core UI flows in Light and Dark modes (`docs/evidence/visual_qa/`).
+   - Inspected each screenshot visually using `view_file`. Diagnosed and fixed horizontal squeezing of toolbar buttons and parameter cards, re-captured, and verified zero visual clipping or contrast defects.
+
+## 2026-09-11 — Review Bulk Edit, Student Number Recognition & Custom Template Overlay
+
+1. **Transaction-Safe Review Bulk Edit (`review_service.py`, `exam_ui.py`)**:
+   - Added `bulk_resolve(exam_id, operations)` executing in an explicit single SQLite transaction with rollbacks on failure.
+   - Preserves unselected rows untouched, allowing teachers to quickly resolve repeated blank or common answers without tedious one-by-one row edits.
+   - Automatically re-evaluates student completeness and finalizes ready sheets upon bulk apply.
+2. **Evidence-First Student Number Identification & Fail-Closed Boundaries (`identity.py`, `review_service.py`)**:
+   - Recognizer confidence and score margins are the primary basis for student number adoption.
+   - Missing numbers in a roster/range serve strictly as tie-breakers for ambiguous multi-candidate sheets, never as an inference generator for unrecognized sheets.
+   - Ambiguous sheets or collisions fail closed into Review with distinct status classifications (`duplicate`, `missing`, `uncertain`, `out_of_range`).
+3. **Strict Template Geometry Invariant in Export Overlays (`exporting.py`)**:
+   - Fixed custom template resolution in `export_results` by resolving the actual exam template via `load_exam_template_def(database, exam_id)`.
+   - Maintained invariant: `detected cell == rendered overlay cell`. Exported checked images strictly match the template canonical dimensions and cell coordinates without falling back to default forms.
+
+## 2026-09-12 — Landing Page Redesign & Editorial Art Direction (bithope-web)
+
+1. **Minimal Editorial Illustration ("วาดน้อย แต่จำได้")**:
+   - Converted all illustration assets in `public/exam-grader/illustrations/` to minimal colored-pencil / crayon editorial style (naive proportions, loose pencil outlines, visible grain, 3–5 colors: forest green, orange, cream, charcoal, muted blue).
+   - Hero: Single friendly teacher grading answer sheet with orange pencil (removed all floating props, clutter, and classroom scenery).
+   - Workflow: Exactly one visual metaphor per step (Blank paper + pencil, Answer sheet + checkmark, 3 Papers, Offline laptop + cloud-cross, Review magnifier, Spreadsheet + score sheet).
+2. **Truthful Marketing & Zero-Noise Simplification**:
+   - Removed all references to "Beta", "Trial", and pricing across `/exam-grader`. Standardized on "ฟรี 100%" and "ดาวน์โหลดฟรี".
+   - macOS download truthfully wired to `v1.0.0 (Apple Silicon)` with clear "Open Anyway" Gatekeeper instructions. Windows labeled "เร็ว ๆ นี้ (Coming Soon)".
+   - Eliminated green header pill tags across all sections and stripped `กระบวนการมาตรฐาน` tags and category chips from workflow cards.
+3. **Interactive PySide6 App Evidence & Responsive Containment**:
+   - Interactive modal on all 6 workflow cards showing authentic native desktop PySide6 app screenshots.
+   - Added `export const viewport: Viewport` in Next.js page and responsive Thai typography wrapping (`[word-break:break-word]`), ensuring 100% clean rendering on 320px, 375px, 768px, and 1280px viewports.

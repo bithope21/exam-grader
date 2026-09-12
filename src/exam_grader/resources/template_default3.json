@@ -1,0 +1,143 @@
+{
+  "template_id": "default-3",
+  "name": "Default #3 — 30 ข้อ · 4 ตัวเลือก · 3 ชุด (ก-ง)",
+  "kind": "builtin",
+  "version": 1,
+  "canonical_width": 1200,
+  "canonical_height": 1720,
+  "choice_count": 4,
+  "choice_labels": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "display_choice_labels": [
+    "ก",
+    "ข",
+    "ค",
+    "ง"
+  ],
+  "choice_map": {
+    "A": "A",
+    "a": "A",
+    "ก": "A",
+    "1": "A",
+    "B": "B",
+    "b": "B",
+    "ข": "B",
+    "2": "B",
+    "C": "C",
+    "c": "C",
+    "ค": "C",
+    "3": "C",
+    "D": "D",
+    "d": "D",
+    "ง": "D",
+    "4": "D"
+  },
+  "question_count": 30,
+  "answer_blocks": [
+    {
+      "block_index": 0,
+      "question_start": 1,
+      "question_end": 10,
+      "rows": 10,
+      "choice_count": 4,
+      "col_boundaries": [
+        188,
+        250,
+        312,
+        378,
+        442
+      ],
+      "row_boundaries": [
+        608,
+        686,
+        765,
+        841,
+        919,
+        999,
+        1079,
+        1159,
+        1239,
+        1319,
+        1401
+      ]
+    },
+    {
+      "block_index": 1,
+      "question_start": 11,
+      "question_end": 20,
+      "rows": 10,
+      "choice_count": 4,
+      "col_boundaries": [
+        504,
+        567,
+        628,
+        692,
+        753
+      ],
+      "row_boundaries": [
+        608,
+        686,
+        765,
+        841,
+        919,
+        999,
+        1079,
+        1159,
+        1239,
+        1319,
+        1401
+      ]
+    },
+    {
+      "block_index": 2,
+      "question_start": 21,
+      "question_end": 30,
+      "rows": 10,
+      "choice_count": 4,
+      "col_boundaries": [
+        815,
+        882,
+        946,
+        1012,
+        1078
+      ],
+      "row_boundaries": [
+        608,
+        686,
+        765,
+        841,
+        919,
+        999,
+        1079,
+        1159,
+        1239,
+        1319,
+        1401
+      ]
+    }
+  ],
+  "student_number_roi": [
+    468,
+    440,
+    776,
+    515
+  ],
+  "score_roi": [
+    813,
+    224,
+    1076,
+    527
+  ],
+  "reference_sha256": "3e60d1a3d85b5bd106bc305298253088234634ac1ff867be985f736d25a4ea6e",
+  "cell_inset": 6,
+  "registration_config": {
+    "color_theme": "monochrome_blue",
+    "feature_scale": 1.0
+  },
+  "created_at": "",
+  "updated_at": ""
+}

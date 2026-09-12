@@ -13,7 +13,13 @@ from exam_grader.imports import ImportService
 from exam_grader.review_service import ReviewService
 
 
-@pytest.mark.parametrize("volume,truth_file", [(1, "docs/evidence/automation/teacher-run.json"), (2, "docs/evidence/vol2/teacher-results.json")])
+@pytest.mark.parametrize(
+    "volume,truth_file",
+    [
+        (1, "docs/evidence/automation/teacher-run.json"),
+        (2, "docs/evidence/vol2/teacher-results.json"),
+    ],
+)
 def test_real_volume_has_no_wrong_automatic_decisions(volume, truth_file):
     truth = json.loads(Path(truth_file).read_text())
     root = Path(f"tests/fixtures/real/vol.{volume}")
@@ -22,7 +28,11 @@ def test_real_volume_has_no_wrong_automatic_decisions(volume, truth_file):
         assert hashlib.sha256(data).hexdigest() == expected["source"]["sha256"]
         result = analyze(data)
         answers = ReviewService.machine_answers(result, len(expected["answers"]))
-        unresolved = [i + 1 for i, (actual, target) in enumerate(zip(answers, expected["answers"])) if actual != target]
+        unresolved = [
+            i + 1
+            for i, (actual, target) in enumerate(zip(answers, expected["answers"]))
+            if actual != target
+        ]
         if expected["source"]["original_name"] == "IMG_0805.jpg":
             # The supplied teacher label is historical evidence only.  The
             # current PO rule resolves a mark spanning two cells as an
@@ -45,7 +55,13 @@ def test_real_volume_has_no_wrong_automatic_decisions(volume, truth_file):
 
 def test_vol2_number_roi_recovers_clipped_digits_without_guessing_ten():
     root = Path("tests/fixtures/real/vol.2")
-    for name, expected in (("IMG_0803.jpg", "1"), ("IMG_0804.jpg", "14"), ("IMG_0805.jpg", "17"), ("IMG_0806.jpg", "24"), ("IMG_0807.jpg", None)):
+    for name, expected in (
+        ("IMG_0803.jpg", "1"),
+        ("IMG_0804.jpg", "14"),
+        ("IMG_0805.jpg", "17"),
+        ("IMG_0806.jpg", "24"),
+        ("IMG_0807.jpg", None),
+    ):
         data = (root / name).read_bytes()
         detection = analyze(data)
         result = observe(data, detection["registration"]["matrix"])

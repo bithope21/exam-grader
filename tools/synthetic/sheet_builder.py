@@ -21,6 +21,7 @@ _app = QApplication.instance() or QApplication([])
 CHOICES = ["A", "B", "C", "D", "E"]
 THAI_CHOICES = ["ก", "ข", "ค", "ง", "จ"]
 
+
 def _canonical_geometry() -> dict:
     path = Path(__file__).parents[2] / "src" / "exam_grader" / "resources" / "template.json"
     return json.loads(path.read_text(encoding="utf-8"))
@@ -80,9 +81,21 @@ def render_blank_sheet(header_title: str = "กระดาษคำตอบ") 
     font_info = QFont("Thonburi", 9)
     p.setFont(font_info)
 
-    p.drawText(15, 85, "โรงเรียน ................................................................ ปีการศึกษา ..........")
-    p.drawText(15, 115, "ชื่อ ..................................................................................... ชั้น .......... เลขที่ ..........")
-    p.drawText(15, 145, "วิชา .................................................................................... วันที่ ..... เดือน .......... พ.ศ. .....")
+    p.drawText(
+        15,
+        85,
+        "โรงเรียน ................................................................ ปีการศึกษา ..........",
+    )
+    p.drawText(
+        15,
+        115,
+        "ชื่อ ..................................................................................... ชั้น .......... เลขที่ ..........",
+    )
+    p.drawText(
+        15,
+        145,
+        "วิชา .................................................................................... วันที่ ..... เดือน .......... พ.ศ. .....",
+    )
 
     # Draw answer grid (4 columns)
     grid_pen = QPen(QColor(45, 139, 85), 1.5)
@@ -113,7 +126,9 @@ def render_blank_sheet(header_title: str = "กระดาษคำตอบ") 
         font_hdr = QFont("Thonburi", 8, QFont.Weight.Bold)
         p.setFont(font_hdr)
         p.setPen(QColor(30, 90, 50))
-        p.drawText(QRect(x_q_start, y_start, 25, ROWS[1] - y_start), Qt.AlignmentFlag.AlignCenter, "ข้อ")
+        p.drawText(
+            QRect(x_q_start, y_start, 25, ROWS[1] - y_start), Qt.AlignmentFlag.AlignCenter, "ข้อ"
+        )
 
         for c_idx in range(5):
             box = QRect(g_xs[c_idx], y_start, g_xs[c_idx + 1] - g_xs[c_idx], ROWS[1] - y_start)
@@ -181,8 +196,22 @@ def draw_mark(
         thickness = int(rng.integers(2, 4))
         w = (x2 - x1) // 2 - 4
         h = (y2 - y1) // 2 - 4
-        cv2.line(image, (cx - w + dx, cy - h + dy), (cx + w + dx, cy + h + dy), ink_color, thickness, cv2.LINE_AA)
-        cv2.line(image, (cx + w + dx, cy - h + dy), (cx - w + dx, cy + h + dy), ink_color, thickness, cv2.LINE_AA)
+        cv2.line(
+            image,
+            (cx - w + dx, cy - h + dy),
+            (cx + w + dx, cy + h + dy),
+            ink_color,
+            thickness,
+            cv2.LINE_AA,
+        )
+        cv2.line(
+            image,
+            (cx + w + dx, cy - h + dy),
+            (cx - w + dx, cy + h + dy),
+            ink_color,
+            thickness,
+            cv2.LINE_AA,
+        )
 
     elif mark_type == "faint_mark":
         faint_color = (160, 160, 165)
@@ -206,8 +235,22 @@ def draw_mark(
         thickness = 2
         w = (x2 - x1) // 2 - 4
         h = (y2 - y1) // 2 - 4
-        cv2.line(image, (cx - w + dx, cy - h + dy), (cx + w + dx, cy + h + dy), ink_color, thickness, cv2.LINE_AA)
-        cv2.line(image, (cx + w + dx, cy - h + dy), (cx - w + dx, cy + h + dy), ink_color, thickness, cv2.LINE_AA)
+        cv2.line(
+            image,
+            (cx - w + dx, cy - h + dy),
+            (cx + w + dx, cy + h + dy),
+            ink_color,
+            thickness,
+            cv2.LINE_AA,
+        )
+        cv2.line(
+            image,
+            (cx + w + dx, cy - h + dy),
+            (cx - w + dx, cy + h + dy),
+            ink_color,
+            thickness,
+            cv2.LINE_AA,
+        )
 
     elif mark_type == "check_mark":
         thickness = 2
@@ -265,3 +308,72 @@ def draw_student_number(
     thickness = 2
     color = (20, 20, 40)
     cv2.putText(image, student_no, (x1 + 4, y2 - 6), font, scale, color, thickness, cv2.LINE_AA)
+
+
+def render_blank_sheet_default2() -> np.ndarray:
+    """Returns a clean base image for Default #2 (60Q/4C/3x20)."""
+    from exam_grader.template_manager import get_reference_image, load_builtin_template
+
+    t2 = load_builtin_template("default-2")
+    return get_reference_image(t2).copy()
+
+
+def get_cell_bounds_default2(
+    question_1_based: int, choice_index_0_based: int
+) -> tuple[int, int, int, int]:
+    """Returns (x_min, y_min, x_max, y_max) for Default #2."""
+    from exam_grader.template_manager import cell_box_rect_for_template, load_builtin_template
+
+    t2 = load_builtin_template("default-2")
+    x, y, w, h = cell_box_rect_for_template(t2, question_1_based, choice_index_0_based)
+    return x, y, x + w, y + h
+
+
+def draw_mark_default2(
+    image: np.ndarray,
+    question: int,
+    choice_index: int,
+    mark_type: str = "x_mark",
+    ink_color: tuple[int, int, int] = (20, 20, 25),
+    rng: np.random.Generator | None = None,
+) -> None:
+    """Draws an answer mark on a Default #2 sheet."""
+    if rng is None:
+        rng = np.random.default_rng(42)
+    x1, y1, x2, y2 = get_cell_bounds_default2(question, choice_index)
+    cx = (x1 + x2) // 2
+    cy = (y1 + y2) // 2
+    if mark_type == "x_mark":
+        thickness = 3
+        pad_x = (x2 - x1) // 4
+        pad_y = (y2 - y1) // 4
+        cv2.line(
+            image,
+            (x1 + pad_x, y1 + pad_y),
+            (x2 - pad_x, y2 - pad_y),
+            ink_color,
+            thickness,
+            cv2.LINE_AA,
+        )
+        cv2.line(
+            image,
+            (x1 + pad_x, y2 - pad_y),
+            (x2 - pad_x, y1 + pad_y),
+            ink_color,
+            thickness,
+            cv2.LINE_AA,
+        )
+    elif mark_type == "solid_bubble":
+        r = min((x2 - x1) // 2, (y2 - y1) // 2) - 4
+        cv2.circle(image, (cx, cy), r, ink_color, -1, cv2.LINE_AA)
+    elif mark_type == "check_mark":
+        thickness = 2
+        p1 = (cx - 7, cy)
+        p2 = (cx - 2, cy + 6)
+        p3 = (cx + 7, cy - 7)
+        cv2.line(image, p1, p2, ink_color, thickness, cv2.LINE_AA)
+        cv2.line(image, p2, p3, ink_color, thickness, cv2.LINE_AA)
+    elif mark_type == "slash_mark":
+        w = (x2 - x1) // 2 - 4
+        h = (y2 - y1) // 2 - 4
+        cv2.line(image, (cx - w, cy + h), (cx + w, cy - h), ink_color, 2, cv2.LINE_AA)

@@ -10,6 +10,7 @@ import json
 import time
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 from exam_grader.imaging import analyze
 
@@ -24,7 +25,7 @@ def evaluate(root: Path, *, question_count: int = 30) -> dict:
     for path in paths:
         data = path.read_bytes()
         started = time.perf_counter()
-        record = {
+        record: dict[str, Any] = {
             "filename": path.name,
             "sha256": hashlib.sha256(data).hexdigest(),
         }
@@ -52,8 +53,12 @@ def evaluate(root: Path, *, question_count: int = 30) -> dict:
                     ),
                     "requires_review": prediction["requires_review"],
                     "stage_timings": prediction.get("stage_timings", {}),
-                    "uncertain_questions": sum(item["classification"] == "uncertain" for item in active_answers),
-                    "multiple_questions": sum(item["classification"] == "multiple" for item in active_answers),
+                    "uncertain_questions": sum(
+                        item["classification"] == "uncertain" for item in active_answers
+                    ),
+                    "multiple_questions": sum(
+                        item["classification"] == "multiple" for item in active_answers
+                    ),
                     "top_two_margin": {
                         "min": min(margins) if margins else None,
                         "median": sorted(margins)[len(margins) // 2] if margins else None,
@@ -91,11 +96,25 @@ def main() -> int:
         parser.error("--question-count must be between 1 and 60")
     report = evaluate(args.fixtures.resolve(), question_count=args.question_count)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({key: report[key] for key in (
-        "evaluated", "status_counts", "registration_accepted", "registration_rejected",
-        "selected_all_choices_total", "auto_accept_count",
-    )}, ensure_ascii=False))
+    args.output.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {
+                key: report[key]
+                for key in (
+                    "evaluated",
+                    "status_counts",
+                    "registration_accepted",
+                    "registration_rejected",
+                    "selected_all_choices_total",
+                    "auto_accept_count",
+                )
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

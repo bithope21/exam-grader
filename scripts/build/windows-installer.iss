@@ -1,0 +1,25 @@
+; Build with Inno Setup after running build.py on Windows.
+[Setup]
+AppId=ExamGraderOffline
+AppName=Exam Grader
+AppVersion=1.0.0
+DefaultDirName={localappdata}\Programs\ExamGrader
+DefaultGroupName=Exam Grader
+PrivilegesRequired=lowest
+OutputDir=..\..\dist
+OutputBaseFilename=Exam-Grader-v1.0.0-Windows-Setup
+Compression=lzma2
+SolidCompression=yes
+UninstallDisplayIcon={app}\ExamGrader.exe
+
+[Files]
+Source: "..\..\dist\ExamGrader\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{group}\Exam Grader"; Filename: "{app}\ExamGrader.exe"
+Name: "{autodesktop}\Exam Grader"; Filename: "{app}\ExamGrader.exe"; Tasks: desktopicon
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
+
+; Exam data lives in a separate app-data directory and is never removed here.

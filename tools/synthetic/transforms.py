@@ -18,7 +18,9 @@ def apply_rotation(image: np.ndarray, angle_degrees: float) -> np.ndarray:
     )
 
 
-def apply_perspective_skew(image: np.ndarray, intensity: float = 0.05, rng: np.random.Generator | None = None) -> np.ndarray:
+def apply_perspective_skew(
+    image: np.ndarray, intensity: float = 0.05, rng: np.random.Generator | None = None
+) -> np.ndarray:
     """Applies a subtle perspective warp simulating camera angles."""
     if rng is None:
         rng = np.random.default_rng(42)

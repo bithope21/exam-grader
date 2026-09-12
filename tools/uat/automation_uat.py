@@ -1,4 +1,5 @@
 """Fresh six-sheet automatic workflow, plus explicitly injected review defects."""
+
 import argparse
 import hashlib
 import json
@@ -26,8 +27,10 @@ def main():
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
     truth = json.loads(Path("docs/evidence/automation/teacher-run.json").read_text())
-    fixtures = Path("tests/fixtures/real")
-    original_hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in fixtures.iterdir()}
+    fixtures = Path("tests/fixtures/real/vol.1")
+    original_hashes = {
+        p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in fixtures.iterdir() if p.is_file()
+    }
     qt = QApplication.instance() or QApplication([])
     qt.setApplicationName("Exam Grader · Automation UAT")
     app = initialize(Path(tempfile.mkdtemp(prefix="exam-grader-automation-")))
@@ -36,7 +39,12 @@ def main():
     service = ReviewService(app.exams.path)
     importer = ImportService(app.exams.path)
     app.exams.set_output_root(exam.id, out / "exports")
-    for purpose, paths in (("key", [fixtures / "key.JPG"]), ("student", sorted(fixtures.glob("IMG*")))):
+    for purpose, paths in (
+        ("key", [fixtures / "key.JPG"]),
+        ("student", sorted(fixtures.glob("IMG*"))),
+    ):
+        if purpose == "student":
+            service.auto_key(exam.id)
         worker = BatchWorker(app.exams.path, exam.id, paths, purpose)
         worker.start()
         assert worker.wait(90000)
@@ -61,8 +69,15 @@ def main():
         assert result["score"] == expected["score"]
         assert result["student_number"] == expected["student_number"]
         assert result["decision_origin"] == "machine_with_teacher_identity"
-        comparison.append({"filename": result["source"]["original_name"], "number": result["student_number"],
-                           "exact_answers": 30, "score": result["score"], "unresolved": 0})
+        comparison.append(
+            {
+                "filename": result["source"]["original_name"],
+                "number": result["student_number"],
+                "exact_answers": 30,
+                "score": result["score"],
+                "unresolved": 0,
+            }
+        )
     final = export_results(flow, exam.id, out / "exports")
     dialog.refresh()
     dialog.grab().save(str(out / "students-ready.png"))
@@ -79,13 +94,20 @@ def main():
     new_dialog.close()
     # Separate exam: one deliberately uncertain question and two missing numbers.
     injected = app.exams.create(ExamDetails("ทดสอบแก้เฉพาะจุด", "2569", "ม.4", "1", "eng", 30, 3))
-    for purpose, paths in (("key", [fixtures / "key.JPG"]), ("student", [fixtures / "IMG_0791.JPG"])):
+    for purpose, paths in (
+        ("key", [fixtures / "key.JPG"]),
+        ("student", [fixtures / "IMG_0791.JPG"]),
+    ):
+        if purpose == "student":
+            service.auto_key(injected.id)
         worker = BatchWorker(app.exams.path, injected.id, paths, purpose)
         worker.start()
         assert worker.wait(90000)
     source = next(s for s in importer.list_sources(injected.id) if s["purpose"] == "student")
     detection = flow.latest_detection(source["id"])
-    detection["answers"][6].update(auto_resolved=False, classification="uncertain", decision_reason="injected-ui-test-only")
+    detection["answers"][6].update(
+        auto_resolved=False, classification="uncertain", decision_reason="injected-ui-test-only"
+    )
     flow.save_detection(source["id"], detection)
     state = service.state(source)
     service.set_number(source, "1", expected_detection=state["detection_id"])
@@ -101,19 +123,38 @@ def main():
     review.grab().save(str(out / "review-inline-1440.png"))
     assert review.issue_table.horizontalScrollBar().maximum() == 0
     # Exercise the actual row controls; no ReviewDialog is opened.
-    for kind, number, value in (("attendance", "2", "absent"), ("attendance", "3", "excused"), ("answer", "1", "C")):
-        row = next(i for i, issue in enumerate(review.issue_rows) if issue["kind"] == kind and issue["number"] == number)
-        editor = review.issue_table.cellWidget(row, 3)
+    for kind, number, value in (
+        ("attendance", "2", "absent"),
+        ("attendance", "3", "excused"),
+        ("answer", "1", "C"),
+    ):
+        row = next(
+            i
+            for i, issue in enumerate(review.issue_rows)
+            if issue["kind"] == kind and issue["number"] == number
+        )
+        editor = review.issue_table.cellWidget(row, 4)
         editor.setCurrentIndex(editor.findData(value))
-        review.issue_table.cellWidget(row, 4).click()
+        review.issue_table.cellWidget(row, 5).click()
         settle()
     assert not service.issues(injected.id)
     attendance_run = export_results(flow, injected.id, out / "status-exports")
-    report = {"data_dir": str(app.data_dir), "platform": QApplication.platformName(), "key_exact": 30,
-              "student_comparisons": comparison, "total_exact": 180, "unresolved_answers": 0,
-              "identity_bulk_clicks": 1, "answer_review_clicks": 0, "output": str(final), "ui": ui,
-              "injected_inline_review_pass": True, "attendance_output": str(attendance_run),
-              "original_hashes_unchanged": original_hashes == {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in fixtures.iterdir()}}
+    report = {
+        "data_dir": str(app.data_dir),
+        "platform": QApplication.platformName(),
+        "key_exact": 30,
+        "student_comparisons": comparison,
+        "total_exact": 180,
+        "unresolved_answers": 0,
+        "identity_bulk_clicks": 1,
+        "answer_review_clicks": 0,
+        "output": str(final),
+        "ui": ui,
+        "injected_inline_review_pass": True,
+        "attendance_output": str(attendance_run),
+        "original_hashes_unchanged": original_hashes
+        == {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in fixtures.iterdir() if p.is_file()},
+    }
     assert report["original_hashes_unchanged"]
     (out / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
     print(json.dumps(report, ensure_ascii=False))

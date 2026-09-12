@@ -33,4 +33,11 @@ def test_vol3_benchmark_counts_the_declared_40_active_questions():
     assert report["evaluated"] == 9
     assert report["registration_rejected"] == 0
     assert report["selected_all_choices_total"] == 0
-    assert sum(record["uncertain_questions"] for record in report["records"] if record["filename"].startswith("IMG")) == 7
+    assert (
+        sum(
+            record["uncertain_questions"]
+            for record in report["records"]
+            if record["filename"].startswith("IMG")
+        )
+        == 7
+    )

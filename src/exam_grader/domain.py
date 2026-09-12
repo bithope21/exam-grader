@@ -12,6 +12,8 @@ class ExamDetails:
     subject: str
     question_count: int = 60
     expected_number_max: int | None = None
+    template_id: str = "default-1"
+    template_version: int = 1
 
     def __post_init__(self) -> None:
         for field in ("name", "academic_year", "grade", "room", "subject"):
@@ -25,6 +27,14 @@ class ExamDetails:
             raise ValueError("จำนวนข้อต้องอยู่ระหว่าง 1 ถึง 60 ข้อ")
         if self.expected_number_max is not None and not 1 <= self.expected_number_max <= 9999:
             raise ValueError("เลขที่คาดหวังต้องอยู่ระหว่าง 1 ถึง 9999")
+        template_id = (self.template_id or "default-1").strip()
+        if not template_id:
+            raise ValueError("รหัสรูปแบบกระดาษคำตอบต้องไม่ว่าง")
+        object.__setattr__(self, "template_id", template_id)
+        template_version = int(self.template_version or 1)
+        if template_version < 1:
+            raise ValueError("เวอร์ชันของรูปแบบกระดาษคำตอบต้องเป็นจำนวนเต็มบวก")
+        object.__setattr__(self, "template_version", template_version)
 
 
 @dataclass(frozen=True)

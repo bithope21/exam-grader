@@ -51,6 +51,17 @@ Original import: copy to app-owned location + verify hash; rerun idempotent; ไ
 
 กู้คืน per-sheet checkpoints; cancellation ไม่สร้างผลสำเร็จปลอม; export ซ้ำไม่เขียนทับ evidence คนละ run; generated filenames sanitize ตาม Windows รวม reserved names และ Unicode collisions
 
+## Custom Answer-Sheet Template and Calibration Subsystem — 2026-09-10
+
+- **Template Model (`TemplateDefinition`, `AnswerBlock`)**: Strongly typed data contracts capturing canonical width/height, choice count (2–5), question count (1–60), block-by-block column and row boundary coordinates, cell insets, student number and score ROIs, and bidirectional choice mapping (`choice_map`, `choice_labels`, `display_choice_labels`).
+- **Template Storage & Schema v13**: SQLite schema v13 adds `templates` table and binds `template_id` / `template_version` to `exams`. Automatic `.v12.bak` SQLite backup runs prior to migration. Reference images for custom templates are stored content-addressed in `<app_data>/templates/references/<sha256>.png`. Built-in templates (`default-1`, `default-2`) are packaged in application resources.
+- **Template Discovery Engine (`template_discovery.py`)**: Automatic paper quad boundary detection, perspective warping, connected component filtering, row/column line cluster analysis, and confidence scoring.
+- **Settings & Calibration UI (`settings_ui.py`, `calibration_ui.py`, `ui.py`, `exam_ui.py`)**:
+  - Manage templates, set default template, duplicate, inspect alignment overlay, customize annotation colors with live preview strip, and test OMR.
+  - In-window header button `⚙️ ตั้งค่า` on `MainWindow` (popup menu for Templates, Colors, Output root, Archives) ensures settings are immediately accessible on macOS without relying on the system top menu bar.
+  - Inline `⚙️ จัดการแม่แบบ…` on `NewExamDialog` enables teachers to calibrate or manage templates directly while creating exams, with automatic list reloading.
+  - Direct `🎨 สีรอยตรวจ…` button on `ExamDialog` results tab allows custom color adjustments before exporting.
+
 ## Candidate stack / early validation
 
 ใช้ทิศทางจาก handoff: Python, PySide6, OpenCV/NumPy, SQLite, Pillow, openpyxl; narrow local model/ONNX เป็น candidate ไม่ใช่ model ที่เลือกแล้ว Pin compatible versions หลัง smoke test; เก็บ model/license/hash แบบ offline ไม่ดาวน์โหลดตอนเปิดแอป
@@ -60,3 +71,4 @@ Original import: copy to app-owned location + verify hash; rerun idempotent; ไ
 [PyInstaller ไม่ใช่ cross-compiler](https://www.pyinstaller.org/en/stable/): Windows artifact ต้องมี Windows build/test evidence อย่าใช้ผล Mac แทน [ONNX Runtime threading](https://onnxruntime.ai/docs/performance/tune-performance/threading.html) มี native thread pools จึงต้องวัด oversubscription เมื่อทำ batch workers
 
 Sources checked: 2026-09-08. เอกสารสนับสนุน direction เท่านั้น ไม่ใช่การรับรอง compatibility ของ dependency version ที่ยังไม่ได้เลือก
+

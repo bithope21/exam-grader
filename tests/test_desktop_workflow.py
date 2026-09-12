@@ -69,7 +69,10 @@ def test_teacher_workflow_import_review_export_reopen(tmp_path, monkeypatch):
     assert "พร้อม" in reopened.student_list.item(0).text()
     student_row = reopened.student_list.itemWidget(reopened.student_list.item(0))
     assert student_row is not None
-    assert any(isinstance(child, QPushButton) and child.text() == "ลบ" for child in student_row.findChildren(QPushButton))
+    assert any(
+        isinstance(child, QPushButton) and child.text() == "ลบ"
+        for child in student_row.findChildren(QPushButton)
+    )
     reopened.close()
 
 
@@ -87,7 +90,16 @@ def test_one_bad_image_does_not_abort_batch(tmp_path):
     worker = BatchWorker(app.exams.path, exam.id, [broken, good], "student")
     worker.start()
     assert worker.wait(15000)
-    assert len([s for s in ImportService(app.exams.path).list_sources(exam.id) if s["purpose"] == "student"]) == 1
+    assert (
+        len(
+            [
+                s
+                for s in ImportService(app.exams.path).list_sources(exam.id)
+                if s["purpose"] == "student"
+            ]
+        )
+        == 1
+    )
     assert len(ImportService(app.exams.path).list_failures(exam.id)) == 1
 
     make_sheet(broken, [2])

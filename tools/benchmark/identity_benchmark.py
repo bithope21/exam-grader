@@ -28,8 +28,14 @@ def evaluate(root: Path) -> dict:
         except (OSError, ValueError) as error:
             result = {"candidate": None, "confidence": None, "review_reason": str(error)}
             status = "failed"
-        records.append({"filename": path.name, "status": status, "observation": result,
-                        "seconds": round(time.perf_counter() - started, 4)})
+        records.append(
+            {
+                "filename": path.name,
+                "status": status,
+                "observation": result,
+                "seconds": round(time.perf_counter() - started, 4),
+            }
+        )
     return {
         "schema_version": 1,
         "kind": "student_number_engineering_benchmark",
@@ -48,8 +54,12 @@ def main() -> int:
     args = parser.parse_args()
     report = evaluate(args.fixtures.resolve())
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"evaluated": report["evaluated"], "auto_accept_count": 0}, ensure_ascii=False))
+    args.output.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        json.dumps({"evaluated": report["evaluated"], "auto_accept_count": 0}, ensure_ascii=False)
+    )
     return 0
 
 

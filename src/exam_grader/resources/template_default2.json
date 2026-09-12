@@ -1,0 +1,173 @@
+{
+  "template_id": "default-2",
+  "name": "Default #2 — 60 ข้อ · 4 ตัวเลือก · 3 ชุด (ก-ง)",
+  "kind": "builtin",
+  "version": 1,
+  "canonical_width": 1200,
+  "canonical_height": 1720,
+  "choice_count": 4,
+  "choice_labels": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "display_choice_labels": [
+    "ก",
+    "ข",
+    "ค",
+    "ง"
+  ],
+  "choice_map": {
+    "A": "A",
+    "B": "B",
+    "C": "C",
+    "D": "D",
+    "a": "A",
+    "b": "B",
+    "c": "C",
+    "d": "D",
+    "ก": "A",
+    "ข": "B",
+    "ค": "C",
+    "ง": "D",
+    "1": "A",
+    "2": "B",
+    "3": "C",
+    "4": "D"
+  },
+  "question_count": 60,
+  "answer_blocks": [
+    {
+      "block_index": 0,
+      "question_start": 1,
+      "question_end": 20,
+      "rows": 20,
+      "choice_count": 4,
+      "col_boundaries": [
+        103,
+        168,
+        234,
+        299,
+        364
+      ],
+      "row_boundaries": [
+        528,
+        583,
+        639,
+        693,
+        748,
+        803,
+        857,
+        912,
+        967,
+        1022,
+        1076,
+        1131,
+        1185,
+        1240,
+        1294,
+        1350,
+        1405,
+        1460,
+        1515,
+        1569,
+        1624
+      ]
+    },
+    {
+      "block_index": 1,
+      "question_start": 21,
+      "question_end": 40,
+      "rows": 20,
+      "choice_count": 4,
+      "col_boundaries": [
+        491,
+        557,
+        621,
+        687,
+        752
+      ],
+      "row_boundaries": [
+        527,
+        583,
+        639,
+        693,
+        748,
+        803,
+        857,
+        912,
+        966,
+        1021,
+        1076,
+        1131,
+        1185,
+        1240,
+        1294,
+        1350,
+        1405,
+        1459,
+        1514,
+        1568,
+        1623
+      ]
+    },
+    {
+      "block_index": 2,
+      "question_start": 41,
+      "question_end": 60,
+      "rows": 20,
+      "choice_count": 4,
+      "col_boundaries": [
+        878,
+        943,
+        1008,
+        1073,
+        1138
+      ],
+      "row_boundaries": [
+        527,
+        582,
+        638,
+        692,
+        747,
+        802,
+        857,
+        911,
+        966,
+        1021,
+        1076,
+        1130,
+        1185,
+        1239,
+        1294,
+        1349,
+        1404,
+        1459,
+        1513,
+        1568,
+        1623
+      ]
+    }
+  ],
+  "student_number_roi": [
+    856,
+    140,
+    935,
+    205
+  ],
+  "score_roi": [
+    950,
+    111,
+    1114,
+    294
+  ],
+  "reference_sha256": "01e3f59701b2a5687bd004b119e361f384dfb841c9cf90d6df5fee9713db60e7",
+  "cell_inset": 6,
+  "registration_config": {
+    "color_theme": "monochrome_pink",
+    "feature_scale": 1.0
+  },
+  "created_at": "2026-09-10T00:00:00Z",
+  "updated_at": "2026-09-10T00:00:00Z"
+}

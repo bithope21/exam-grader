@@ -6,9 +6,18 @@ from typing import cast
 
 import cv2
 import numpy as np
-from PySide6.QtCore import Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QImage, QPixmap
+from PySide6.QtCore import QEvent, QRect, Qt, QThread, QUrl, Signal
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QImage,
+    QKeyEvent,
+    QMouseEvent,
+    QPainter,
+    QPixmap,
+)
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -22,6 +31,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -31,12 +43,94 @@ from PySide6.QtWidgets import (
 
 from exam_grader.exporting import export_results
 from exam_grader.identity import observe as observe_student_number
-from exam_grader.imaging import OMR_PIPELINE_VERSION, analyze, decode, template
+from exam_grader.imaging import OMR_PIPELINE_VERSION, analyze, decode
 from exam_grader.imports import ImportService
 from exam_grader.preferences import default_output_root
 from exam_grader.review_service import ReviewService
 from exam_grader.review_ui import ReviewDialog
+from exam_grader.template_manager import load_exam_template_def
 from exam_grader.workflow import Workflow
+
+
+class CheckBoxDelegate(QStyledItemDelegate):
+    """Delegate for multi-select checkbox column with centered rendering and wide hit area."""
+
+    def paint(self, painter: QPainter, option: QStyleOptionViewItem, index) -> None:
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        widget = opt.widget
+        style = widget.style() if widget else QApplication.style()
+
+        # 1. Draw standard background (respects hover, alternate row color, and selection)
+        style.drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, opt, painter, widget)
+
+        # 2. Draw centered check indicator
+        if opt.features & QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator:
+            chk_opt = QStyleOptionViewItem(opt)
+            base_rect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemCheckIndicator, opt, widget)
+            w = base_rect.width() if base_rect.isValid() and base_rect.width() > 0 else 18
+            h = base_rect.height() if base_rect.isValid() and base_rect.height() > 0 else 18
+            x = opt.rect.x() + (opt.rect.width() - w) // 2
+            y = opt.rect.y() + (opt.rect.height() - h) // 2
+            chk_opt.rect = QRect(x, y, w, h)
+            chk_opt.state = opt.state
+            if opt.checkState == Qt.CheckState.Checked:
+                chk_opt.state |= QStyle.StateFlag.State_On
+                chk_opt.state &= ~QStyle.StateFlag.State_Off
+            else:
+                chk_opt.state |= QStyle.StateFlag.State_Off
+                chk_opt.state &= ~QStyle.StateFlag.State_On
+            style.drawPrimitive(QStyle.PrimitiveElement.PE_IndicatorItemViewItemCheck, chk_opt, painter, widget)
+
+    def editorEvent(self, event: QEvent, model, option: QStyleOptionViewItem, index) -> bool:
+        flags = index.flags()
+        if not (flags & Qt.ItemFlag.ItemIsUserCheckable) or not (flags & Qt.ItemFlag.ItemIsEnabled):
+            return super().editorEvent(event, model, option, index)
+
+        # Left-click press: consume to prevent rubber-band / drag selection artifacts
+        if event.type() == QEvent.Type.MouseButtonPress and isinstance(event, QMouseEvent):
+            if event.button() == Qt.MouseButton.LeftButton:
+                return True
+            return False
+
+        # Left-click release: toggle check-state if within cell bounds
+        if event.type() == QEvent.Type.MouseButtonRelease and isinstance(event, QMouseEvent):
+            if event.button() == Qt.MouseButton.LeftButton:
+                pos = event.position().toPoint()
+                if option.rect.contains(pos):
+                    curr = index.data(Qt.ItemDataRole.CheckStateRole)
+                    is_checked = (
+                        curr == Qt.CheckState.Checked
+                        or curr == Qt.CheckState.Checked.value
+                        or curr == 2
+                    )
+                    new_state = (
+                        Qt.CheckState.Unchecked
+                        if is_checked
+                        else Qt.CheckState.Checked
+                    )
+                    model.setData(index, new_state, Qt.ItemDataRole.CheckStateRole)
+                    return True
+            return False
+
+        # Space key: toggle check-state while preserving standard Qt keyboard navigation
+        if event.type() == QEvent.Type.KeyPress and isinstance(event, QKeyEvent):
+            if event.key() == Qt.Key.Key_Space:
+                curr = index.data(Qt.ItemDataRole.CheckStateRole)
+                is_checked = (
+                    curr == Qt.CheckState.Checked
+                    or curr == Qt.CheckState.Checked.value
+                    or curr == 2
+                )
+                new_state = (
+                    Qt.CheckState.Unchecked
+                    if is_checked
+                    else Qt.CheckState.Checked
+                )
+                model.setData(index, new_state, Qt.ItemDataRole.CheckStateRole)
+                return True
+
+        return super().editorEvent(event, model, option, index)
 
 
 class BatchWorker(QThread):
@@ -57,6 +151,10 @@ class BatchWorker(QThread):
             except ValueError as error:
                 self.completed.emit([str(error)])
                 return
+        from exam_grader.template_manager import load_exam_template_def
+
+        template_def = load_exam_template_def(self.database, self.exam_id)
+
         for index, path in enumerate(self.paths):
             if self.isInterruptionRequested():
                 break
@@ -65,7 +163,11 @@ class BatchWorker(QThread):
                 existing = flow.latest_detection(source["id"])
                 if existing is None or existing.get("pipeline_version") != OMR_PIPELINE_VERSION:
                     try:
-                        observation = analyze(importer.verified_bytes(source))
+                        observation = analyze(
+                            importer.verified_bytes(source),
+                            template_def=template_def,
+                            app_data_dir=getattr(self.database, "parent", None),
+                        )
                     except ValueError as error:
                         observation = {
                             "requires_review": True,
@@ -77,6 +179,8 @@ class BatchWorker(QThread):
                             observation["student_number_observation"] = observe_student_number(
                                 importer.verified_bytes(source),
                                 observation.get("registration", {}).get("matrix"),
+                                template_def=template_def,
+                                app_data_dir=getattr(self.database, "parent", None),
                             )
                         except (ValueError, OSError):
                             observation["student_number_observation"] = {
@@ -196,17 +300,62 @@ class ExamDialog(QDialog):
         review_actions.addWidget(self.retry_button)
         review_actions.addWidget(self.save_all_button)
         review_actions.addStretch()
-        review_page.addWidget(QLabel("แก้เฉพาะข้อมูลที่มีปัญหา แล้วกดบันทึกที่แถวนั้น · เรียงเลขที่น้อย → มาก"))
-        self.issue_table = QTableWidget(0, 5)
-        self.issue_table.setHorizontalHeaderLabels(["เลขที่", "ข้อมูลที่ต้องแก้", "ภาพ", "คำตอบ / สถานะ", "บันทึก"])
+        review_page.addWidget(QLabel("แก้เฉพาะข้อมูลที่มีปัญหา แล้วกดบันทึกที่แถวนั้น หรือเลือกหลายแถวแล้วบันทึกพร้อมกัน · เรียงเลขที่น้อย → มาก"))
+        
+        # Bulk Actions Toolbar
+        self.bulk_bar_widget = QWidget()
+        bulk_bar = QHBoxLayout(self.bulk_bar_widget)
+        bulk_bar.setContentsMargins(0, 4, 0, 4)
+        self.select_all_btn = QPushButton("เลือกทั้งหมด")
+        self.select_all_btn.clicked.connect(self.select_all_issues)
+        self.clear_selection_btn = QPushButton("ล้างการเลือก")
+        self.clear_selection_btn.clicked.connect(self.clear_issue_selection)
+        self.selection_label = QLabel("เลือก 0 รายการ")
+        self.selection_label.setStyleSheet("color: #64748b; font-weight: 500;")
+
+        self.bulk_combo = QComboBox()
+        self.bulk_combo.setMinimumWidth(220)
+        self.bulk_combo.addItem("— กำหนดคำตอบ / สถานะให้แถวที่เลือก —", None)
+        for thai, latin in zip("กขคงจ", "ABCDE"):
+            self.bulk_combo.addItem(f"{thai} / {latin}", latin)
+        self.bulk_combo.addItem("เว้นว่าง (blank)", "blank")
+        self.bulk_combo.addItem("หลายคำตอบ (multiple)", "multiple")
+        self.bulk_combo.addItem("ข้ามเลขที่นี้ (skipped)", "skipped")
+        self.bulk_combo.addItem("ขาดสอบ (absent)", "absent")
+        self.bulk_combo.addItem("ลา / ได้รับยกเว้น (excused)", "excused")
+        self.bulk_combo.currentIndexChanged.connect(lambda _: self._update_bulk_selection_state())
+
+        self.bulk_apply_btn = QPushButton("นำไปใช้และบันทึกที่เลือก")
+        self.bulk_apply_btn.setProperty("accent", True)
+        self.bulk_apply_btn.setEnabled(False)
+        self.bulk_apply_btn.clicked.connect(self.apply_bulk_edit)
+
+        bulk_bar.addWidget(self.select_all_btn)
+        bulk_bar.addWidget(self.clear_selection_btn)
+        bulk_bar.addWidget(self.selection_label)
+        bulk_bar.addSpacing(12)
+        bulk_bar.addWidget(self.bulk_combo)
+        bulk_bar.addWidget(self.bulk_apply_btn)
+        bulk_bar.addStretch()
+        review_page.addWidget(self.bulk_bar_widget)
+
+        self.issue_table = QTableWidget(0, 6)
+        self.issue_table.setHorizontalHeaderLabels(
+            ["เลือก", "เลขที่", "ข้อมูลที่ต้องแก้", "ภาพ", "คำตอบ / สถานะ", "บันทึก"]
+        )
         self.issue_table.verticalHeader().hide()
         self.issue_table.setAlternatingRowColors(True)
+        self.issue_table.setItemDelegateForColumn(0, CheckBoxDelegate(self.issue_table))
         header = self.issue_table.horizontalHeader()
-        for column in (0, 4):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
-        for column in (1, 2, 3):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.issue_table.setColumnWidth(0, 52)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         self.issue_table.cellDoubleClicked.connect(self.open_issue_source)
+        self.issue_table.itemChanged.connect(self._on_issue_item_changed)
         review_page.addWidget(self.issue_table)
         self.empty_review = QLabel("ไม่มีข้อมูลที่ต้องแก้ไข · พร้อมออกผลตรวจ")
         review_page.addWidget(self.empty_review)
@@ -221,18 +370,24 @@ class ExamDialog(QDialog):
         output_actions = QHBoxLayout()
         self.output_button = QPushButton("เปลี่ยนตำแหน่งบันทึก…")
         self.output_button.clicked.connect(self.choose_output_root)
+        self.color_button = QPushButton("🎨 สีรอยตรวจ…")
+        self.color_button.setToolTip("ตั้งค่าสีรอยตรวจ (ถูก/ผิด/คาบเส้น/คะแนน) สำหรับไฟล์ภาพผลตรวจ")
+        self.color_button.clicked.connect(self.open_color_settings)
         self.export_button = QPushButton("บันทึกผลตรวจ + Excel")
         self.export_button.setMinimumWidth(190)
         self.export_button.setToolTip("สร้าง snapshot ใหม่ของผลตรวจ ภาพตรวจแล้ว และไฟล์ Excel")
         self.export_button.clicked.connect(self.export)
         output_actions.addWidget(self.output_button)
+        output_actions.addWidget(self.color_button)
         output_actions.addWidget(self.export_button)
         output_actions.addStretch()
         results_page.addLayout(output_actions)
         history_actions = QHBoxLayout()
         self.export_history = QComboBox()
         self.export_history.setMinimumContentsLength(24)
-        self.export_history.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.export_history.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.export_history.setPlaceholderText("ยังไม่มีผลตรวจที่บันทึก")
         self.reveal_button = QPushButton("เปิดโฟลเดอร์ผลลัพธ์")
         self.reveal_button.clicked.connect(self.reveal_result)
@@ -277,6 +432,7 @@ class ExamDialog(QDialog):
         ]
         self.issue_drafts = {}
         self.issue_dirty = set()
+        self.selected_issue_keys: set[tuple] = set()
         self.refresh()
 
     @staticmethod
@@ -286,6 +442,8 @@ class ExamDialog(QDialog):
         return item
 
     def _add_student_item(self, text: str, source: dict) -> None:
+        from PySide6.QtCore import QSize
+
         item = self._item(text, source)
         item.setToolTip(text)
         self.student_list.addItem(item)
@@ -298,7 +456,34 @@ class ExamDialog(QDialog):
         remove.clicked.connect(lambda _checked=False, value=source: self.archive_student(value))
         row_layout.addWidget(remove)
         self.student_list.setItemWidget(item, row)
-        item.setSizeHint(row.sizeHint())
+        hint = row.sizeHint()
+        item.setSizeHint(QSize(hint.width(), max(hint.height(), 52)))
+
+    def _add_failure_item(self, text: str, failure: dict) -> None:
+        from PySide6.QtCore import QSize
+
+        data = {"failure": failure}
+        item = self._item(text, data)
+        item.setToolTip(text)
+        self.student_list.addItem(item)
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(8, 4, 8, 4)
+        row_layout.addStretch()
+        remove = QPushButton("ลบ")
+        remove.setToolTip("ลบรายการที่ล้มเหลวนี้ออก")
+        remove.clicked.connect(lambda _checked=False, val=failure: self.dismiss_failure(val))
+        row_layout.addWidget(remove)
+        self.student_list.setItemWidget(item, row)
+        hint = row.sizeHint()
+        item.setSizeHint(QSize(hint.width(), max(hint.height(), 52)))
+
+    def dismiss_failure(self, failure: dict) -> None:
+        try:
+            self.importer.clear_failure(self.exam.id, Path(failure["path"]), failure["purpose"])
+            self.refresh()
+        except Exception as error:
+            QMessageBox.warning(self, "ลบรายการไม่ได้", str(error))
 
     def refresh(self):
         self.key_list.clear()
@@ -331,7 +516,9 @@ class ExamDialog(QDialog):
             if identity_state.get("number"):
                 candidate["student_number"] = identity_state["number"]
             elif identity_state:
-                candidate["student_number"] = (identity_state["detection"].get("student_number_observation") or {}).get("candidate", "")
+                candidate["student_number"] = (
+                    identity_state["detection"].get("student_number_observation") or {}
+                ).get("candidate", "")
         records.sort(key=self._student_sort_key, reverse=self.student_sort_desc)
         for source in records:
             review = self.flow.latest_review(source["id"])
@@ -344,21 +531,34 @@ class ExamDialog(QDialog):
                     state = "เฉลยเก่า · ต้องยืนยันใหม่"
                 self.key_list.addItem(self._item(f"{source['original_name']}\n{state}", source))
                 continue
-            active_answers = detection.get("answers", [])[: self.exam.details.question_count] if detection else []
+            active_answers = (
+                detection.get("answers", [])[: self.exam.details.question_count]
+                if detection
+                else []
+            )
             needs_decision = bool(
                 not detection
                 or "failure" in detection
                 or len(active_answers) < self.exam.details.question_count
                 or any(not item.get("auto_resolved") for item in active_answers)
             )
-            if review and key and review["key_id"] == key["id"] and source["id"] not in issue_source_ids:
+            if (
+                review
+                and key
+                and review["key_id"] == key["id"]
+                and source["id"] not in issue_source_ids
+            ):
                 state = f"พร้อม · เลขที่ {review['student_number']}"
                 ready += 1
             elif review:
                 state = "ต้องตรวจใหม่ (เฉลยเปลี่ยน)"
                 review_count += 1
             elif detection and not needs_decision:
-                state = "อ่านได้ครบ · พร้อมยืนยันเลขที่" if not source.get("student_number") else "อ่านได้ครบ · พร้อมยืนยัน"
+                state = (
+                    "อ่านได้ครบ · พร้อมยืนยันเลขที่"
+                    if not source.get("student_number")
+                    else "อ่านได้ครบ · พร้อมยืนยัน"
+                )
                 prefilled_count += 1
             else:
                 state = "ต้องตรวจทาน"
@@ -381,7 +581,7 @@ class ExamDialog(QDialog):
         for failure in failures:
             data = {"failure": failure}
             text = f"{Path(failure['path']).name}\nล้มเหลว · {failure['error']}"
-            self.student_list.addItem(self._item(text, data))
+            self._add_failure_item(text, failure)
             self.review_list.addItem(self._item(text, data))
 
         failed_count = len(failures)
@@ -393,12 +593,17 @@ class ExamDialog(QDialog):
             try:
                 missing = self.flow.missing_numbers(self.exam.id)
                 if missing["missing_expected"]:
-                    self.status.setText(self.status.text() + f"\nเลขที่คาดหวังที่ยังไม่พบ: {missing['missing_expected']}")
+                    self.status.setText(
+                        self.status.text() + f"\nเลขที่คาดหวังที่ยังไม่พบ: {missing['missing_expected']}"
+                    )
                 elif missing["missing_internal"]:
-                    self.status.setText(self.status.text() + f"\nเลขที่ขาดภายในช่วงที่พบ: {missing['missing_internal']}")
+                    self.status.setText(
+                        self.status.text() + f"\nเลขที่ขาดภายในช่วงที่พบ: {missing['missing_internal']}"
+                    )
             except ValueError:
                 pass
-        self.output_label.setText(f"บันทึกผลลัพธ์ที่\n{self.output_root}")
+        t_name = self.template_def.name if getattr(self, "template_def", None) else "Default #1"
+        self.output_label.setText(f"แม่แบบกระดาษ: {t_name}\nตำแหน่งบันทึกผลลัพธ์: {self.output_root}")
         self.results_summary.setText(
             f"สถานะปัจจุบัน: พร้อม {ready} · พร้อมยืนยัน {prefilled_count} · "
             f"ต้องตรวจ {review_count} · ล้มเหลว {failed_count}\n"
@@ -408,7 +613,9 @@ class ExamDialog(QDialog):
         self.export_history.clear()
         for run in self.application.exams.export_runs(self.exam.id):
             path = Path(run["path"])
-            timestamp = datetime.fromisoformat(run["created_at"]).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            timestamp = (
+                datetime.fromisoformat(run["created_at"]).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            )
             label = f"ผลตรวจ · {timestamp}"
             if not path.is_dir():
                 label += " · ไม่พบโฟลเดอร์"
@@ -418,21 +625,33 @@ class ExamDialog(QDialog):
         self.reveal_button.setEnabled(self.export_history.count() > 0)
         self.populate_issues()
         self.update_key_gate()
-        self.adopt_button.setEnabled(any(
-            not s["number"]
-            and (s["detection"].get("student_number_observation") or {}).get("candidate")
-            and (s["detection"].get("student_number_observation") or {}).get("candidates")
-            == [(s["detection"].get("student_number_observation") or {}).get("candidate")]
-            for s in self.review_service.states(self.exam.id)
-        ))
+        self.adopt_button.setEnabled(
+            any(
+                not s["number"]
+                and (s["detection"].get("student_number_observation") or {}).get("candidate")
+                for s in self.review_service.states(self.exam.id)
+            )
+        )
         self.attendance_restore.clear()
         self.attendance_restore.addItem("แก้สถานะขาดสอบที่บันทึกแล้ว…", None)
         with self.flow.connection() as con:
-            for row in con.execute("SELECT student_number,status FROM attendance WHERE exam_id=? AND status!='pending' ORDER BY student_number", (self.exam.id,)):
+            for row in con.execute(
+                "SELECT student_number,status FROM attendance WHERE exam_id=? AND status!='pending' ORDER BY student_number",
+                (self.exam.id,),
+            ):
                 status = "ขาดสอบ" if row["status"] == "absent" else "ลา / ยกเว้น"
-                self.attendance_restore.addItem(f"เลขที่ {row['student_number']} · {status} → ส่งกลับตรวจทาน", str(row["student_number"]))
-            for row in con.execute("SELECT student_number FROM skipped_numbers WHERE exam_id=? ORDER BY student_number", (self.exam.id,)):
-                self.attendance_restore.addItem(f"เลขที่ {row['student_number']} · ข้ามไว้ → ส่งกลับตรวจทาน", str(row["student_number"]))
+                self.attendance_restore.addItem(
+                    f"เลขที่ {row['student_number']} · {status} → ส่งกลับตรวจทาน",
+                    str(row["student_number"]),
+                )
+            for row in con.execute(
+                "SELECT student_number FROM skipped_numbers WHERE exam_id=? ORDER BY student_number",
+                (self.exam.id,),
+            ):
+                self.attendance_restore.addItem(
+                    f"เลขที่ {row['student_number']} · ข้ามไว้ → ส่งกลับตรวจทาน",
+                    str(row["student_number"]),
+                )
         self.attendance_restore.setVisible(self.attendance_restore.count() > 1)
 
     def restore_attendance(self, index):
@@ -466,7 +685,9 @@ class ExamDialog(QDialog):
         try:
             outcome = self.review_service.adopt_numbers(self.exam.id)
             self.refresh()
-            self.progress_label.setText(f"ใช้เลขที่แล้ว {len(outcome['applied'])} ใบ · ยังต้องแก้ {len(outcome['skipped'])} ใบ")
+            self.progress_label.setText(
+                f"ใช้เลขที่แล้ว {len(outcome['applied'])} ใบ · ยังต้องแก้ {len(outcome['skipped'])} ใบ"
+            )
             if outcome["skipped"]:
                 self.tabs.setCurrentIndex(2)
         except (ValueError, OSError) as error:
@@ -475,6 +696,9 @@ class ExamDialog(QDialog):
     def archive_selected_student(self):
         item = self.student_list.currentItem()
         source = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if isinstance(source, dict) and "failure" in source:
+            self.dismiss_failure(source["failure"])
+            return
         self.archive_student(source)
 
     def archive_student(self, source):
@@ -482,7 +706,8 @@ class ExamDialog(QDialog):
             QMessageBox.information(self, "ยังไม่ได้เลือก", "เลือกกระดาษนักเรียนก่อน")
             return
         answer = QMessageBox.question(
-            self, "ลบกระดาษแบบกู้คืนได้",
+            self,
+            "ลบกระดาษแบบกู้คืนได้",
             f"เก็บกระดาษ {source['original_name']} ออกจากการตรวจและผลลัพธ์หรือไม่?\n"
             "ต้นฉบับจะเก็บไว้และกู้คืนได้จากการนำเข้าภาพเดิม",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -501,7 +726,8 @@ class ExamDialog(QDialog):
             QMessageBox.information(self, "ไม่มีภาพนักเรียน", "ยังไม่มีภาพนักเรียนที่ใช้งานอยู่")
             return
         answer = QMessageBox.question(
-            self, "ลบกระดาษนักเรียนทั้งหมดแบบกู้คืนได้",
+            self,
+            "ลบกระดาษนักเรียนทั้งหมดแบบกู้คืนได้",
             f"เก็บกระดาษนักเรียน {len(sources)} ใบออกจากการตรวจและผลลัพธ์หรือไม่?\n"
             "ต้นฉบับและข้อมูลตรวจทานจะเก็บไว้ กู้คืนได้ด้วยการนำเข้าภาพเดิม",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -516,50 +742,134 @@ class ExamDialog(QDialog):
             QMessageBox.warning(self, "ลบกระดาษไม่ได้", str(error))
 
     def reprocess_students(self):
-        paths = [self.application.exams.path.parent / s["relative_path"]
-                 for s in self.importer.list_sources(self.exam.id) if s["purpose"] == "student"]
+        paths = [
+            self.application.exams.path.parent / s["relative_path"]
+            for s in self.importer.list_sources(self.exam.id)
+            if s["purpose"] == "student"
+        ]
         self.start_import(paths, "student")
 
     def populate_issues(self):
         self._capture_issue_drafts()
         self.issue_rows = self.review_service.issues(self.exam.id)
+        self.issue_table.blockSignals(True)
         self.issue_table.clearContents()
-        self.skip_missing_button.setVisible(any(i["kind"] == "attendance" and i["source"] is None for i in self.issue_rows))
+        self.skip_missing_button.setVisible(
+            any(i["kind"] == "attendance" and i["source"] is None for i in self.issue_rows)
+        )
         self.empty_review.setVisible(not self.issue_rows)
-        self.empty_review.setText("ไม่มีข้อมูลที่ต้องแก้ไข" if self.student_list.count() else "เพิ่มเฉลยและภาพนักเรียนเพื่อเริ่มตรวจ")
+        self.empty_review.setText(
+            "ไม่มีข้อมูลที่ต้องแก้ไข" if self.student_list.count() else "เพิ่มเฉลยและภาพนักเรียนเพื่อเริ่มตรวจ"
+        )
+        self.bulk_bar_widget.setVisible(bool(self.issue_rows))
         self.issue_table.setRowCount(len(self.issue_rows))
         previews = {}
+        # Retain selection state across populate / refresh using stable issue keys
+        valid_keys = {self._issue_key(i) for i in self.issue_rows}
+        self.selected_issue_keys.intersection_update(valid_keys)
+
         for row, issue in enumerate(self.issue_rows):
-            for column, text in enumerate((issue["number"] or "—", issue["label"], issue["source"]["original_name"] if issue["source"] else "ยังไม่มีภาพ")):
+            # Column 0: Checkbox
+            key = self._issue_key(issue)
+            chk_item = QTableWidgetItem()
+            chk_item.setData(Qt.ItemDataRole.UserRole, key)
+            chk_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            chk_item.setCheckState(
+                Qt.CheckState.Checked if key in self.selected_issue_keys else Qt.CheckState.Unchecked
+            )
+            self.issue_table.setItem(row, 0, chk_item)
+
+            for column, text in enumerate(
+                (
+                    issue["number"] or "—",
+                    issue["label"],
+                    issue["source"]["original_name"] if issue["source"] else "ยังไม่มีภาพ",
+                ),
+                start=1,
+            ):
                 item = QTableWidgetItem(text)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 item.setToolTip(text)
-                if column == 1:
-                    item.setBackground(QColor("#fff0cd"))
-                    item.setForeground(QColor("#503800"))
+                if column == 2:
+                    if issue.get("status") == "duplicate":
+                        item.setBackground(QColor("#fee2e2"))
+                        item.setForeground(QColor("#991b1b"))
+                    elif issue.get("status") == "missing":
+                        item.setBackground(QColor("#e0e7ff"))
+                        item.setForeground(QColor("#3730a3"))
+                    else:
+                        item.setBackground(QColor("#fff0cd"))
+                        item.setForeground(QColor("#503800"))
                 self.issue_table.setItem(row, column, item)
             if issue["source"] and issue["kind"] in {"answer", "number"}:
                 try:
+                    cell_item = self.issue_table.item(row, 3)
+                    if cell_item is not None:
+                        cell_item.setText("")
                     sid = issue["source"]["id"]
-                    geometry = template()
+                    t_def = getattr(self, "template_def", None)
+                    if t_def is None:
+                        t_def = load_exam_template_def(self.application.exams.path, self.exam.id)
+                        self.template_def = t_def
                     if sid not in previews:
                         detection = self.flow.latest_detection(sid)
                         if not detection:
                             raise ValueError("ยังไม่มีผลอ่าน")
-                        previews[sid] = cv2.warpPerspective(decode(self.importer.verified_bytes(issue["source"])), np.asarray(detection["registration"]["matrix"]), (geometry["width"], geometry["height"]))
+                        previews[sid] = cv2.warpPerspective(
+                            decode(self.importer.verified_bytes(issue["source"])),
+                            np.asarray(detection["registration"]["matrix"], dtype=np.float64),
+                            (t_def.canonical_width, t_def.canonical_height),
+                        )
                     if issue["kind"] == "number":
-                        x1, y1, x2, y2 = geometry["student_number_roi"]
-                        y1 = max(0, y1 - 20)
+                        if t_def.student_number_roi:
+                            rx1, ry1, rx2, ry2 = t_def.student_number_roi
+                            pad_y = max(8, int((ry2 - ry1) * 0.15))
+                            pad_x = max(8, int((rx2 - rx1) * 0.15))
+                            y1 = max(0, ry1 - pad_y)
+                            y2 = min(t_def.canonical_height, ry2 + pad_y)
+                            x1 = max(0, rx1 - pad_x)
+                            x2 = min(t_def.canonical_width, rx2 + pad_x)
+                        else:
+                            x1, y1, x2, y2 = 0, 0, 100, 50
                     else:
-                        q = issue["question"] - 1
-                        xs, ys = geometry["groups"][q // 15], geometry["rows"]
-                        x1, x2, y1, y2 = xs[0], xs[-1], ys[q % 15], ys[q % 15 + 1]
+                        q_num = issue["question"]
+                        block = next(
+                            (
+                                b
+                                for b in t_def.answer_blocks
+                                if b.question_start <= q_num <= b.question_end
+                            ),
+                            None,
+                        )
+                        if block:
+                            row_idx = q_num - block.question_start
+                            x1 = max(0, block.col_boundaries[0] - 10)
+                            x2 = min(t_def.canonical_width, block.col_boundaries[-1] + 10)
+                            y1 = max(0, block.row_boundaries[row_idx] - 4)
+                            y2 = min(t_def.canonical_height, block.row_boundaries[row_idx + 1] + 4)
+                        else:
+                            x1, y1, x2, y2 = 0, 0, 100, 50
                     crop = np.ascontiguousarray(previews[sid][y1:y2, x1:x2])
-                    picture = QImage(crop.data, crop.shape[1], crop.shape[0], crop.strides[0], QImage.Format.Format_BGR888).copy()
+                    picture = QImage(
+                        crop.data,
+                        crop.shape[1],
+                        crop.shape[0],
+                        crop.strides[0],
+                        QImage.Format.Format_BGR888,
+                    ).copy()
                     preview_label = QLabel()
-                    preview_label.setPixmap(QPixmap.fromImage(picture).scaled(230, 62, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-                    preview_label.setToolTip(issue["source"]["original_name"] + " · ดับเบิลคลิกแถวเพื่อดูทั้งใบ")
-                    self.issue_table.setCellWidget(row, 2, preview_label)
+                    preview_label.setPixmap(
+                        QPixmap.fromImage(picture).scaled(
+                            230,
+                            62,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation,
+                        )
+                    )
+                    preview_label.setToolTip(
+                        issue["source"]["original_name"] + " · ดับเบิลคลิกแถวเพื่อดูทั้งใบ"
+                    )
+                    self.issue_table.setCellWidget(row, 3, preview_label)
                 except (ValueError, OSError, KeyError, TypeError):
                     pass
             editor: QLineEdit | QComboBox
@@ -570,12 +880,19 @@ class ExamDialog(QDialog):
                 editor = QComboBox()
                 options: list[tuple[str, str | None]] = [("— เลือก —", None)]
                 if issue["kind"] == "answer":
-                    options += [(f"{thai} / {latin}", latin) for thai, latin in zip("กขคงจ", "ABCDE")]
+                    options += [
+                        (f"{thai} / {latin}", latin) for thai, latin in zip("กขคงจ", "ABCDE")
+                    ]
                     options += [("เว้นว่าง", "blank"), ("หลายคำตอบ", "multiple")]
                 elif issue["kind"] == "attendance":
-                    options += [("รอกระดาษ / ยกเลิกขาดสอบ", "pending"), ("ข้ามเลขที่นี้", "skipped"), ("ขาดสอบ", "absent"), ("ลา / ได้รับยกเว้น", "excused")]
+                    options += [
+                        ("รอกระดาษ / ยกเลิกขาดสอบ", "pending"),
+                        ("ข้ามเลขที่นี้", "skipped"),
+                        ("ขาดสอบ", "absent"),
+                        ("ลา / ได้รับยกเว้น", "excused"),
+                    ]
                 elif issue["kind"] in {"image", "import"}:
-                    options += [("ลองอ่านภาพใหม่", "retry")]
+                    options += [("ลบรายการนี้ออก", "dismiss")]
                 else:
                     options += [("ใช้คำตอบเดิมกับเฉลยใหม่", "reuse")]
                 for label, value in options:
@@ -593,27 +910,41 @@ class ExamDialog(QDialog):
             if isinstance(editor, QLineEdit):
                 editor.textEdited.connect(lambda _value, key=issue_key: self.issue_dirty.add(key))
             else:
-                editor.currentIndexChanged.connect(lambda _index, key=issue_key: self.issue_dirty.add(key))
-            self.issue_table.setCellWidget(row, 3, editor)
+                editor.currentIndexChanged.connect(
+                    lambda _index, key=issue_key: self.issue_dirty.add(key)
+                )
+            self.issue_table.setCellWidget(row, 4, editor)
             button = QPushButton("บันทึก")
             button.clicked.connect(lambda checked=False, i=issue, e=editor: self.save_issue(i, e))
-            self.issue_table.setCellWidget(row, 4, button)
+            self.issue_table.setCellWidget(row, 5, button)
         self.issue_table.resizeRowsToContents()
+        self.issue_table.blockSignals(False)
+        self._update_bulk_selection_state()
 
     @staticmethod
     def _issue_key(issue):
         source = issue.get("source") or {}
         failure = issue.get("failure") or {}
-        return (source.get("id"), issue.get("kind"), issue.get("question"),
-                issue.get("number"), issue.get("key_id"), issue.get("detection_id"),
-                failure.get("id") or failure.get("path"))
+        return (
+            source.get("id"),
+            issue.get("kind"),
+            issue.get("question"),
+            issue.get("number"),
+            issue.get("key_id"),
+            issue.get("detection_id"),
+            failure.get("id") or failure.get("path"),
+        )
 
     def _capture_issue_drafts(self):
         for row, issue in enumerate(getattr(self, "issue_rows", [])):
-            editor = self.issue_table.cellWidget(row, 3)
+            editor = self.issue_table.cellWidget(row, 4)
             if editor is None:
                 continue
-            value = editor.text() if isinstance(editor, QLineEdit) else cast(QComboBox, editor).currentData()
+            value = (
+                editor.text()
+                if isinstance(editor, QLineEdit)
+                else cast(QComboBox, editor).currentData()
+            )
             key = self._issue_key(issue)
             if key in self.issue_dirty:
                 self.issue_drafts[key] = value
@@ -622,28 +953,53 @@ class ExamDialog(QDialog):
         if not value:
             raise ValueError("เลือกข้อมูลก่อนบันทึก")
         if issue["kind"] == "number":
-            self.review_service.set_number(issue["source"], value, expected_detection=issue["detection_id"])
+            self.review_service.set_number(
+                issue["source"], value, expected_detection=issue["detection_id"]
+            )
             self.review_service.finalize(self.exam.id)
         elif issue["kind"] == "answer":
-            self.review_service.resolve_answer(issue["source"], issue["question"], value, key_id=issue["key_id"], detection_id=issue["detection_id"])
+            self.review_service.resolve_answer(
+                issue["source"],
+                issue["question"],
+                value,
+                key_id=issue["key_id"],
+                detection_id=issue["detection_id"],
+            )
         elif issue["kind"] == "attendance":
             self.review_service.set_attendance(self.exam.id, issue["number"], value)
         elif issue["kind"] in {"image", "import"}:
             raise ValueError("กู้คืนภาพต้องกดจากรายการนั้นโดยตรง")
         else:
             state = self.review_service.state(issue["source"])
-            self.flow.review(issue["source"]["id"], state["number"], state["review"]["answers"], issue["key_id"], origin="teacher", detection_id=issue["detection_id"])
+            self.flow.review(
+                issue["source"]["id"],
+                state["number"],
+                state["review"]["answers"],
+                issue["key_id"],
+                origin="teacher",
+                detection_id=issue["detection_id"],
+            )
 
     def save_issue(self, issue, editor):
         try:
-            value = editor.text() if isinstance(editor, QLineEdit) else cast(QComboBox, editor).currentData()
+            value = (
+                editor.text()
+                if isinstance(editor, QLineEdit)
+                else cast(QComboBox, editor).currentData()
+            )
             if issue["kind"] in {"image", "import"}:
-                if value != "retry":
-                    raise ValueError("เลือก ‘ลองอ่านภาพใหม่’ ก่อนบันทึก")
-                source = issue["source"]
-                path = self.application.exams.path.parent / source["relative_path"] if source else Path(issue["failure"]["path"])
-                self.start_import([path], source["purpose"] if source else issue["failure"]["purpose"])
-                return
+                if value == "dismiss":
+                    if issue.get("failure"):
+                        self.importer.clear_failure(
+                            self.exam.id,
+                            Path(issue["failure"]["path"]),
+                            issue["failure"]["purpose"],
+                        )
+                    elif issue.get("source"):
+                        self.importer.archive_source(issue["source"]["id"])
+                    self.refresh()
+                    return
+                raise ValueError("เลือกคำสั่งที่ต้องการก่อนบันทึก")
             self._save_issue_value(issue, value)
             key = self._issue_key(issue)
             self.issue_dirty.discard(key)
@@ -659,8 +1015,12 @@ class ExamDialog(QDialog):
             key = self._issue_key(issue)
             if key not in self.issue_dirty:
                 continue
-            editor = self.issue_table.cellWidget(row, 3)
-            value = editor.text() if isinstance(editor, QLineEdit) else cast(QComboBox, editor).currentData()
+            editor = self.issue_table.cellWidget(row, 4)
+            value = (
+                editor.text()
+                if isinstance(editor, QLineEdit)
+                else cast(QComboBox, editor).currentData()
+            )
             pending.append((issue, value, key))
         errors = []
         for issue, value, key in pending:
@@ -674,7 +1034,86 @@ class ExamDialog(QDialog):
         if errors:
             QMessageBox.warning(self, "บันทึกได้บางรายการ", "\n".join(errors))
 
+    def _on_issue_item_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() == 0:
+            key = item.data(Qt.ItemDataRole.UserRole)
+            if key is None and 0 <= item.row() < len(self.issue_rows):
+                key = self._issue_key(self.issue_rows[item.row()])
+            if key is not None:
+                if item.checkState() == Qt.CheckState.Checked:
+                    self.selected_issue_keys.add(key)
+                else:
+                    self.selected_issue_keys.discard(key)
+            self._update_bulk_selection_state()
+
+    def _update_bulk_selection_state(self) -> None:
+        count = len(self.selected_issue_keys)
+        self.selection_label.setText(f"เลือก {count} รายการ")
+        has_val = self.bulk_combo.currentData() is not None
+        self.bulk_apply_btn.setEnabled(count > 0 and has_val)
+
+    def select_all_issues(self) -> None:
+        for issue in self.issue_rows:
+            self.selected_issue_keys.add(self._issue_key(issue))
+        self.issue_table.blockSignals(True)
+        for r in range(self.issue_table.rowCount()):
+            it = self.issue_table.item(r, 0)
+            if it:
+                it.setCheckState(Qt.CheckState.Checked)
+        self.issue_table.blockSignals(False)
+        self._update_bulk_selection_state()
+
+    def clear_issue_selection(self) -> None:
+        self.selected_issue_keys.clear()
+        self.issue_table.blockSignals(True)
+        for r in range(self.issue_table.rowCount()):
+            it = self.issue_table.item(r, 0)
+            if it:
+                it.setCheckState(Qt.CheckState.Unchecked)
+        self.issue_table.blockSignals(False)
+        self._update_bulk_selection_state()
+
+    def apply_bulk_edit(self) -> None:
+        if not self.selected_issue_keys:
+            QMessageBox.information(
+                self, "ยังไม่ได้เลือกรายการ", "กรุณาคลิกเลือกช่องหน้ารายการที่ต้องการแก้ไข"
+            )
+            return
+        val = self.bulk_combo.currentData()
+        if not val:
+            QMessageBox.information(
+                self, "ยังไม่ได้เลือกคำตอบ / สถานะ", "กรุณาเลือกคำตอบหรือสถานะที่ต้องการกำหนดจากเมนู"
+            )
+            return
+
+        operations = []
+        for issue in self.issue_rows:
+            if self._issue_key(issue) in self.selected_issue_keys:
+                operations.append({"issue": issue, "value": val})
+
+        if not operations:
+            return
+
+        try:
+            res = self.review_service.bulk_resolve(self.exam.id, operations)
+            applied = res.get("applied", 0)
+            for op in operations:
+                key = self._issue_key(op["issue"])
+                self.issue_dirty.discard(key)
+                self.issue_drafts.pop(key, None)
+                self.selected_issue_keys.discard(key)
+            self.refresh()
+            QMessageBox.information(
+                self,
+                "บันทึกข้อมูลเรียบร้อย",
+                f"บันทึกและปรับปรุงข้อมูล {applied} รายการเรียบร้อยแล้ว",
+            )
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "บันทึกไม่สำเร็จ", str(error))
+
     def open_issue_source(self, row, column):
+        if column == 0:
+            return
         source = self.issue_rows[row]["source"]
         if source:
             self.open_source(source)
@@ -682,7 +1121,9 @@ class ExamDialog(QDialog):
     def reveal_result(self):
         path = self.export_history.currentData()
         if not path or not Path(path).is_dir():
-            QMessageBox.warning(self, "เปิดผลลัพธ์ไม่ได้", "ไม่พบโฟลเดอร์ กรุณาเชื่อมต่อไดรฟ์เดิมหรือสร้างผลตรวจใหม่")
+            QMessageBox.warning(
+                self, "เปิดผลลัพธ์ไม่ได้", "ไม่พบโฟลเดอร์ กรุณาเชื่อมต่อไดรฟ์เดิมหรือสร้างผลตรวจใหม่"
+            )
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
@@ -810,6 +1251,11 @@ class ExamDialog(QDialog):
             self.output_root = Path(path).expanduser().resolve()
             self.application.exams.set_output_root(self.exam.id, self.output_root)
             self.refresh()
+
+    def open_color_settings(self):
+        from exam_grader.settings_ui import AnnotationColorSettingsDialog
+
+        AnnotationColorSettingsDialog(self).exec()
 
     def change_student_sort(self, index):
         self.student_sort_desc = index == 1

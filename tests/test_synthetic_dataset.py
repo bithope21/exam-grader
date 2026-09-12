@@ -83,7 +83,7 @@ def test_coverage_requirements():
 
     scores = [f["expected_score"] for f in fixtures if f["category"] != "expected"]
     assert 60 in scores  # Perfect score
-    assert 0 in scores   # Zero score
+    assert 0 in scores  # Zero score
     assert any(20 <= s <= 50 for s in scores)  # Random/partial score
 
     all_flags = set()
@@ -147,7 +147,9 @@ def test_deterministic_generator_is_byte_identical_within_environment(tmp_path):
     assert [path.relative_to(first) for path in first_files] == [
         path.relative_to(second) for path in second_files
     ]
-    assert [path.read_bytes() for path in first_files] == [path.read_bytes() for path in second_files]
+    assert [path.read_bytes() for path in first_files] == [
+        path.read_bytes() for path in second_files
+    ]
 
 
 def test_synthetic_geometry_is_derived_from_canonical_template():

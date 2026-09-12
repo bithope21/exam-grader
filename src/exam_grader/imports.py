@@ -23,8 +23,9 @@ class ImportService:
             return [
                 dict(row)
                 for row in connection.execute(
-                    "SELECT * FROM sources WHERE exam_id=? AND archived_at IS NULL ORDER BY created_at, id", (exam_id,)
-            )
+                    "SELECT * FROM sources WHERE exam_id=? AND archived_at IS NULL ORDER BY created_at, id",
+                    (exam_id,),
+                )
             ]
 
     def list_archived_sources(self, exam_id: str, purpose: str | None = None) -> list[dict]:
@@ -51,7 +52,8 @@ class ImportService:
     def restore_source(self, source_id: str) -> None:
         with closing(sqlite3.connect(self.database)) as connection, connection:
             changed = connection.execute(
-                "UPDATE sources SET archived_at=NULL WHERE id=? AND archived_at IS NOT NULL", (source_id,)
+                "UPDATE sources SET archived_at=NULL WHERE id=? AND archived_at IS NOT NULL",
+                (source_id,),
             ).rowcount
             if not changed:
                 raise ValueError("ไม่พบภาพที่ถูกเก็บถาวร")
@@ -72,7 +74,14 @@ class ImportService:
         with closing(sqlite3.connect(self.database)) as connection, connection:
             connection.execute(
                 "INSERT INTO import_failures VALUES (?,?,?,?,?,?,NULL)",
-                (str(uuid4()), exam_id, str(source.resolve()), purpose, error, datetime.now(timezone.utc).isoformat()),
+                (
+                    str(uuid4()),
+                    exam_id,
+                    str(source.resolve()),
+                    purpose,
+                    error,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
             )
 
     def clear_failure(self, exam_id: str, source: Path, purpose: str) -> None:
@@ -116,13 +125,15 @@ class ImportService:
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute(
-                "SELECT id,purpose,archived_at FROM sources WHERE exam_id=? AND sha256=?", (exam_id, digest)
+                "SELECT id,purpose,archived_at FROM sources WHERE exam_id=? AND sha256=?",
+                (exam_id, digest),
             ).fetchone()
             if existing and existing[1] != purpose:
                 raise ValueError("ภาพนี้ถูกนำเข้าเป็นอีกประเภทแล้ว กรุณาเลือกภาพอื่น")
-            destination_is_valid = destination.exists() and hashlib.sha256(
-                destination.read_bytes()
-            ).hexdigest() == digest
+            destination_is_valid = (
+                destination.exists()
+                and hashlib.sha256(destination.read_bytes()).hexdigest() == digest
+            )
             if not destination_is_valid:
                 if destination.exists():
                     quarantine = self.root / "input" / "quarantine" / f"{digest}-{uuid4()}"

@@ -95,6 +95,7 @@ def test_missing_numbers_respects_optional_expected_range(tmp_path):
     key_path = tmp_path / "key.png"
     student_paths = [tmp_path / "one.png", tmp_path / "three.png"]
     from PySide6.QtGui import QImage
+
     image = QImage(30, 40, QImage.Format.Format_RGB32)
     image.fill(0xFFFDFFFF)
     image.save(str(key_path))

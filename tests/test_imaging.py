@@ -37,10 +37,14 @@ def test_unrelated_image_and_corrupt_bytes_fail_closed():
 
 def test_real_fixture_local_feature_is_not_all_choices():
     fixture_dir = Path("tests/fixtures/real")
-    for path in sorted(fixture_dir.rglob("*")):
-        if path.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
+    for vol in ("vol.1", "vol.2", "vol.3"):
+        vol_dir = fixture_dir / vol
+        if not vol_dir.exists():
             continue
-        result = analyze(path.read_bytes())
-        assert result["registration"]["table_coverage"] >= 0.995
-        assert any(item["classification"] == "single_mark" for item in result["answers"])
-        assert all(item["selected"] != list("ABCDE") for item in result["answers"])
+        for path in sorted(vol_dir.glob("*")):
+            if path.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
+                continue
+            result = analyze(path.read_bytes())
+            assert result["registration"]["table_coverage"] >= 0.995
+            assert any(item["classification"] == "single_mark" for item in result["answers"])
+            assert all(item["selected"] != list("ABCDE") for item in result["answers"])

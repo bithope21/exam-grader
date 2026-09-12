@@ -52,7 +52,10 @@ def write_contact_sheet(records: list[dict], images: list[QImage], output: Path)
         )
         if not image.isNull():
             scaled = image.scaled(
-                width - 24, height - 88, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                width - 24,
+                height - 88,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
             painter.drawImage(x + (width - scaled.width()) // 2, y + 78, scaled)
     painter.end()

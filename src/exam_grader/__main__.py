@@ -14,13 +14,16 @@ def main() -> int:
     parser.add_argument(
         "--self-check", action="store_true", help="Initialize/check storage without GUI"
     )
-    parser.add_argument("--smoke-ui", action="store_true", help="Open and close the UI for build verification")
+    parser.add_argument(
+        "--smoke-ui", action="store_true", help="Open and close the UI for build verification"
+    )
     parser.add_argument("--report", type=Path, help="Write self-check JSON to this path")
     args = parser.parse_args()
     try:
         application = initialize(args.data_dir)
         exams = application.exams.list_exams()
         from exam_grader.diagnostics import runtime_health
+
         health = runtime_health()
     except (OSError, sqlite3.Error, RuntimeError, ValueError, ImportError) as error:
         if args.self_check:
@@ -32,14 +35,16 @@ def main() -> int:
             QMessageBox.critical(None, "เปิดโปรแกรมไม่ได้", f"ไม่สามารถเปิดข้อมูลได้\n{error}")
         return 1
     if args.self_check or args.report:
-        report = json.dumps({
-                    "version": __version__,
-                    "storage": "ok",
-                    "exam_count": len(exams),
-                    "data_dir": str(application.data_dir),
-                    "runtime": health,
-                    "packaging": "not_verified",
-                })
+        report = json.dumps(
+            {
+                "version": __version__,
+                "storage": "ok",
+                "exam_count": len(exams),
+                "data_dir": str(application.data_dir),
+                "runtime": health,
+                "packaging": "not_verified",
+            }
+        )
         if args.report:
             args.report.write_text(report, encoding="utf-8")
         if sys.stdout is not None:
@@ -48,13 +53,16 @@ def main() -> int:
         return 0
     from PySide6.QtWidgets import QApplication
 
+    from exam_grader.preferences import apply_appearance_theme
     from exam_grader.ui import MainWindow
 
     qt = QApplication(sys.argv[:1])
+    apply_appearance_theme(qt)
     window = MainWindow(application)
     window.show()
     if args.smoke_ui:
         from PySide6.QtCore import QTimer
+
         QTimer.singleShot(700, qt.quit)
     return qt.exec()
 

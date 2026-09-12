@@ -2,7 +2,7 @@ from exam_grader import preferences
 
 
 class FakeSettings:
-    values = {}
+    values: dict[str, str] = {}
 
     def __init__(self, *_args):
         pass

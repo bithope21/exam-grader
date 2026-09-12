@@ -1,3 +1,4 @@
-"""Offline exam grader. Recognition is not implemented yet."""
+"""Offline exam grading desktop application for teachers."""
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
+

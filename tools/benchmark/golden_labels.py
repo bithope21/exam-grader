@@ -20,7 +20,9 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def build_manifest(run: Path, fixtures: Path, *, disputed: set[tuple[str, int]] | None = None) -> dict:
+def build_manifest(
+    run: Path, fixtures: Path, *, disputed: set[tuple[str, int]] | None = None
+) -> dict:
     disputed = disputed or set()
     metadata = run / "_system" / "results.json"
     if not metadata.is_file():
@@ -78,7 +80,11 @@ def build_manifest(run: Path, fixtures: Path, *, disputed: set[tuple[str, int]] 
         "fold_policy": "sheet_grouped; transformed copies stay with source sheet",
         "records": records,
         "excluded_for_recognition": [
-            {"filename": filename, "question": question, "reason": "conflicting visual/scoring evidence"}
+            {
+                "filename": filename,
+                "question": question,
+                "reason": "conflicting visual/scoring evidence",
+            }
             for filename, question in sorted(disputed)
         ],
     }
@@ -94,8 +100,18 @@ def main() -> int:
     disputed = {(value.rsplit(":", 1)[0], int(value.rsplit(":", 1)[1])) for value in args.disputed}
     manifest = build_manifest(args.run.resolve(), args.fixtures.resolve(), disputed=disputed)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"records": len(manifest["records"]), "excluded": len(manifest["excluded_for_recognition"])}, ensure_ascii=False))
+    args.output.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {
+                "records": len(manifest["records"]),
+                "excluded": len(manifest["excluded_for_recognition"]),
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

@@ -13,10 +13,7 @@ def compare(template_path: Path | None = None) -> dict:
         abs(a - b)
         for left, right in zip(sheet_builder.GROUPS, canonical["groups"], strict=True)
         for a, b in zip(left, right, strict=True)
-    ] + [
-        abs(a - b)
-        for a, b in zip(sheet_builder.ROWS, canonical["rows"], strict=True)
-    ]
+    ] + [abs(a - b) for a, b in zip(sheet_builder.ROWS, canonical["rows"], strict=True)]
     roi = sheet_builder.STUDENT_ROI
     canonical_roi = canonical["student_number_roi"]
     roi_overlap = max(0, min(roi[2], canonical_roi[2]) - max(roi[0], canonical_roi[0])) * max(
@@ -29,7 +26,9 @@ def compare(template_path: Path | None = None) -> dict:
         "template_id_match": sheet_builder.TEMPLATE_ID == canonical["id"],
         "anchor_error_max_px": max(anchor_errors, default=0),
         "cell_center_error_max_px": 0,
-        "student_number_roi_overlap": round(roi_overlap / canonical_area, 6) if canonical_area else 0,
+        "student_number_roi_overlap": round(roi_overlap / canonical_area, 6)
+        if canonical_area
+        else 0,
         "geometry_match": max(anchor_errors, default=0) == 0 and roi_overlap == canonical_area,
         "registration_header_dependency": "not_proven; ORB registration contract still requires empirical ablation",
     }

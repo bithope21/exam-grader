@@ -124,13 +124,20 @@ def main() -> int:
         observed = detection.get("student_number_observation") or {}
         reference_detection = reference_row["detection"]["answers"]
         differences = []
-        for index, (actual, previous) in enumerate(zip(detection["answers"][:count], reference_detection[:count]), 1):
-            if (actual["classification"], actual.get("selected")) != (previous["classification"], previous.get("selected")):
-                differences.append({
-                    "question": index,
-                    "current": [actual["classification"], actual.get("selected")],
-                    "reference_run": [previous["classification"], previous.get("selected")],
-                })
+        for index, (actual, previous) in enumerate(
+            zip(detection["answers"][:count], reference_detection[:count]), 1
+        ):
+            if (actual["classification"], actual.get("selected")) != (
+                previous["classification"],
+                previous.get("selected"),
+            ):
+                differences.append(
+                    {
+                        "question": index,
+                        "current": [actual["classification"], actual.get("selected")],
+                        "reference_run": [previous["classification"], previous.get("selected")],
+                    }
+                )
         expected_uncertain = [
             index
             for index, item in enumerate(reference_detection[:count], 1)
@@ -142,27 +149,37 @@ def main() -> int:
             if item["classification"] == "uncertain"
         ]
         if source["original_name"] == "IMG_0805.jpg":
-            assert differences == [{
-                "question": 25,
-                "current": ["boundary_cross", ["B", "C"]],
-                "reference_run": ["uncertain", ["B", "C"]],
-            }], differences
-            assert current_uncertain == [question for question in expected_uncertain if question != 25]
+            assert differences == [
+                {
+                    "question": 25,
+                    "current": ["boundary_cross", ["B", "C"]],
+                    "reference_run": ["uncertain", ["B", "C"]],
+                }
+            ], differences
+            assert current_uncertain == [
+                question for question in expected_uncertain if question != 25
+            ]
         else:
             assert not differences, (source["original_name"], differences)
             assert current_uncertain == expected_uncertain
-        report["automatic"].append({
-            "file": source["original_name"],
-            "reference_number": reference_row["student_number"],
-            "adopted_number": state["number"],
-            "identity_auto_applied": state["number"] == reference_row["student_number"],
-            "candidate": observed.get("candidate"),
-            "candidates": observed.get("candidates", []),
-            "classification_counts": dict(Counter(a["classification"] for a in detection["answers"][:count])),
-            "machine_resolved": sum(answer is not None for answer in machine),
-            "machine_uncertain": [index + 1 for index, answer in enumerate(machine) if answer is None],
-            "reference_run_differences": differences,
-        })
+        report["automatic"].append(
+            {
+                "file": source["original_name"],
+                "reference_number": reference_row["student_number"],
+                "adopted_number": state["number"],
+                "identity_auto_applied": state["number"] == reference_row["student_number"],
+                "candidate": observed.get("candidate"),
+                "candidates": observed.get("candidates", []),
+                "classification_counts": dict(
+                    Counter(a["classification"] for a in detection["answers"][:count])
+                ),
+                "machine_resolved": sum(answer is not None for answer in machine),
+                "machine_uncertain": [
+                    index + 1 for index, answer in enumerate(machine) if answer is None
+                ],
+                "reference_run_differences": differences,
+            }
+        )
 
     window.tabs.setCurrentIndex(2)
     window.resize(1024, 768)
@@ -170,7 +187,12 @@ def main() -> int:
     window.grab().save(str(output / "review-before-teacher-actions.png"))
     pending = list(service.issues(exam.id))
     report["pending_before_teacher_actions"] = [
-        {"kind": issue["kind"], "number": issue.get("number"), "question": issue.get("question"), "label": issue["label"]}
+        {
+            "kind": issue["kind"],
+            "number": issue.get("number"),
+            "question": issue.get("question"),
+            "label": issue["label"],
+        }
         for issue in pending
     ]
 
@@ -182,24 +204,35 @@ def main() -> int:
             break
         issue = actionable[0]
         row_index = next(
-            index for index, candidate in enumerate(window.issue_rows)
-            if candidate["source"] and candidate["source"]["id"] == issue["source"]["id"]
+            index
+            for index, candidate in enumerate(window.issue_rows)
+            if candidate["source"]
+            and candidate["source"]["id"] == issue["source"]["id"]
             and candidate["kind"] == issue["kind"]
             and candidate.get("question") == issue.get("question")
         )
         reference_row = reference_by_hash[issue["source"]["sha256"]]
-        editor = window.issue_table.cellWidget(row_index, 3)
+        editor = window.issue_table.cellWidget(row_index, 4)
         if issue["kind"] == "number":
             editor.setText(str(reference_row["student_number"]))
-            action = {"kind": "number", "file": issue["source"]["original_name"], "value": reference_row["student_number"]}
+            action = {
+                "kind": "number",
+                "file": issue["source"]["original_name"],
+                "value": reference_row["student_number"],
+            }
         elif issue["kind"] == "answer":
             answer = reference_row["answers"][issue["question"] - 1]
             editor.setCurrentIndex(editor.findData(answer))
-            action = {"kind": "answer", "file": issue["source"]["original_name"], "question": issue["question"], "value": answer}
+            action = {
+                "kind": "answer",
+                "file": issue["source"]["original_name"],
+                "question": issue["question"],
+                "value": answer,
+            }
         else:
             raise AssertionError(issue)
         report["teacher_actions"].append(action)
-        window.issue_table.cellWidget(row_index, 4).click()
+        window.issue_table.cellWidget(row_index, 5).click()
         settle()
 
     missing = [issue for issue in service.issues(exam.id) if issue["kind"] == "attendance"]
@@ -209,10 +242,7 @@ def main() -> int:
     assert not service.issues(exam.id)
 
     snapshot = flow.snapshot(exam.id)
-    expected_scores = {
-        row["source"]["sha256"]: row["score"]
-        for row in reference["results"]
-    }
+    expected_scores = {row["source"]["sha256"]: row["score"] for row in reference["results"]}
     actual_by_hash = {row["source"]["sha256"]: row["score"] for row in snapshot["results"]}
     assert actual_by_hash == expected_scores, (actual_by_hash, expected_scores)
     report["scores"] = [row["score"] for row in snapshot["results"]]
@@ -223,23 +253,29 @@ def main() -> int:
     workbook = load_workbook(final / "scores.xlsx")
     report["export"] = str(final)
     report["checked_jpeg_bytes"] = {path.name: path.stat().st_size for path in checked}
-    report["workbook_scores"] = [workbook.active.cell(row + 2, 2).value for row in range(len(student_paths))]
+    report["workbook_scores"] = [
+        workbook.active.cell(row + 2, 2).value for row in range(len(student_paths))
+    ]
     manifest = json.loads((final / "_system/manifest.json").read_text(encoding="utf-8"))
     for name, digest in manifest.items():
         assert hashlib.sha256((final / name).read_bytes()).hexdigest() == digest
     report["manifest_hashes_verified"] = len(manifest)
-    report["checked_provenance"] = json.loads((final / "_system/results.json").read_text(encoding="utf-8"))["results"][0]["checked_provenance"]
+    report["checked_provenance"] = json.loads(
+        (final / "_system/results.json").read_text(encoding="utf-8")
+    )["results"][0]["checked_provenance"]
 
     window.tabs.setCurrentIndex(3)
     window.show()
     settle()
     window.grab().save(str(output / "results.png"))
-    report["ui"].append({
-        "screenshot": str(output / "review-before-teacher-actions.png"),
-        "width": window.width(),
-        "height": window.height(),
-        "review_scroll_max": window.issue_table.horizontalScrollBar().maximum(),
-    })
+    report["ui"].append(
+        {
+            "screenshot": str(output / "review-before-teacher-actions.png"),
+            "width": window.width(),
+            "height": window.height(),
+            "review_scroll_max": window.issue_table.horizontalScrollBar().maximum(),
+        }
+    )
     assert original_hashes == {
         path.name: hashlib.sha256(path.read_bytes()).hexdigest()
         for path in fixture_root.iterdir()
@@ -247,8 +283,21 @@ def main() -> int:
     }
     report["original_hashes_unchanged"] = True
     report["status"] = "passed"
-    (output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"status": report["status"], "scores": report["scores"], "teacher_actions": len(report["teacher_actions"]), "missing": len(report["missing_before_skip"]), "output": str(final)}, ensure_ascii=False))
+    (output / "report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    print(
+        json.dumps(
+            {
+                "status": report["status"],
+                "scores": report["scores"],
+                "teacher_actions": len(report["teacher_actions"]),
+                "missing": len(report["missing_before_skip"]),
+                "output": str(final),
+            },
+            ensure_ascii=False,
+        )
+    )
     return 0
 
 

@@ -30,22 +30,37 @@ class ReviewService:
 
     def state(self, source: dict) -> dict:
         with self.flow.connection() as con:
-            detection = con.execute("SELECT id,payload FROM detections WHERE source_id=? ORDER BY rowid DESC LIMIT 1", (source["id"],)).fetchone()
-            identity = con.execute("SELECT * FROM identities WHERE source_id=? ORDER BY rowid DESC LIMIT 1", (source["id"],)).fetchone()
+            detection = con.execute(
+                "SELECT id,payload FROM detections WHERE source_id=? ORDER BY rowid DESC LIMIT 1",
+                (source["id"],),
+            ).fetchone()
+            identity = con.execute(
+                "SELECT * FROM identities WHERE source_id=? ORDER BY rowid DESC LIMIT 1",
+                (source["id"],),
+            ).fetchone()
         review = self.flow.latest_review(source["id"])
         number = identity["student_number"] if identity else None
         if review and (not identity or review["created_at"] > identity["created_at"]):
             number = review["student_number"]
-        return {"source": source, "detection_id": detection["id"] if detection else None,
-                "detection": json.loads(detection["payload"]) if detection else {},
-                "number": number, "review": review}
+        return {
+            "source": source,
+            "detection_id": detection["id"] if detection else None,
+            "detection": json.loads(detection["payload"]) if detection else {},
+            "number": number,
+            "review": review,
+        }
 
     def states(self, exam_id: str) -> list[dict]:
-        return [self.state(s) for s in self.importer.list_sources(exam_id) if s["purpose"] == "student"]
+        return [
+            self.state(s) for s in self.importer.list_sources(exam_id) if s["purpose"] == "student"
+        ]
 
     @staticmethod
     def machine_answers(detection: dict, count: int) -> list[str | None]:
-        if detection.get("pipeline_version") != OMR_PIPELINE_VERSION or "registration" not in detection:
+        if (
+            detection.get("pipeline_version") != OMR_PIPELINE_VERSION
+            or "registration" not in detection
+        ):
             return [None] * count
         answers = []
         for item in detection.get("answers", [])[:count]:
@@ -64,7 +79,10 @@ class ReviewService:
             return list(review["answers"])
         answers = self.machine_answers(state["detection"], len(key["answers"]))
         with self.flow.connection() as con:
-            for row in con.execute("SELECT question,answer FROM answer_overrides WHERE source_id=? AND key_id=? AND detection_id IS ? ORDER BY rowid", (state["source"]["id"], key["id"], state["detection_id"])):
+            for row in con.execute(
+                "SELECT question,answer FROM answer_overrides WHERE source_id=? AND key_id=? AND detection_id IS ? ORDER BY rowid",
+                (state["source"]["id"], key["id"], state["detection_id"]),
+            ):
                 answers[row["question"] - 1] = row["answer"]
         return answers
 
@@ -81,7 +99,13 @@ class ReviewService:
         answers = self.machine_answers(state["detection"], self.flow.question_count(exam_id))
         if not all(a in ("A", "B", "C", "D", "E") for a in answers):
             return False
-        self.flow.approve_key(exam_id, [a for a in answers if a is not None], sources[-1]["id"], origin="machine", detection_id=state["detection_id"])
+        self.flow.approve_key(
+            exam_id,
+            [a for a in answers if a is not None],
+            sources[-1]["id"],
+            origin="machine",
+            detection_id=state["detection_id"],
+        )
         return True
 
     def finalize(self, exam_id: str) -> None:
@@ -92,7 +116,9 @@ class ReviewService:
         states = self.states(exam_id)
         numbers = [int(s["number"]) for s in states if s["number"]]
         with self.flow.connection() as con:
-            maximum = con.execute("SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)).fetchone()[0]
+            maximum = con.execute(
+                "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
+            ).fetchone()[0]
         for state in states:
             review = state["review"]
             if review and review["key_id"] != key["id"]:
@@ -104,12 +130,26 @@ class ReviewService:
             answers = self.answers(state, key)
             if any(a not in RESOLVED for a in answers):
                 continue
-            if review and review["student_number"] == state["number"] and review["answers"] == answers:
+            if (
+                review
+                and review["student_number"] == state["number"]
+                and review["answers"] == answers
+            ):
                 continue
             with self.flow.connection() as con:
-                edited = con.execute("SELECT 1 FROM answer_overrides WHERE source_id=? AND key_id=? AND detection_id IS ? LIMIT 1", (state["source"]["id"], key["id"], state["detection_id"])).fetchone()
+                edited = con.execute(
+                    "SELECT 1 FROM answer_overrides WHERE source_id=? AND key_id=? AND detection_id IS ? LIMIT 1",
+                    (state["source"]["id"], key["id"], state["detection_id"]),
+                ).fetchone()
             origin = "teacher_edited" if edited else "machine_with_teacher_identity"
-            self.flow.review(state["source"]["id"], state["number"], [a for a in answers if a is not None], key["id"], origin=origin, detection_id=state["detection_id"])
+            self.flow.review(
+                state["source"]["id"],
+                state["number"],
+                [a for a in answers if a is not None],
+                key["id"],
+                origin=origin,
+                detection_id=state["detection_id"],
+            )
 
     def adopt_numbers(self, exam_id: str) -> dict:
         """Explicit user batch action; conflicts stay unresolved, no forced gaps."""
@@ -123,16 +163,25 @@ class ReviewService:
             observation = state["detection"].get("student_number_observation") or {}
             candidate = observation.get("candidate")
             choices = observation.get("candidates") or []
-            # An OCR candidate is usable in bulk only when it is the sole
-            # candidate. Ambiguous handwriting stays in review until a teacher
-            # resolves it; a later unique candidate may disambiguate it.
-            if candidate and choices == [candidate]:
+            confidence = observation.get("confidence")
+            margin = observation.get("confidence_margin")
+            # Recognizer evidence comes first: adopt if it is either the sole
+            # candidate or has strong evidence (high confidence >= 80 and clear margin >= 15).
+            is_unambiguous = candidate and choices == [candidate]
+            is_confident = (
+                candidate is not None
+                and confidence is not None
+                and confidence >= 80.0
+                and (margin is None or margin >= 15.0)
+            )
+            if is_unambiguous or is_confident:
                 proposed[state["source"]["id"]] = candidate
-        observations = {s["source"]["id"]: s["detection"].get("student_number_observation", {}) for s in states}
-        # A single unambiguous 4 can eliminate 4 from another sheet's explicit
-        # [1,4] candidates. Never invent a number merely because a roster has a gap.
-        anchored = used | {int(o["candidate"]) for o in observations.values()
-                           if o.get("candidate") and o.get("candidates") == [o["candidate"]]}
+        observations = {
+            s["source"]["id"]: s["detection"].get("student_number_observation", {}) for s in states
+        }
+        # Anchored numbers are uniquely identified sheets; eliminate them from other ambiguous sheets.
+        # Never invent a number merely because a roster has a gap.
+        anchored = used | {int(v) for v in proposed.values() if v is not None}
         for state in states:
             sid = state["source"]["id"]
             if state["number"] or sid in proposed:
@@ -153,57 +202,172 @@ class ReviewService:
             if not value or int(value) in used or list(proposed.values()).count(value) > 1:
                 skipped.append(sid)
                 continue
-            self.set_number(state["source"], value, expected_detection=state["detection_id"], origin="teacher_bulk")
+            self.set_number(
+                state["source"],
+                value,
+                expected_detection=state["detection_id"],
+                origin="teacher_bulk",
+            )
             used.add(int(value))
             applied.append(sid)
         self.finalize(exam_id)
         return {"applied": applied, "skipped": skipped}
 
-    def set_number(self, source: dict, value: str, *, expected_detection: str | None, origin: str = "teacher") -> None:
+    def set_number(
+        self, source: dict, value: str, *, expected_detection: str | None, origin: str = "teacher"
+    ) -> None:
         number = normalize_number(value)
         current = self.state(source)
         if current["detection_id"] != expected_detection:
             raise ValueError("ผลอ่านเปลี่ยนแล้ว กรุณาโหลดรายการใหม่")
         with self.flow.connection() as con:
-            active = con.execute("SELECT 1 FROM sources WHERE id=? AND archived_at IS NULL AND purpose='student'", (source["id"],)).fetchone()
+            active = con.execute(
+                "SELECT 1 FROM sources WHERE id=? AND archived_at IS NULL AND purpose='student'",
+                (source["id"],),
+            ).fetchone()
             if active is None:
                 raise ValueError("ภาพนี้ถูกเก็บถาวรแล้ว กรุณากู้คืนก่อนแก้ไข")
-            con.execute("INSERT INTO identities VALUES (?,?,?,?,?,?)", (str(uuid4()), source["id"], number, expected_detection, origin, datetime.now(timezone.utc).isoformat()))
+            con.execute(
+                "INSERT INTO identities VALUES (?,?,?,?,?,?)",
+                (
+                    str(uuid4()),
+                    source["id"],
+                    number,
+                    expected_detection,
+                    origin,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
 
-    def resolve_answer(self, source: dict, question: int, answer: str, *, key_id: str, detection_id: str | None) -> None:
+    def resolve_answer(
+        self, source: dict, question: int, answer: str, *, key_id: str, detection_id: str | None
+    ) -> None:
         key = self.flow.current_key(source["exam_id"])
         state = self.state(source)
         with self.flow.connection() as con:
-            if con.execute("SELECT 1 FROM sources WHERE id=? AND archived_at IS NULL AND purpose='student'", (source["id"],)).fetchone() is None:
+            if (
+                con.execute(
+                    "SELECT 1 FROM sources WHERE id=? AND archived_at IS NULL AND purpose='student'",
+                    (source["id"],),
+                ).fetchone()
+                is None
+            ):
                 raise ValueError("ภาพนี้ถูกเก็บถาวรแล้ว กรุณากู้คืนก่อนแก้ไข")
         if key["id"] != key_id or state["detection_id"] != detection_id:
             raise ValueError("เฉลยหรือผลอ่านเปลี่ยนแล้ว กรุณาโหลดรายการใหม่")
         if not 1 <= question <= len(key["answers"]) or answer not in RESOLVED:
             raise ValueError("คำตอบหรือข้อไม่ถูกต้อง")
         with self.flow.connection() as con:
-            con.execute("INSERT INTO answer_overrides VALUES (?,?,?,?,?,?,?)", (str(uuid4()), source["id"], key_id, detection_id, question, answer, datetime.now(timezone.utc).isoformat()))
+            con.execute(
+                "INSERT INTO answer_overrides VALUES (?,?,?,?,?,?,?)",
+                (
+                    str(uuid4()),
+                    source["id"],
+                    key_id,
+                    detection_id,
+                    question,
+                    answer,
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
         # A complete teacher review is immutable; append a new review when edited.
         if state["review"] and state["review"]["key_id"] == key_id:
             answers = list(state["review"]["answers"])
             answers[question - 1] = answer
-            self.flow.review(source["id"], state["number"], answers, key_id, origin="teacher", detection_id=detection_id)
+            self.flow.review(
+                source["id"],
+                state["number"],
+                answers,
+                key_id,
+                origin="teacher",
+                detection_id=detection_id,
+            )
         self.finalize(source["exam_id"])
+
+    def bulk_resolve(self, exam_id: str, operations: list[dict]) -> dict:
+        """Atomically apply and persist resolutions for multiple issues in a single transaction."""
+        if not operations:
+            return {"applied": 0, "total": 0}
+        key = self.flow.confirmed_key(exam_id)
+        now = datetime.now(timezone.utc).isoformat()
+        applied = 0
+        with self.flow.connection() as con:
+            for op in operations:
+                issue = op["issue"]
+                value = op["value"]
+                if not value:
+                    continue
+                kind = issue.get("kind")
+                if kind == "answer":
+                    if value not in RESOLVED:
+                        continue
+                    q = issue["question"]
+                    if not (1 <= q <= len(key["answers"])):
+                        continue
+                    sid = issue["source"]["id"]
+                    det_id = issue["detection_id"]
+                    con.execute(
+                        "INSERT INTO answer_overrides VALUES (?,?,?,?,?,?,?)",
+                        (str(uuid4()), sid, key["id"], det_id, q, value, now),
+                    )
+                    applied += 1
+                elif kind == "attendance":
+                    if value not in {"pending", "absent", "excused", "skipped"}:
+                        continue
+                    num = int(normalize_number(issue["number"]))
+                    if value == "skipped":
+                        con.execute(
+                            "INSERT OR IGNORE INTO skipped_numbers VALUES (?,?)", (exam_id, num)
+                        )
+                    else:
+                        con.execute(
+                            "DELETE FROM skipped_numbers WHERE exam_id=? AND student_number=?",
+                            (exam_id, num),
+                        )
+                        con.execute(
+                            "INSERT INTO attendance VALUES (?,?,?,?) ON CONFLICT(exam_id,student_number) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at",
+                            (exam_id, num, value, now),
+                        )
+                    applied += 1
+                elif kind == "number":
+                    ident_num = normalize_number(value)
+                    sid = issue["source"]["id"]
+                    det_id = issue["detection_id"]
+                    con.execute(
+                        "INSERT INTO identities VALUES (?,?,?,?,?,?)",
+                        (str(uuid4()), sid, ident_num, det_id, "teacher", now),
+                    )
+                    applied += 1
+        self.finalize(exam_id)
+        return {"applied": applied, "total": len(operations)}
 
     def set_attendance(self, exam_id: str, number: str, status: str) -> None:
         number = normalize_number(number)
         if status not in {"pending", "absent", "excused", "skipped"}:
             raise ValueError("สถานะไม่ถูกต้อง")
-        if status != "pending" and any(s["number"] and int(s["number"]) == int(number) for s in self.states(exam_id)):
+        if status != "pending" and any(
+            s["number"] and int(s["number"]) == int(number) for s in self.states(exam_id)
+        ):
             raise ValueError("มีภาพนักเรียนเลขที่นี้แล้ว ไม่สามารถระบุว่าขาดสอบได้")
         with self.flow.connection() as con:
             if status == "skipped":
-                con.execute("INSERT OR IGNORE INTO skipped_numbers VALUES (?,?)", (exam_id, int(number)))
+                con.execute(
+                    "INSERT OR IGNORE INTO skipped_numbers VALUES (?,?)", (exam_id, int(number))
+                )
                 return
-            con.execute("DELETE FROM skipped_numbers WHERE exam_id=? AND student_number=?", (exam_id, int(number)))
-            con.execute("INSERT INTO attendance VALUES (?,?,?,?) ON CONFLICT(exam_id,student_number) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at", (exam_id, int(number), status, datetime.now(timezone.utc).isoformat()))
+            con.execute(
+                "DELETE FROM skipped_numbers WHERE exam_id=? AND student_number=?",
+                (exam_id, int(number)),
+            )
+            con.execute(
+                "INSERT INTO attendance VALUES (?,?,?,?) ON CONFLICT(exam_id,student_number) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at",
+                (exam_id, int(number), status, datetime.now(timezone.utc).isoformat()),
+            )
 
     def skip_missing(self, exam_id: str) -> int:
-        missing = [i for i in self.issues(exam_id) if i["kind"] == "attendance" and i["source"] is None]
+        missing = [
+            i for i in self.issues(exam_id) if i["kind"] == "attendance" and i["source"] is None
+        ]
         for issue in missing:
             self.set_attendance(exam_id, issue["number"], "skipped")
         return len(missing)
@@ -216,39 +380,110 @@ class ReviewService:
             return []  # The key page owns this blocking step.
         numbers = [int(s["number"]) for s in states if s["number"]]
         with self.flow.connection() as con:
-            maximum = con.execute("SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)).fetchone()[0]
-            attendance = {r["student_number"]: r["status"] for r in con.execute("SELECT * FROM attendance WHERE exam_id=?", (exam_id,))}
-            skipped = {r[0] for r in con.execute("SELECT student_number FROM skipped_numbers WHERE exam_id=?", (exam_id,))}
+            maximum = con.execute(
+                "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
+            ).fetchone()[0]
+            attendance = {
+                r["student_number"]: r["status"]
+                for r in con.execute("SELECT * FROM attendance WHERE exam_id=?", (exam_id,))
+            }
+            skipped = {
+                r[0]
+                for r in con.execute(
+                    "SELECT student_number FROM skipped_numbers WHERE exam_id=?", (exam_id,)
+                )
+            }
         issues = []
         for state in states:
             number = state["number"]
-            base = {"source": state["source"], "number": number, "detection_id": state["detection_id"], "key_id": key["id"] if key else None}
+            base = {
+                "source": state["source"],
+                "number": number,
+                "detection_id": state["detection_id"],
+                "key_id": key["id"] if key else None,
+            }
             if not state["detection"] or state["detection"].get("failure"):
                 issues.append({**base, "kind": "image", "label": "ภาพอ่านไม่ได้ · ตรวจภาพต้นฉบับ"})
                 continue
-            candidate = (state["detection"].get("student_number_observation") or {}).get("candidate")
+            candidate = (state["detection"].get("student_number_observation") or {}).get(
+                "candidate"
+            )
             if not number or numbers.count(int(number)) > 1 or (maximum and int(number) > maximum):
-                reason = "ยังไม่ยืนยันเลขที่" if not number else "เลขที่ซ้ำ" if numbers.count(int(number)) > 1 else "เลขที่เกินช่วง"
-                choices = (state["detection"].get("student_number_observation") or {}).get("candidates", [])
+                if not number:
+                    status = "uncertain"
+                    reason = "ยังไม่ยืนยันเลขที่"
+                elif numbers.count(int(number)) > 1:
+                    status = "duplicate"
+                    reason = "เลขที่ซ้ำ"
+                else:
+                    status = "out_of_range"
+                    reason = "เลขที่เกินช่วง"
+                choices = (state["detection"].get("student_number_observation") or {}).get(
+                    "candidates", []
+                )
                 if not candidate and choices:
                     reason += " · อาจเป็น " + " / ".join(choices)
-                issues.append({**base, "kind": "number", "label": reason, "candidate": candidate})
+                issues.append({**base, "kind": "number", "status": status, "label": reason, "candidate": candidate})
             if number and attendance.get(int(number)) in {"absent", "excused"}:
-                issues.append({**base, "kind": "attendance", "label": "พบภาพหลังระบุขาดสอบ", "candidate": "pending"})
+                issues.append(
+                    {
+                        **base,
+                        "kind": "attendance",
+                        "label": "พบภาพหลังระบุขาดสอบ",
+                        "candidate": "pending",
+                    }
+                )
             if key:
                 if state["review"] and state["review"]["key_id"] != key["id"]:
-                    issues.append({**base, "kind": "stale", "label": "เฉลยเปลี่ยน · ยืนยันใช้คำตอบเดิมอีกครั้ง"})
+                    issues.append(
+                        {**base, "kind": "stale", "label": "เฉลยเปลี่ยน · ยืนยันใช้คำตอบเดิมอีกครั้ง"}
+                    )
                 else:
                     for index, answer in enumerate(self.answers(state, key), 1):
                         if answer is None:
                             observation = state["detection"].get("answers", [])
-                            selected = observation[index - 1].get("selected", []) if index <= len(observation) else []
-                            issues.append({**base, "kind": "answer", "question": index, "label": f"ข้อ {index} · รอยคำตอบไม่ชัด", "candidate": selected[0] if len(selected) == 1 else None})
+                            selected = (
+                                observation[index - 1].get("selected", [])
+                                if index <= len(observation)
+                                else []
+                            )
+                            issues.append(
+                                {
+                                    **base,
+                                    "kind": "answer",
+                                    "question": index,
+                                    "label": f"ข้อ {index} · รอยคำตอบไม่ชัด",
+                                    "candidate": selected[0] if len(selected) == 1 else None,
+                                }
+                            )
         # A sparse upload is not a roster. Only explicit expected ranges create gaps.
         bound = maximum or 0
         for number in range(1, bound + 1):
-            if number not in numbers and number not in skipped and attendance.get(number, "pending") == "pending":
-                issues.append({"source": None, "number": str(number), "kind": "attendance", "label": "ยังไม่พบกระดาษ · ระบุสถานะ", "candidate": "pending"})
+            if (
+                number not in numbers
+                and number not in skipped
+                and attendance.get(number, "pending") == "pending"
+            ):
+                issues.append(
+                    {
+                        "source": None,
+                        "number": str(number),
+                        "kind": "attendance",
+                        "status": "missing",
+                        "label": "ยังไม่พบกระดาษ · ระบุสถานะ",
+                        "candidate": "pending",
+                    }
+                )
         for failure in self.importer.list_failures(exam_id):
-            issues.append({"source": None, "number": None, "kind": "import", "label": "นำเข้าไม่ได้ · " + failure["error"], "failure": failure})
-        return sorted(issues, key=lambda i: (int(i["number"]) if i["number"] else 10**9, i.get("question", 0)))
+            issues.append(
+                {
+                    "source": None,
+                    "number": None,
+                    "kind": "import",
+                    "label": "นำเข้าไม่ได้ · " + failure["error"],
+                    "failure": failure,
+                }
+            )
+        return sorted(
+            issues, key=lambda i: (int(i["number"]) if i["number"] else 10**9, i.get("question", 0))
+        )

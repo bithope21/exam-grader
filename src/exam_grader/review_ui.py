@@ -8,6 +8,7 @@ import numpy as np
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
@@ -29,7 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from exam_grader.imaging import decode, template
+from exam_grader.imaging import decode
 from exam_grader.imports import ImportService
 from exam_grader.review_service import ReviewService
 from exam_grader.workflow import Workflow
@@ -43,13 +45,21 @@ def key_answer_text(answer) -> str:
     return ""
 
 
-def parse_key_answer(value: str) -> str | list[str]:
+THAI_TO_CANONICAL = {"ก": "A", "ข": "B", "ค": "C", "ง": "D", "จ": "E"}
+
+
+def parse_key_answer(value: str, choice_count: int = 5) -> str | list[str]:
     choices = []
-    for char in value.upper().replace("/", ",").replace(" ", "").split(","):
+    valid_choices = "ABCDE"[:choice_count]
+    for raw in value.replace("/", ",").replace(" ", "").split(","):
+        if not raw:
+            continue
+        char = THAI_TO_CANONICAL.get(raw, raw.upper())
         if char and char not in choices:
             choices.append(char)
-    if not choices or any(char not in "ABCDE" for char in choices):
-        raise ValueError("เฉลยต้องเป็น A–E หรือหลายตัวเลือกคั่นด้วยจุลภาค")
+    if not choices or any(char not in valid_choices for char in choices):
+        thai_part = f" (หรือ ก–{'กขคงจ'[choice_count - 1]})" if choice_count <= 5 else ""
+        raise ValueError(f"เฉลยต้องเป็น A–{valid_choices[-1]}{thai_part} หรือหลายตัวเลือกคั่นด้วยจุลภาค")
     return choices[0] if len(choices) == 1 else choices
 
 
@@ -67,7 +77,10 @@ class FitImage(QWidget):
         self.label.setMinimumSize(1, 1)
         self.label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.label.setStyleSheet("background: #f2f2f2;")
+        from exam_grader.preferences import is_dark_mode
+
+        dark = is_dark_mode(QApplication.instance())
+        self.label.setStyleSheet("background: #0F172A;" if dark else "background: #F1F5F9;")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.label)
@@ -81,7 +94,9 @@ class FitImage(QWidget):
         if self.width() < 2 or self.height() < 2:
             return
         pixmap = QPixmap.fromImage(self.image).scaled(
-            self.label.size(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+            self.label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
         )
         self.label.setPixmap(pixmap)
 
@@ -107,9 +122,7 @@ class ReviewDialog(QDialog):
         self.setWindowTitle("ตรวจเฉลย" if self.key_mode else "ตรวจทานคำตอบนักเรียน")
         self.resize(1180, 850)
         layout = QVBoxLayout(self)
-        notice = QLabel(
-            "แก้ไขข้อมูลได้ทุกข้อ · ระบบส่งเฉพาะข้อมูลที่ยังมีปัญหาไปแท็บตรวจทาน"
-        )
+        notice = QLabel("แก้ไขข้อมูลได้ทุกข้อ · ระบบส่งเฉพาะข้อมูลที่ยังมีปัญหาไปแท็บตรวจทาน")
         self.notice = notice
         notice.setWordWrap(True)
         notice.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
@@ -117,13 +130,15 @@ class ReviewDialog(QDialog):
         body = QHBoxLayout()
         original = decode(ImportService(database).verified_bytes(source))
         tabs = QTabWidget()
+        from exam_grader.template_manager import load_exam_template_def
+
+        self.template_def = load_exam_template_def(database, source["exam_id"])
         detection = self.flow.latest_detection(source["id"])
         if detection and "registration" in detection:
-            geometry = template()
             aligned = cv2.warpPerspective(
                 original,
                 np.asarray(detection["registration"]["matrix"], dtype=np.float64),
-                (geometry["width"], geometry["height"]),
+                (self.template_def.canonical_width, self.template_def.canonical_height),
                 borderValue=(255, 255, 255),
             )
             tabs.addTab(image_widget(aligned), "ภาพจัดแนว (หลัก)")
@@ -142,17 +157,19 @@ class ReviewDialog(QDialog):
         if not self.key_mode:
             controls.addWidget(QLabel("เลขที่ (ตรวจจากภาพต้นฉบับ)"))
             controls.addWidget(self.number)
-            number_observation = ((self.flow.latest_detection(source["id"]) or {}).get("student_number_observation") or {})
+            number_observation = (self.flow.latest_detection(source["id"]) or {}).get(
+                "student_number_observation"
+            ) or {}
             candidate = number_observation.get("candidate")
             candidates = number_observation.get("candidates") or []
             if candidate and candidates == [candidate]:
                 suggested_candidate = candidate
                 hint = QLabel(f"ผู้ช่วยอ่านได้: {candidate} · ยังไม่ยืนยัน")
-                hint.setStyleSheet("color: #8a4b08;")
+                hint.setProperty("role", "warning")
                 controls.addWidget(hint)
             elif candidates:
                 hint = QLabel(f"ผู้ช่วยอ่านได้หลายแบบ: {' / '.join(candidates)} · ต้องตรวจทาน")
-                hint.setStyleSheet("color: #8a4b08;")
+                hint.setProperty("role", "warning")
                 controls.addWidget(hint)
         self.count = QSpinBox()
         self.count.setRange(1, 60)
@@ -176,7 +193,13 @@ class ReviewDialog(QDialog):
         tabs.setMinimumWidth(280)
         self.combos = []
         previous = None if self.key_mode else self.flow.latest_review(source["id"])
-        partial = [] if self.key_mode else ReviewService(database).answers(ReviewService(database).state(source), self.key or {})
+        partial = (
+            []
+            if self.key_mode
+            else ReviewService(database).answers(
+                ReviewService(database).state(source), self.key or {}
+            )
+        )
         approved_for_source = None
         if self.key_mode:
             try:
@@ -193,6 +216,9 @@ class ReviewDialog(QDialog):
                 self.number.setText(identity)
             elif suggested_candidate:
                 self.number.setText(suggested_candidate)
+        canonical_labels = self.template_def.choice_labels
+        display_labels = self.template_def.display_choice_labels
+
         for index in range(60):
             item = QTableWidgetItem(str(index + 1))
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -237,19 +263,18 @@ class ReviewDialog(QDialog):
             editor: QLineEdit | QComboBox
             if self.key_mode:
                 editor = QLineEdit(key_answer_text(selected_value))
-                editor.setPlaceholderText("A หรือ A,B (ยอมรับหลายข้อ)")
-                editor.setToolTip("พิมพ์ A–E หนึ่งตัว หรือหลายตัวคั่นด้วยจุลภาค เช่น A,B")
+                editor.setPlaceholderText(
+                    f"{canonical_labels[0]} หรือ {canonical_labels[0]},{canonical_labels[1]}"
+                )
+                labels_str = f"A–{canonical_labels[-1]}"
+                thai_str = f" (หรือ ก–{display_labels[-1]})" if display_labels else ""
+                editor.setToolTip(f"พิมพ์ {labels_str}{thai_str} หนึ่งตัว หรือหลายตัวคั่นด้วยจุลภาค")
             else:
                 editor = QComboBox()
                 editor.addItem("— เลือกคำตอบ —", None)
-                for label, value in (
-                    ("ก / A", "A"),
-                    ("ข / B", "B"),
-                    ("ค / C", "C"),
-                    ("ง / D", "D"),
-                    ("จ / E", "E"),
-                ):
-                    editor.addItem(label, value)
+                for d_lbl, c_lbl in zip(display_labels, canonical_labels):
+                    combo_text = f"{d_lbl} / {c_lbl}" if d_lbl != c_lbl else c_lbl
+                    editor.addItem(combo_text, c_lbl)
                 editor.addItem("เว้นว่าง (0 คะแนน)", "blank")
                 editor.addItem("หลายคำตอบ (0 คะแนน)", "multiple")
                 editor.addItem("คาบเส้นสองช่อง (0 คะแนน)", "boundary_cross")
@@ -259,8 +284,12 @@ class ReviewDialog(QDialog):
         self.count.valueChanged.connect(self.update_rows)
         self.update_rows()
         unresolved = []
-        for i, editor in enumerate(self.combos[:self.count.value()]):
-            value = editor.text() if isinstance(editor, QLineEdit) else cast(QComboBox, editor).currentData()
+        for i, editor in enumerate(self.combos[: self.count.value()]):
+            value = (
+                editor.text()
+                if isinstance(editor, QLineEdit)
+                else cast(QComboBox, editor).currentData()
+            )
             if value is None or (isinstance(value, str) and not value.strip()):
                 unresolved.append(i)
         if self.key_mode:
@@ -278,20 +307,23 @@ class ReviewDialog(QDialog):
                     + " · ตรวจภาพและยืนยันเพื่อไปนักเรียน"
                 )
             )
+        from exam_grader.preferences import is_dark_mode
+
+        dark = is_dark_mode(QApplication.instance())
+        pending_bg = QColor("#451A03") if dark else QColor("#FEF3C7")
+        pending_fg = QColor("#FDE68A") if dark else QColor("#92400E")
         for index in unresolved:
             for column in (0, 1):
                 pending_item = self.table.item(index, column)
                 if pending_item is not None:
-                    pending_item.setBackground(QColor("#fff0cd"))
-                    pending_item.setForeground(QColor("#503800"))
+                    pending_item.setBackground(pending_bg)
+                    pending_item.setForeground(pending_fg)
         if unresolved:
             first_pending = self.table.item(unresolved[0], 0)
             if first_pending is not None:
                 QTimer.singleShot(0, lambda: self.table.scrollToItem(first_pending))
         controls.addWidget(self.table, 1)
-        self.confirmed = QCheckBox(
-            "ยืนยันข้อมูลและการแก้ไขนี้"
-        )
+        self.confirmed = QCheckBox("ยืนยันข้อมูลและการแก้ไขนี้")
         controls.addWidget(self.confirmed)
         splitter.addWidget(controls_widget)
         splitter.setStretchFactor(0, 1)
@@ -300,13 +332,35 @@ class ReviewDialog(QDialog):
         body.addWidget(splitter)
         layout.addLayout(body, 1)
         buttons = QDialogButtonBox()
+        if not self.key_mode:
+            delete_btn = QPushButton("🗑️ ลบกระดาษนี้…")
+            delete_btn.setProperty("destructive", True)
+            delete_btn.clicked.connect(self._archive_this_sheet)
+            buttons.addButton(delete_btn, QDialogButtonBox.ButtonRole.ActionRole)
         buttons.addButton(
-            "ยืนยันเฉลย" if self.key_mode else "บันทึกการตรวจทาน", QDialogButtonBox.ButtonRole.AcceptRole
+            "ยืนยันเฉลย" if self.key_mode else "บันทึกการตรวจทาน",
+            QDialogButtonBox.ButtonRole.AcceptRole,
         )
         buttons.addButton("ยกเลิก", QDialogButtonBox.ButtonRole.RejectRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _archive_this_sheet(self):
+        answer = QMessageBox.question(
+            self,
+            "ลบกระดาษนี้",
+            f"ต้องการลบกระดาษ {self.source['original_name']} ออกจากชุดตรวจหรือไม่?\n"
+            "ข้อมูลจะถูกนำออกจากรายการตรวจและผลลัพธ์ (สามารถกู้คืนได้ด้วยการนำเข้าไฟล์เดิมใหม่)",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            ImportService(self.flow.database).archive_source(self.source["id"])
+            self.reject()
+        except Exception as error:
+            QMessageBox.warning(self, "ลบกระดาษไม่ได้", str(error))
 
     def update_rows(self):
         for index in range(60):
@@ -317,11 +371,15 @@ class ReviewDialog(QDialog):
             QMessageBox.warning(self, "ยังไม่ยืนยัน", "โปรดตรวจภาพและยืนยันว่าตรวจครบแล้ว")
             return
         try:
-            if ReviewService(self.flow.database).state(self.source)["detection_id"] != self.observed_detection:
+            if (
+                ReviewService(self.flow.database).state(self.source)["detection_id"]
+                != self.observed_detection
+            ):
                 raise ValueError("ผลอ่านเปลี่ยนแล้ว กรุณาเปิดตรวจใหม่")
             if self.key_mode:
+                choice_count = self.template_def.choice_count if self.template_def else 5
                 key_answers: list[object] = [
-                    parse_key_answer(cast(QLineEdit, editor).text())
+                    parse_key_answer(cast(QLineEdit, editor).text(), choice_count=choice_count)
                     for editor in self.combos[: self.count.value()]
                 ]
             else:
@@ -330,13 +388,31 @@ class ReviewDialog(QDialog):
                     for editor in self.combos[: self.count.value()]
                 ]
             answers_for_validation = key_answers if self.key_mode else student_answers
-            missing = next((index + 1 for index, answer in enumerate(answers_for_validation) if answer is None), None)
+            missing = next(
+                (
+                    index + 1
+                    for index, answer in enumerate(answers_for_validation)
+                    if answer is None
+                ),
+                None,
+            )
             if missing is not None:
                 raise ValueError(f"กรุณาเลือกคำตอบข้อ {missing} ให้ครบก่อนบันทึก")
             if self.key_mode:
-                self.flow.approve_key(self.source["exam_id"], key_answers, self.source["id"], detection_id=self.observed_detection)
+                self.flow.approve_key(
+                    self.source["exam_id"],
+                    key_answers,
+                    self.source["id"],
+                    detection_id=self.observed_detection,
+                )
             else:
-                self.flow.review(self.source["id"], self.number.text(), student_answers, (self.key or {})["id"], detection_id=self.observed_detection)
+                self.flow.review(
+                    self.source["id"],
+                    self.number.text(),
+                    student_answers,
+                    (self.key or {})["id"],
+                    detection_id=self.observed_detection,
+                )
         except (ValueError, OSError, sqlite3.Error) as error:
             QMessageBox.warning(self, "บันทึกไม่ได้", str(error))
             return

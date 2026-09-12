@@ -1,13 +1,36 @@
+# Virtual Environment & Python Caches
 .venv/
 __pycache__/
+*.py[cod]
+*$py.class
+
+# Testing & Type Checking
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-build/
-dist/
+
+# Build & Packaging outputs (NEVER commit binaries or installers to git history)
+/build/
+/dist/
 *.egg-info/
+*.dmg
+*.exe
+*.pkg
+*.zip
+*.tar.gz
+*.iso
+
+# Database & Runtime artifacts
 *.sqlite3
 *.sqlite3-*
-docs/evidence/local/
 results/
 input/
+
+# OS Specific
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# Heavy local evidence, debug runs, and test outputs (1.6GB+)
+docs/evidence/
+
