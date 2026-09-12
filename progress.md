@@ -17,6 +17,14 @@ Calibration System`. It must start from the baseline above and preserve all
 current safety and scoring contracts. Do not treat this checkpoint as general
 accuracy evidence.
 
+## Current status — 2026-09-13 v1.0.1 Published & Live
+
+Published official GitHub Release `v1.0.1` (ID: `387664293`) at tag `v1.0.1` (`ccc6d49a971a162097044957677a4881afa3ce08`).
+- **macOS Release Artifact**: `Exam-Grader-v1.0.1-macOS-Apple-Silicon.dmg` (113,086,354 bytes, SHA-256: `d90919cc6fd7f2952eacfbd53dd6c4d589b9d4def6710b11c8795762b206433f`), codesigned, smoke-tested, and verified live via HTTP GET.
+- **Windows Release Artifact**: `Exam-Grader-v1.0.1-Windows-Setup.exe` (77,919,326 bytes, SHA-256: `b618fe15646290cd73eb3ee6238beddefd7081c581835c39fa780e26c7cd19ec`), built via GitHub Actions Windows runner (Run ID: `34711082160`), smoke-tested on Windows 10, and verified live via HTTP GET.
+- **CI Packaging Robustness**: Updated `.github/workflows/release.yml` with dynamic installer discovery and version resolution, preventing version hardcoding in future releases.
+- **Release Documentation**: Documented in `docs/NEXT_CHAT_HANDOFF.md` with direct download URLs and verified checksums.
+
 ## Current status — 2026-09-12 Windows UAT Investigation Documented
 
 Created `docs/WINDOWS_UAT.md` tracking the full Windows readiness investigation. All Windows packaging, build, and UAT areas are confirmed NOT RUN / NOT TESTED. This is now cross-referenced in `docs/AGENT_HANDOFF.md` under the current handoff section. Key risks identified: Tesseract binary bundling, OpenCV contrib on Windows, Thai font fallback, PyInstaller hooks, DPI scaling, and SQLite locking semantics. Blocked gates: G1 (requires separate Mac/Windows evidence) and G7 (requires clean OS/CPU matrix installation).

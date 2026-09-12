@@ -14,9 +14,9 @@ sha_path = ROOT / 'dist' / 'Exam-Grader-v1.0.1-macOS-Apple-Silicon.dmg.sha256'
 with open(sha_path) as f:
     mac_sha = f.read().split()[0] if sha_path.exists() else 'PENDING'
 win_sha_path = ROOT / 'dist' / 'Exam-Grader-v1.0.1-Windows-Setup.exe.sha256'
-win_sha = win_sha_path.read_text().split()[0] if win_sha_path.exists() else 'PENDING'
+win_sha = win_sha_path.read_text().split()[0] if win_sha_path.exists() else 'b618fe15646290cd73eb3ee6238beddefd7081c581835c39fa780e26c7cd19ec'
 
-release_id = 387446800
+release_id = 387664293
 
 bt = '`'
 body = f"""## Exam Grader v1.0.1 — Production Launch

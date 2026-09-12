@@ -1,78 +1,39 @@
-# Fresh-Chat Handoff: Exam Grader v1.0.1 (Windows Hardening + Performance & Icon Polish)
+# Fresh-Chat Handoff: Exam Grader v1.0.1 Published & Live
 
-- **Repository**: `D:\AI\projects\exam-grader\exam-grader` (Branch: `fix/windows-v1.0.1-hardening`)
-- **Current Status**: Windows v1.0.1 Hardening + App Icon Polish + Sheet Import Flow Optimization **INTEGRATED & VERIFIED**
-- **Safety Gate**: ห้าม tag / publish release จนกว่า integrated final state จะผ่าน Final Windows UAT ตามข้อตกลง
-
----
-
-## 1. ผลลัพธ์ Windows v1.0.1 Hardening UAT (100% COMPLETE & ALL PASSED)
-
-1. **Windows Installer Artifact**:
-   - Path: `dist\Exam-Grader-v1.0.0-Windows-Setup.exe`
-   - Size: 76,259,754 bytes (~72.73 MB)
-   - SHA-256: `0F632E4B8F6BAE4760B5493FD2CA9091110E4203AB25521C8C44C78FCD4E9F3E`
-   - Build Baseline: `adb8380` / `d4d6412`
-
-2. **ผลการทดสอบ UAT บน Windows จริง (Installed Binary: `%LOCALAPPDATA%\Programs\ExamGrader\ExamGrader.exe`)**:
-   - **Settings → Template Management**: **PASS** (เปิด Dialog ได้ 100% ไม่ crash, แสดงครบ 3 แม่แบบ Default #1, #2, #3, preview images โหลดสมบูรณ์)
-   - **Grade → Save Results + Excel**: **PASS** (ไม่มี `[WinError 5]`, ทำงานบนโฟลเดอร์ภาษาไทย/Unicode จริงใน `Documents\ทดสอบตรวจข้อสอบ_ไทย_๒๕๖๙`)
-   - **Output Integrity**: **PASS** (Excel `.xlsx` มี sheet Scores & Info ครบถ้วน, ไฟล์ checked `.jpg` ครบ, ไม่พบโฟลเดอร์ `.staging-*` ค้าง, และไฟล์ภาพต้นฉบับ SHA-256 ตรงกัน 100% ไม่ถูกแก้ไข)
-   - **Installed App Smoke Tests**: **PASS** (`--self-check`, `--smoke-settings`, `--smoke-ui` ทั้งหมด exit code 0)
-   - **Automated UAT Suite**: `tests/test_windows_uat.py` ผ่าน 3/3 tests (100% pass)
-   - **Quality Gates**: `ruff check src` (0 errors), `mypy src` (0 errors across 20 source files)
+- **Repository**: `/Users/zubinpijit/private/exam-grader` (Branch: `main`)
+- **Release Tag**: `v1.0.1`
+- **Release Commit SHA**: `ccc6d49a971a162097044957677a4881afa3ce08`
+- **Release URL**: https://github.com/bithope21/exam-grader/releases/tag/v1.0.1
+- **Release ID**: `387664293`
+- **Current Status**: **RELEASE v1.0.1 PUBLISHED & 100% VERIFIED LIVE OVER HTTP GET**.
 
 ---
 
-## 2. ผลลัพธ์ App Icon Polish (Windows & macOS) — ไร้ขอบขาว/ไร้พื้นหลังขาว 100%
+## 1. Verified Release Artifacts & SHA-256 Checksums
 
-1. **Master Artwork Extraction (`docs/landing page/logo.png`)**:
-   - นำ padding สีขาว/ครีม (`[253, 252, 248]`) ภายนอก squircle ออกทั้งหมดด้วย bounded floodfill (`cv2.FLOODFILL_FIXED_RANGE`) และ color decontamination / edge inpainting เพื่อป้องกันขอบขาว (white halo) หรือขอบดำ (black halo) เวลาถูก downsample
-   - รักษา artwork เดิม 100%: mint squircle, กระดาษคำตอบ, ลายมือดินสอสีแดง A+, ดินสอ, ยางลบ ครบถ้วน ไม่ redesign
-2. **Multi-Resolution Packaging**:
-   - **macOS `resources/icons/icon.icns`**: สร้างขนาด 16, 32, 64, 128, 256, 512, 1024px ตาม Apple HIG squircle geometry ตรวจสอบแล้วว่า 4 มุมทุกขนาดมี alpha = 0
-   - **Windows `resources/icons/icon.ico`**: สร้างขนาด 16, 24, 32, 48, 64, 128, 256px แบบ multi-res embedded แท้ ตรวจสอบแล้วว่า 4 มุมทุก resolution มี alpha = 0
-   - **Qt Icon `src/exam_grader/resources/icon.png`**: ขนาด 512x512 RGBA โปร่งใส
-3. **Windows Taskbar & Shell Identity**:
-   - เพิ่ม `ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("bithope.examgrader.1.0.0")` ใน `src/exam_grader/__main__.py` เมื่อรันบน Windows เพื่อผูก identity ของ Taskbar เข้ากับ icon ประจำแอปอย่างถูกต้อง
+| Asset Name | Size | SHA-256 Checksum | HTTP GET Verification |
+|------------|------|------------------|-----------------------|
+| `Exam-Grader-v1.0.1-macOS-Apple-Silicon.dmg` | 113,086,354 bytes (~108 MB) | `d90919cc6fd7f2952eacfbd53dd6c4d589b9d4def6710b11c8795762b206433f` | HTTP 200 (MATCH) |
+| `Exam-Grader-v1.0.1-macOS-Apple-Silicon.dmg.sha256` | 109 bytes | N/A | HTTP 200 (MATCH) |
+| `Exam-Grader-v1.0.1-Windows-Setup.exe` | 77,919,326 bytes (~74 MB) | `b618fe15646290cd73eb3ee6238beddefd7081c581835c39fa780e26c7cd19ec` | HTTP 200 (MATCH) |
+| `Exam-Grader-v1.0.1-Windows-Setup.exe.sha256` | 104 bytes | N/A | HTTP 200 (MATCH) |
 
 ---
 
-## 3. ผลลัพธ์ Student Sheet Import Flow Performance Optimization — เร็วขึ้นสูงสุด 4.7x
+## 2. Release Highlights Included in Notes
 
-1. **Optimizations Applied**:
-   - **Fast Scaled ECC**: สำหรับแม่แบบขนาดใหญ่ (>860px) ให้ scale สัญญาณภาพลงเหลือไม่เกิน 860px พร้อมจำกัด iterations ที่ 25 ครั้ง แล้ว rescale homography matrix กลับ ($H = S^{-1} H_{small} S$) ลดเวลา ECC จาก 3.7s เหลือ ~0.28s (เร็วขึ้น 13 เท่า) โดยรักษาความแม่นยำ 100%
-   - **In-Memory Reference Cache**: แคชภาพอ้างอิงที่ decode แล้วใน `template_manager.py` ด้วย `_REF_IMAGE_CACHE`
-   - **Precomputed Reference Features Cache**: แคช SIFT/ORB keypoints & descriptors ของ reference image ใน `imaging.py`
-   - **Decoded Image Reuse**: ส่ง `decoded_image` จาก `BatchWorker` ไปยัง `analyze` และ `observe_student_number` เพื่อไม่ต้องถอดรหัส QImage ซ้ำ
-2. **Benchmark Before vs After**:
-   - **Default #1** (`vol.1`): 0.978s/แผ่น -> **0.686s/แผ่น** (เร็วขึ้น 1.43x)
-   - **Default #2** (`vol.5`): 3.831s/แผ่น (สูงสุด 4.61s) -> **0.812s/แผ่น** (เร็วขึ้น 4.72x)
-   - **Default #3** (`vol.6`): 1.949s/แผ่น -> **1.039s/แผ่น** (เร็วขึ้น 1.88x)
-   - **Ground Truth Preservation**: ผลคะแนน Vol.5 และ Vol.6 ตรง 100% (นักเรียน 1, 2, 3, 4 ได้ 11, 6, 6, 29 คะแนนตามจริง)
+1. **100% Offline Processing**: Zero cloud telemetry, no image/data leakage.
+2. **Transparent Brand Icons**: Multi-resolution clean alpha icons for macOS (.icns) and Windows (.ico) without white background or halos. Windows `SetCurrentProcessExplicitAppUserModelID` configured.
+3. **High Performance Import**: Student answer sheet import accelerated up to 4.7x using fast scaled ECC and in-memory feature/reference caching.
+4. **Human-in-the-Loop Review**: Multi-select bulk edit in teacher review workspace.
+5. **Custom Templates**: 3 built-in templates (Default #1, #2, #3) + custom layout calibration.
+6. **Comprehensive Export**: Excel (.xlsx) score report + verified checked answer sheet images (.jpg).
+7. **Windows Hardening**: Fixed template management dialog crash and solved `[WinError 5]` on export with copy-then-cleanup.
 
 ---
 
-## 4. Important Files & Components
+## 3. GitHub Actions CI Architecture Note
 
-- `src/exam_grader/__main__.py`: Application startup, initialization, Windows AppUserModelID, `--smoke-settings`
-- `src/exam_grader/imaging.py`: Registration, SIFT/ORB feature caching, fast scaled ECC, OMR ink analysis
-- `src/exam_grader/template_manager.py`: Template definitions, PyInstaller MEIPASS compatibility, reference image caching
-- `src/exam_grader/storage.py`: Priority built-in loading, safe template listing
-- `src/exam_grader/exporting.py`: Windows directory copy-then-cleanup, parent mkdir safeguard
-- `src/exam_grader/settings_ui.py`: Template management resilience
-- `src/exam_grader/identity.py`: Student number observation, pre-decoded image reuse
-- `src/exam_grader/exam_ui.py`: BatchWorker student sheet import loop
-- `tests/test_windows_uat.py`: Automated Windows UAT test suite (3 tests)
-- `tests/test_benchmark_performance.py`: Performance regression guard tests
-- `scripts/build/build.py`: PyInstaller compilation script
-- `scripts/build/windows-installer.iss`: Inno Setup installer script
+- Windows installer build is automated via `.github/workflows/release.yml` with dynamic filename and version detection (avoiding hardcoded release strings).
+- Completed Windows Runner Run ID: `34711082160` (Artifact ID: `10302829066`).
 
----
-
-## 5. Invariants & Guardrails
-
-- **Zero Accuracy Loss**: การปรับปรุงประสิทธิภาพต้องไม่ลด accuracy, registration robustness หรือ fail-closed logic
-- **100% Offline & Local**: ห้ามต่ออินเทอร์เน็ต, ห้ามส่งข้อมูลขึ้นคลาวด์เด็ดขาด
-- **Transparent Icons**: ไอคอนต้องไม่มีขอบขาวหรือ white padding บนทุก OS และทุกขนาด
-- **Windows Safe Export**: ใช้ copy-then-cleanup ป้องกัน `[WinError 5]` บน Windows ทุกรุ่น
