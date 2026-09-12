@@ -1,4 +1,5 @@
-"""Offline exam grading desktop application for teachers."""
+"""Offline Exam Grader desktop foundation."""
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
+
 

@@ -4,8 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_PATH="$DIST_DIR/ExamGrader.app"
-DMG_NAME="Exam-Grader-v1.0.0-macOS-Apple-Silicon.dmg"
+DMG_NAME="Exam-Grader-v1.0.1-macOS-Apple-Silicon.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
+VOLUME_NAME="Exam Grader"
 TEMP_DMG_DIR="$DIST_DIR/dmg_temp"
 
 if [ ! -d "$APP_PATH" ]; then
@@ -13,9 +14,9 @@ if [ ! -d "$APP_PATH" ]; then
     exit 1
 fi
 
-echo "Setting bundle version in Info.plist..."
-plutil -replace CFBundleShortVersionString -string "1.0.0" "$APP_PATH/Contents/Info.plist" || true
-plutil -replace CFBundleVersion -string "1.0.0" "$APP_PATH/Contents/Info.plist" || true
+echo "==> Preparing Info.plist versioning..."
+plutil -replace CFBundleShortVersionString -string "1.0.1" "$APP_PATH/Contents/Info.plist" || true
+plutil -replace CFBundleVersion -string "1.0.1" "$APP_PATH/Contents/Info.plist" || true
 
 echo "Preparing temporary DMG folder..."
 rm -rf "$TEMP_DMG_DIR" "$DMG_PATH"

@@ -6,6 +6,7 @@ do not regress and that caching of reference assets and features functions corre
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 
@@ -49,7 +50,7 @@ def test_reference_image_and_features_caching():
 
 
 def test_default2_registration_performance_regression():
-    """Verify that Default #2 (1200x1720) registration and analysis stays well below 1.5s/sheet."""
+    """Verify that Default #2 (1200x1720) registration and analysis stays well below threshold."""
     vol5_dir = Path("tests/fixtures/real/vol.5")
     if not vol5_dir.exists():
         pytest.skip("vol.5 fixture not available")
@@ -69,13 +70,14 @@ def test_default2_registration_performance_regression():
         assert res["registration"]["table_coverage"] >= 0.995
 
     avg_time = sum(timings) / len(timings)
-    # Regression guard: Previous unoptimized code took 4.1s to 4.6s per sheet.
-    # Optimized code runs in ~0.4s to 0.5s per sheet. We bound at 1.5s to prevent any regression.
-    assert avg_time < 1.5, f"Default #2 average analysis time regressed: {avg_time:.3f}s >= 1.5s"
+    # Regression guard: Previous unoptimized code took 4.1s to 4.6s on Apple Silicon, and 30s+ on older x86 CPUs.
+    # We bound at 1.5s on darwin, and 4.5s on other platforms (e.g. win32 x86 laptop CPUs) to prevent regression back to 30s+.
+    limit = 1.5 if sys.platform == "darwin" else 4.5
+    assert avg_time < limit, f"Default #2 average analysis time regressed: {avg_time:.3f}s >= {limit}s"
 
 
 def test_default1_registration_performance_regression():
-    """Verify that Default #1 analysis stays well below 1.0s/sheet."""
+    """Verify that Default #1 analysis stays well below threshold."""
     vol1_dir = Path("tests/fixtures/real/vol.1")
     if not vol1_dir.exists():
         pytest.skip("vol.1 fixture not available")
@@ -94,5 +96,30 @@ def test_default1_registration_performance_regression():
         assert res["registration"]["table_coverage"] >= 0.995
 
     avg_time = sum(timings) / len(timings)
-    # Regression guard: Must remain under 0.8s per sheet
-    assert avg_time < 0.8, f"Default #1 average analysis time regressed: {avg_time:.3f}s >= 0.8s"
+    limit = 0.8 if sys.platform == "darwin" else 2.5
+    assert avg_time < limit, f"Default #1 average analysis time regressed: {avg_time:.3f}s >= {limit}s"
+
+
+def test_default3_registration_performance_regression():
+    """Verify that Default #3 (vol.6) analysis stays well below threshold and maintains accuracy."""
+    vol6_dir = Path("tests/fixtures/real/vol.6")
+    if not vol6_dir.exists():
+        pytest.skip("vol.6 fixture not available")
+
+    t3 = load_builtin_template("default-3")
+    sheet_files = ["IMG_0911.JPG", "IMG_0912.JPG", "IMG_0913.JPG", "IMG_0914.JPG"]
+
+    timings = []
+    for fname in sheet_files:
+        data = (vol6_dir / fname).read_bytes()
+        img = decode(data)
+        t0 = time.perf_counter()
+        res = analyze(data, template_def=t3, decoded_image=img)
+        elapsed = time.perf_counter() - t0
+        timings.append(elapsed)
+        assert res["registration"]["table_coverage"] >= 0.995
+
+    avg_time = sum(timings) / len(timings)
+    limit = 1.2 if sys.platform == "darwin" else 3.5
+    assert avg_time < limit, f"Default #3 average analysis time regressed: {avg_time:.3f}s >= {limit}s"
+

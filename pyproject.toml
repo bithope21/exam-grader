@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "exam-grader"
-version = "1.0.0"
-description = "Offline exam grading desktop application for teachers"
+version = "1.0.1"
+description = "Desktop exam grading application foundation for teachers"
 requires-python = ">=3.11,<3.14"
 dependencies = ["PySide6>=6.8,<7", "platformdirs>=4,<5", "openpyxl>=3.1,<4", "opencv-python-headless>=4.10,<5", "numpy>=2,<3"]
 

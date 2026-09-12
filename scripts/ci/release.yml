@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag (e.g. v1.0.0)"
+        description: "Release tag (e.g. v1.0.1)"
         required: true
-        default: "v1.0.0"
+        default: "v1.0.1"
 
 permissions:
   contents: write
@@ -54,10 +54,11 @@ jobs:
       - name: Generate SHA-256 checksum
         shell: pwsh
         run: |
-          $file = "dist\Exam-Grader-v1.0.0-Windows-Setup.exe"
+          $file = (Get-ChildItem dist\Exam-Grader-*-Windows-Setup.exe | Select-Object -First 1).FullName
+          $filename = Split-Path -Leaf $file
           $hash = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLower()
-          "$hash  Exam-Grader-v1.0.0-Windows-Setup.exe" | Out-File -FilePath "$file.sha256" -Encoding utf8
-          Write-Host "SHA256: $hash"
+          "$hash  $filename" | Out-File -FilePath "$file.sha256" -Encoding utf8
+          Write-Host "SHA256 ($filename): $hash"
 
       - name: Upload Windows Installer to Release
         env:
@@ -66,4 +67,8 @@ jobs:
         shell: pwsh
         run: |
           $tag = $env:TAG_NAME
-          gh release upload $tag dist/Exam-Grader-v1.0.0-Windows-Setup.exe dist/Exam-Grader-v1.0.0-Windows-Setup.exe.sha256 --clobber
+          if ($tag -eq "main" -or $tag -eq "master" -or -not $tag) {
+            $tag = "v1.0.1"
+          }
+          $files = Get-ChildItem dist/Exam-Grader-*-Windows-Setup.exe* | ForEach-Object { $_.FullName }
+          gh release upload $tag @files --clobber

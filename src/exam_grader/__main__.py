@@ -66,7 +66,7 @@ def main() -> int:
 
         try:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                "bithope.examgrader.1.0.0"
+                "bithope.examgrader.1.0.1"
             )
         except Exception:
             pass
