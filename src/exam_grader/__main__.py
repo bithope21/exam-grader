@@ -61,6 +61,16 @@ def main() -> int:
     from exam_grader.preferences import apply_appearance_theme
     from exam_grader.ui import MainWindow
 
+    if sys.platform == "win32":
+        import ctypes
+
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "bithope.examgrader.1.0.0"
+            )
+        except Exception:
+            pass
+
     qt = QApplication(sys.argv[:1])
     apply_appearance_theme(qt)
 

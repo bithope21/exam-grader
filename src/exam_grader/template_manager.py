@@ -335,6 +335,14 @@ def load_builtin_template(template_id: str) -> TemplateDefinition:
     raise ValueError(f"ไม่พบแม่แบบในตัว: {template_id}")
 
 
+_REF_IMAGE_CACHE: dict[tuple[str, str, str | None], np.ndarray] = {}
+
+
+def clear_reference_image_cache() -> None:
+    """Clear in-memory cached reference images."""
+    _REF_IMAGE_CACHE.clear()
+
+
 def get_reference_image(
     template_def: TemplateDefinition,
     app_data_dir: Path | None = None,
@@ -345,11 +353,21 @@ def get_reference_image(
     If reference_override is provided, it is returned directly (used for in-memory previews).
     Built-ins are bundled inside the package resources.
     Custom templates are loaded from content-addressed storage in app_data_dir.
+    Verified images are cached in memory to avoid redundant disk I/O and decodes during batch grading.
     """
     if reference_override is not None:
         if not isinstance(reference_override, np.ndarray) or reference_override.size == 0:
             raise ValueError("ภาพอ้างอิง in-memory ไม่ถูกต้อง")
         return reference_override.copy()
+
+    cache_key = (
+        template_def.template_id,
+        template_def.reference_sha256,
+        str(app_data_dir.resolve()) if app_data_dir is not None else None,
+    )
+    cached = _REF_IMAGE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached.copy()
 
     if template_def.kind == "builtin":
         if template_def.template_id == "default-1":
@@ -377,7 +395,8 @@ def get_reference_image(
     image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError("อ่านไฟล์ภาพอ้างอิงไม่ได้")
-    return image
+    _REF_IMAGE_CACHE[cache_key] = image
+    return image.copy()
 
 
 def save_custom_reference_image(app_data_dir: Path, image_bytes: bytes) -> str:

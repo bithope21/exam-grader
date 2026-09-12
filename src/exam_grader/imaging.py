@@ -70,14 +70,22 @@ def template() -> dict:
     return json.loads(files("exam_grader").joinpath("resources/template.json").read_text())
 
 
+_DEFAULT1_REF_IMAGE: np.ndarray | None = None
+
+
 def reference_image() -> np.ndarray:
+    global _DEFAULT1_REF_IMAGE
+    if _DEFAULT1_REF_IMAGE is not None:
+        return _DEFAULT1_REF_IMAGE.copy()
     data = files("exam_grader").joinpath("resources/reference.png").read_bytes()
     if hashlib.sha256(data).hexdigest() != template()["reference_sha256"]:
         raise ValueError("ภาพอ้างอิงเสียหาย กรุณาติดตั้งแอปใหม่")
     image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise ValueError("อ่านภาพอ้างอิงไม่ได้")
-    return image
+    _DEFAULT1_REF_IMAGE = image
+    return image.copy()
+
 
 
 def decode(data: bytes) -> np.ndarray:
@@ -110,6 +118,16 @@ def cell_rect(
     return xs[choice] + 4, ys[row] + 4, xs[choice + 1] - xs[choice] - 8, ys[row + 1] - ys[row] - 8
 
 
+_REF_FEATURES_CACHE: dict[tuple[str, str, bool], tuple[tuple[cv2.KeyPoint, ...], np.ndarray]] = {}
+
+
+def clear_imaging_cache() -> None:
+    """Clear cached reference features and images."""
+    global _DEFAULT1_REF_IMAGE
+    _DEFAULT1_REF_IMAGE = None
+    _REF_FEATURES_CACHE.clear()
+
+
 def register(
     image: np.ndarray,
     *,
@@ -138,7 +156,27 @@ def register(
     working = cv2.resize(image, None, fx=scale, fy=scale) if scale < 1 else image
     extractor = cv2.SIFT.create(nfeatures=5000) if refined else cv2.ORB.create(nfeatures=5000)
     kp1, desc1 = extractor.detectAndCompute(cv2.cvtColor(working, cv2.COLOR_BGR2GRAY), None)
-    kp2, desc2 = extractor.detectAndCompute(cv2.cvtColor(reference, cv2.COLOR_BGR2GRAY), None)
+
+    # Reference feature caching avoids redundant 150-200ms SIFT / 20ms ORB extraction per sheet
+    if template_def is not None:
+        ref_key = (template_def.template_id, template_def.reference_sha256, refined)
+    elif reference_override is not None:
+        ref_key = ("override", str(id(reference_override)), refined)
+    else:
+        ref_key = ("default-1", template()["reference_sha256"], refined)
+
+    cached_ref = _REF_FEATURES_CACHE.get(ref_key)
+    if cached_ref is not None:
+        kp2_tuple, desc2 = cached_ref
+        kp2 = list(kp2_tuple)
+    else:
+        kp2_seq, desc2 = extractor.detectAndCompute(
+            cv2.cvtColor(reference, cv2.COLOR_BGR2GRAY), None
+        )
+        kp2 = list(kp2_seq)
+        if desc2 is not None:
+            _REF_FEATURES_CACHE[ref_key] = (tuple(kp2_seq), desc2)
+
     if desc1 is None or desc2 is None:
         raise RegistrationError(
             "หาตารางไม่พบ กรุณาตรวจภาพต้นฉบับ",
@@ -243,13 +281,30 @@ def register(
     try:
         if not refined:
             raise cv2.error("refinement not requested")
-        _, correction = cv2.findTransformECC(
-            form_signal(reference),
-            form_signal(aligned),
+        ref_sig = form_signal(reference)
+        ali_sig = form_signal(aligned)
+        max_dim = max(ref_sig.shape[:2])
+        if max_dim > 860:
+            ecc_scale = 860.0 / max_dim
+            s_ref = cv2.resize(ref_sig, None, fx=ecc_scale, fy=ecc_scale)
+            s_ali = cv2.resize(ali_sig, None, fx=ecc_scale, fy=ecc_scale)
+        else:
+            ecc_scale = 1.0
+            s_ref, s_ali = ref_sig, ali_sig
+
+        _, corr_small = cv2.findTransformECC(
+            s_ref,
+            s_ali,
             np.eye(3, dtype=np.float32),
             cv2.MOTION_HOMOGRAPHY,
-            (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 60, 1e-5),
+            (cv2.TERM_CRITERIA_COUNT | cv2.TERM_CRITERIA_EPS, 25, 1e-5),
         )
+        if ecc_scale < 1.0:
+            S = np.diag([ecc_scale, ecc_scale, 1.0])
+            correction = np.linalg.inv(S) @ corr_small @ S
+        else:
+            correction = corr_small
+
         corners = np.array(
             [
                 [
@@ -311,9 +366,10 @@ def analyze(
     refined: bool = False,
     app_data_dir: Path | None = None,
     reference_override: np.ndarray | None = None,
+    decoded_image: np.ndarray | None = None,
 ) -> dict:
     decode_started = perf_counter()
-    decoded = decode(data)
+    decoded = decoded_image if decoded_image is not None else decode(data)
     decode_seconds = perf_counter() - decode_started
     registration_started = perf_counter()
     try:
@@ -333,6 +389,7 @@ def analyze(
             refined=True,
             app_data_dir=app_data_dir,
             reference_override=reference_override,
+            decoded_image=decoded,
         )
     registration_seconds = perf_counter() - registration_started
 
@@ -478,6 +535,7 @@ def analyze(
                 refined=True,
                 app_data_dir=app_data_dir,
                 reference_override=reference_override,
+                decoded_image=decoded,
             )
             if sum(a["classification"] == "uncertain" for a in rescued["answers"]) < sum(
                 a["classification"] == "uncertain" for a in answers

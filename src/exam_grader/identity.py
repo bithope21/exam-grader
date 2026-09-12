@@ -79,9 +79,11 @@ def number_roi(
     *,
     top_padding: int = 0,
     template_def: TemplateDefinition | None = None,
+    image: np.ndarray | None = None,
 ) -> np.ndarray:
     """Return a high-resolution ROI crop in canonical coordinates when possible."""
-    image = decode(data)
+    if image is None:
+        image = decode(data)
     if template_def is not None:
         if template_def.student_number_roi is None:
             raise ValueError("แม่แบบนี้ไม่ได้ระบุ student_number_roi")
@@ -229,6 +231,7 @@ def observe(
     diagnostics_dir: Path | None = None,
     template_def: TemplateDefinition | None = None,
     app_data_dir: Path | None = None,
+    image: np.ndarray | None = None,
 ) -> dict:
     base: dict = {
         "pipeline_version": IDENTITY_PIPELINE_VERSION,
@@ -240,7 +243,8 @@ def observe(
     }
     expected_h = template_def.canonical_height if template_def else template()["height"]
     expected_w = template_def.canonical_width if template_def else template()["width"]
-    if matrix is None and decode(data).shape[:2] != (expected_h, expected_w):
+    raw_img = image if image is not None else decode(data)
+    if matrix is None and raw_img.shape[:2] != (expected_h, expected_w):
         return {**base, "review_reason": "registration unavailable; teacher confirmation required"}
     if template_def is not None and template_def.student_number_roi is None:
         return {**base, "review_reason": "no student-number region configured in template"}
@@ -256,12 +260,14 @@ def observe(
         except Exception:
             ref_crop = None
 
-    crop = number_roi(data, matrix, template_def=template_def)
+    crop = number_roi(data, matrix, template_def=template_def, image=image)
     processed, boxes, gray = preprocess(crop, reference_crop=ref_crop)
     top_padding = 0
     if any(y <= 1 and h > crop.shape[0] * 0.2 for x, y, w, h in boxes):
         top_padding = 20
-        crop = number_roi(data, matrix, top_padding=top_padding, template_def=template_def)
+        crop = number_roi(
+            data, matrix, top_padding=top_padding, template_def=template_def, image=image
+        )
         processed, boxes, gray = preprocess(crop, reference_crop=ref_crop)
     encoded = cv2.imencode(".png", crop)[1].tobytes()
     effective_roi = list(
