@@ -403,6 +403,7 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
             if item.is_dir():
                 dest.mkdir(parents=True, exist_ok=True)
             else:
+                dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(item, dest)
         published = True
         flow.record_export(exam_id, str(final), run_id, snapshot_fingerprint)
