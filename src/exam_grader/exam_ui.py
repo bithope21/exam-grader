@@ -162,11 +162,14 @@ class BatchWorker(QThread):
                 source = importer.import_file(self.exam_id, path, self.purpose)
                 existing = flow.latest_detection(source["id"])
                 if existing is None or existing.get("pipeline_version") != OMR_PIPELINE_VERSION:
+                    source_bytes = importer.verified_bytes(source)
+                    decoded = decode(source_bytes)
                     try:
                         observation = analyze(
-                            importer.verified_bytes(source),
+                            source_bytes,
                             template_def=template_def,
                             app_data_dir=getattr(self.database, "parent", None),
+                            decoded_image=decoded,
                         )
                     except ValueError as error:
                         observation = {
@@ -177,10 +180,11 @@ class BatchWorker(QThread):
                     if self.purpose == "student" and "failure" not in observation:
                         try:
                             observation["student_number_observation"] = observe_student_number(
-                                importer.verified_bytes(source),
+                                source_bytes,
                                 observation.get("registration", {}).get("matrix"),
                                 template_def=template_def,
                                 app_data_dir=getattr(self.database, "parent", None),
+                                image=decoded,
                             )
                         except (ValueError, OSError):
                             observation["student_number_observation"] = {
