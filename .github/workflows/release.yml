@@ -59,11 +59,26 @@ jobs:
           "$hash  Exam-Grader-v1.0.0-Windows-Setup.exe" | Out-File -FilePath "$file.sha256" -Encoding utf8
           Write-Host "SHA256: $hash"
 
+      - name: Archive build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Exam-Grader-Windows-Setup
+          path: |
+            dist/Exam-Grader-v1.0.0-Windows-Setup.exe
+            dist/Exam-Grader-v1.0.0-Windows-Setup.exe.sha256
+
       - name: Upload Windows Installer to Release
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.ref_name || inputs.tag }}
         shell: pwsh
         run: |
-          $tag = $env:TAG_NAME
+          $tag = "${{ inputs.tag }}"
+          if (-not $tag -or $tag -eq "") {
+            $tag = "${{ github.ref_name }}"
+          }
+          if ($tag -eq "main" -or $tag -eq "master") {
+            $tag = "v1.0.0"
+          }
+          Write-Host "Target Release Tag: $tag"
           gh release upload $tag dist/Exam-Grader-v1.0.0-Windows-Setup.exe dist/Exam-Grader-v1.0.0-Windows-Setup.exe.sha256 --clobber
