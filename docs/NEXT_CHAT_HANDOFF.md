@@ -1,69 +1,48 @@
-# Fresh-Chat Handoff: Exam Grader v1.0.1 Published & Live
+# Fresh-Chat Handoff: Polish Algorithm ระบบปรับเทียบ (Template Calibration)
 
-- **Repository**: `D:\AI\projects\exam-grader\exam-grader` (Branch: `main`)
-- **Release Tag**: `v1.0.1`
-- **Release URL**: https://github.com/bithope21/exam-grader/releases/tag/v1.0.1
-- **Release ID**: `387664293`
-- **Current Status**: **RELEASE v1.0.1 PUBLISHED & 100% VERIFIED LIVE OVER HTTP GET**
-
----
-
-## 📌 DEFERRED Tasks (งานที่ชะลอไว้ทำรอบถัดไป)
-
-บันทึกงานที่เลื่อนไปทำในรอบหน้าตามที่ User กำหนด:
-
-1. **Task 1 — ตัดขอบขาวของ LOGO**:
-   - Master artwork / logo ยังมีขอบขาวที่ยังไม่ได้ตัดออกให้เนี้ยบ ต้องทำขอบโปร่งใส/ตัดขอบขาวออกให้เรียบร้อยสมบูรณ์
-
-2. **Task 2 — ปรับปรุง Algorithm Prefill ให้ดีเหมือนบน Mac**:
-   - Polish algorithm การ prefill เลขที่นักเรียน (student number / candidate prefill) บน Windows ให้แม่นยำและเสถียรทัดเทียมกับบน macOS
-
-3. **Task 3 — แก้ช่องกรอก "ป." กินหัว ป ปลา (Text Clipping)**:
-   - ช่องกรอกระดับชั้น "ป." มีปัญหา layout/padding ทำให้ตัดหรือกินหัวตัวอักษร "ป" (font ascent clipping) เกิดขึ้นทั้งบน **macOS และ Windows**
+## 1. Quick Context & Current Repo State
+- **Active Workspace:** `/Users/zubinpijit/private/exam-grader` (Branch: `main`)
+- **Previous Tasks Completed & Pushed:**
+  - `bithope21/exam-grader` (`3c118a0`): Auto-release hardening, `USER_MANUAL.md`, README sync.
+  - `bithope21/bithope-web` (`719d0da`): Server-side GitHub latest release resolution, Crayon Support/Donate modal (PromptPay, Bitcoin Lightning, Stripe toggle), and `/docs/exam-grader`.
+- **Baseline Tests:** 130 passed, 3 skipped via `uv run pytest tests/`.
 
 ---
 
-## 1. Verified Release Artifacts & SHA-256 Checksums
-
-| Asset Name | Size | SHA-256 Checksum | HTTP GET Verification |
-|------------|------|------------------|-----------------------|
-| `Exam-Grader-v1.0.1-macOS-Apple-Silicon.dmg` | 113,086,354 bytes (~108 MB) | `d90919cc6fd7f2952eacfbd53dd6c4d589b9d4def6710b11c8795762b206433f` | HTTP 200 (MATCH) |
-| `Exam-Grader-v1.0.1-macOS-Apple-Silicon.dmg.sha256` | 109 bytes | N/A | HTTP 200 (MATCH) |
-| `Exam-Grader-v1.0.1-Windows-Setup.exe` | 77,919,326 bytes (~74 MB) | `b618fe15646290cd73eb3ee6238beddefd7081c581835c39fa780e26c7cd19ec` | HTTP 200 (MATCH) |
-| `Exam-Grader-v1.0.1-Windows-Setup.exe.sha256` | 104 bytes | N/A | HTTP 200 (MATCH) |
-
-*Local Windows Standalone Build Artifact:*
-- Path: `dist\Exam-Grader-v1.0.1-Windows-Setup.exe` (76,187,127 bytes, SHA-256: `b2286970fd3e235e910b871c27216b9c8eaaaf68314922122abb420913ec0615`)
-- Installed Target: `%LOCALAPPDATA%\Programs\ExamGrader\ExamGrader.exe`
+## 2. Next Mission: Polish Algorithm ในระบบปรับเทียบ (Template Calibration System)
+- **Goal:** ปรับปรุงและเพิ่มความแม่นยำของ Algorithm ในระบบปรับเทียบและสร้างแม่แบบกระดาษคำตอบ (Template Calibration System)
+- **Status:** พร้อมรับ Requirement และรายละเอียดเฉพาะจาก User ใน Chat ใหม่ทันที
 
 ---
 
-## 2. สรุปผลการทดสอบ Final Windows UAT v1.0.1
+## 3. Key Files & Architecture Pointers
 
-| รายการทดสอบ | ผลการทดสอบ | รายละเอียด Evidence |
-| :--- | :---: | :--- |
-| **`ExamGrader.exe --self-check`** | **PASS** | Exit code 0, version 1.0.1, SQLite storage integrity พร้อมทำงาน |
-| **`ExamGrader.exe --smoke-settings`** | **PASS** | Exit code 0, โหลดแม่แบบ Default #1, #2, #3 พร้อม reference images สมบูรณ์ |
-| **`ExamGrader.exe --smoke-ui`** | **PASS** | Exit code 0, GUI เปิดและปิดสมบูรณ์ |
-| **Settings → Template Management** | **PASS** | เปิด Dialog ได้ทันที ไม่ crash, ไม่ติด `KeyError: reference_sha256` |
-| **Grade → Save Results + Excel** | **PASS** | ทำงานบน path ภาษาไทย `Documents\ทดสอบตรวจข้อสอบ_ไทย_๒๕๖๙` สำเร็จ ไม่มี `[WinError 5]` |
-| **Output Integrity** | **PASS** | Excel `scores.xlsx` มี sheet Scores & Info ครบถ้วน, ภาพ checked `.jpg` ครบ, ไม่มี `.staging-*` ค้าง, ภาพต้นฉบับ SHA-256 ไม่เปลี่ยนแปลง |
-| **Automated UAT Suite** | **PASS** | `tests/test_windows_uat.py` (3/3 PASS) |
-| **Quality Gates** | **PASS** | `ruff check src tests` (0 errors), `mypy src` (0 errors across 20 source files) |
+### Core Algorithm:
+- [`src/exam_grader/template_discovery.py`](file:///Users/zubinpijit/private/exam-grader/src/exam_grader/template_discovery.py):
+  - `detect_paper(...)`: ตรวจจับขอบกระดาษคำตอบและดึงระนาบ Perspective
+  - `normalize_illumination(...)`: ปรับความสว่างและคอนทราสต์
+  - `extract_line_masks(...)`: สกัดเส้นตารางแนวนอนและแนวตั้ง
+  - `cluster_coordinates(...)`: จัดกลุ่มเส้นพิกัด
+  - `infer_grid_in_area(...)`: อนุมานโครงสร้างตารางคำตอบตามพื้นที่
+  - `discover_template(...)`: ฟังก์ชันหลักสำหรับ Auto-Discovery และสร้าง `TemplateDefinition`
+
+### UI & Interaction:
+- [`src/exam_grader/calibration_ui.py`](file:///Users/zubinpijit/private/exam-grader/src/exam_grader/calibration_ui.py):
+  - `CalibrationDialog`: หน้าต่างหลักของระบบปรับเทียบ
+  - `CalibrationCanvas`: แคนวาสวาด Overlay, จัดการ Interactive Drag / Resize / Handles
+  - `CalibrationTestDialog`: การทดสอบความเข้ากันได้ของแม่แบบกับภาพจริง
+
+### Tests & Real Fixtures:
+- [`tests/test_calibration_system.py`](file:///Users/zubinpijit/private/exam-grader/tests/test_calibration_system.py): ชุดการทดสอบของระบบ Calibration
+- `tests/fixtures/real/vol.7/`:
+  - `tests/fixtures/real/vol.7/ถ่ายในห้อง/`
+  - `tests/fixtures/real/vol.7/ถ่ายในที่แจ้ง/` (ภาพถ่ายจริงสำหรับทดสอบชุดฟอร์มใหม่)
 
 ---
 
-## 3. ผลการทดสอบ Benchmark & Performance Optimization
-
-- **Default #1 (100 ข้อ)**: ~1.44s
-- **Default #2 (กระดาษชมพู)**: ~3.46s (**เร็วขึ้นกว่า 4.7 เท่า** จากเดิม 35s+ ด้วย scaled ECC + SIFT fallback)
-- **Default #3 (กระดาษเขียว)**: ~1.04s
-- **Feature & Reference Cache**: แคชภาพและ keypoints ใน RAM ทำงานได้ผลจริง
-- **Accuracy Ground Truth**: ผ่านการทดสอบ OMR & Registration เทียบกับ Golden Labels และ Ground Truth 100% ไม่มี accuracy regression
-
----
-
-## 4. GitHub Actions CI Architecture Note
-
-- Windows installer build is automated via `.github/workflows/release.yml` with dynamic filename and version detection (avoiding hardcoded release strings).
-- Completed Windows Runner Run ID: `34711082160` (Artifact ID: `10302829066`).
+## 4. Prompt Template for New Chat
+```text
+เรากำลังทำ task: Polish Algorithm ในส่วนของระบบปรับเทียบและสร้างแม่แบบกระดาษคำตอบ (Template Calibration System)
+อ่าน docs/NEXT_CHAT_HANDOFF.md เพื่อดึง context ล่าสุด จากนั้นเตรียมรับรายละเอียดที่เราจะระบุต่อไปนี้:
+[...ระบุรายละเอียดที่ต้องการ polish...]
+```
