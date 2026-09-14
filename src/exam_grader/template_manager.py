@@ -16,6 +16,8 @@ import numpy as np
 CANONICAL_CHOICES = ("A", "B", "C", "D", "E")
 
 DEFAULT_THAI_LABELS = ("ก", "ข", "ค", "ง", "จ")
+MIN_OMR_CELL_CORE = 2
+MIN_EDITOR_CELL_CORE = 4
 
 
 @dataclass(frozen=True)
@@ -29,6 +31,10 @@ class AnswerBlock:
     choice_count: int
     col_boundaries: list[int]  # choice_count + 1 pixel values
     row_boundaries: list[int]  # rows + 1 pixel values
+    # Optional editor/detector provenance. Defaults keep older template JSON valid.
+    geometry_state: str = "auto_detected"  # auto_detected | user_edited | draft
+    confidence: float | None = None
+    source_geometry: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.choice_count < 2 or self.choice_count > 5:
@@ -46,6 +52,10 @@ class AnswerBlock:
             )
         if len(self.row_boundaries) != self.rows + 1:
             raise ValueError(f"เส้นแบ่งแถวต้องมี {self.rows + 1} ค่า (ได้รับ {len(self.row_boundaries)})")
+        if self.geometry_state not in ("auto_detected", "user_edited", "draft"):
+            raise ValueError(f"สถานะเรขาคณิตไม่ถูกต้อง: {self.geometry_state}")
+        if self.confidence is not None and not 0.0 <= self.confidence <= 1.0:
+            raise ValueError("ค่าความเชื่อมั่นต้องอยู่ระหว่าง 0 ถึง 1")
         for i in range(len(self.col_boundaries) - 1):
             if self.col_boundaries[i] >= self.col_boundaries[i + 1]:
                 raise ValueError("พิกัดคอลัมน์ต้องเรียงจากน้อยไปมาก")
@@ -91,6 +101,8 @@ class TemplateDefinition:
             raise ValueError("จำนวนข้อต้องอยู่ระหว่าง 1 ถึง 60 ข้อ")
         if not 2 <= self.choice_count <= 5:
             raise ValueError("จำนวนตัวเลือกต้องอยู่ระหว่าง 2 ถึง 5 ตัวเลือก")
+        if self.cell_inset < 0:
+            raise ValueError("ระยะขอบช่องต้องไม่ติดลบ")
         if len(self.choice_labels) != self.choice_count:
             raise ValueError("จำนวน choice_labels ไม่ตรงกับ choice_count")
         if len(self.display_choice_labels) != self.choice_count:
@@ -123,6 +135,30 @@ class TemplateDefinition:
                 raise ValueError(f"ชุดคำตอบที่ {block.block_index} อยู่นอกขอบเขตแนวนอนของภาพ")
             if block.row_boundaries[0] < 0 or block.row_boundaries[-1] > h:
                 raise ValueError(f"ชุดคำตอบที่ {block.block_index} อยู่นอกขอบเขตแนวตั้งของภาพ")
+            minimum_span = 2 * self.cell_inset + MIN_OMR_CELL_CORE
+            if any(
+                right - left < minimum_span
+                for left, right in zip(block.col_boundaries, block.col_boundaries[1:])
+            ):
+                raise ValueError(f"ชุดคำตอบที่ {block.block_index} มีช่องแคบเกินไปสำหรับการตรวจ OMR")
+            if any(
+                bottom - top < minimum_span
+                for top, bottom in zip(block.row_boundaries, block.row_boundaries[1:])
+            ):
+                raise ValueError(f"ชุดคำตอบที่ {block.block_index} มีช่องเตี้ยเกินไปสำหรับการตรวจ OMR")
+
+        for i, first in enumerate(self.answer_blocks):
+            ax1, ay1, ax2, ay2 = (
+                first.col_boundaries[0], first.row_boundaries[0],
+                first.col_boundaries[-1], first.row_boundaries[-1],
+            )
+            for second in self.answer_blocks[i + 1 :]:
+                bx1, by1, bx2, by2 = (
+                    second.col_boundaries[0], second.row_boundaries[0],
+                    second.col_boundaries[-1], second.row_boundaries[-1],
+                )
+                if max(ax1, bx1) < min(ax2, bx2) and max(ay1, by1) < min(ay2, by2):
+                    raise ValueError("กรอบชุดคำตอบซ้อนทับกัน")
 
         if self.student_number_roi is not None:
             x1, y1, x2, y2 = self.student_number_roi
@@ -154,6 +190,17 @@ class TemplateDefinition:
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
+        # Keep old definitions byte-shape compatible for same-version idempotent saves.
+        # Metadata is emitted whenever the detector/editor has meaningful provenance.
+        for block in data["answer_blocks"]:
+            if (
+                block.get("geometry_state") == "auto_detected"
+                and block.get("confidence") is None
+                and block.get("source_geometry") is None
+            ):
+                block.pop("geometry_state", None)
+                block.pop("confidence", None)
+                block.pop("source_geometry", None)
         return data
 
     @classmethod

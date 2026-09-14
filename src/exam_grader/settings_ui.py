@@ -358,7 +358,7 @@ class TemplateSettingsDialog(QDialog):
 
         self.refresh_templates()
 
-    def refresh_templates(self) -> None:
+    def refresh_templates(self, select_id: str | None = None) -> None:
         """Load all built-in and stored templates and populate table."""
         self.templates_list = []
         for b_id in BUILTIN_TEMPLATE_IDS:
@@ -377,8 +377,12 @@ class TemplateSettingsDialog(QDialog):
             pass
 
         current_def = default_template_id()
+        target_id = select_id or getattr(self, "last_created_template_id", None) or (
+            self.selected_template.template_id if getattr(self, "selected_template", None) else current_def
+        )
 
         self.table.setRowCount(len(self.templates_list))
+        selected_row = 0
         for row_idx, t in enumerate(self.templates_list):
             is_default = t.template_id == current_def
             display_name = f"⭐ {t.name}" if is_default else t.name
@@ -398,9 +402,11 @@ class TemplateSettingsDialog(QDialog):
 
             self.table.setItem(row_idx, 0, name_item)
             self.table.setItem(row_idx, 1, kind_item)
+            if t.template_id == target_id:
+                selected_row = row_idx
 
         if self.templates_list:
-            self.table.selectRow(0)
+            self.table.selectRow(selected_row)
             self._on_selection_changed()
 
     def _on_selection_changed(self) -> None:
@@ -487,7 +493,10 @@ class TemplateSettingsDialog(QDialog):
 
         dialog = CalibrationDialog(self.application, parent=self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.refresh_templates()
+            created_id = getattr(dialog, "saved_template_id", None)
+            if created_id:
+                self.last_created_template_id = created_id
+            self.refresh_templates(select_id=created_id)
 
     def _duplicate_template(self) -> None:
         if not self.selected_template:

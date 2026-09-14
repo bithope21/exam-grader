@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QFormLayout
 
 from exam_grader.app import initialize
 from exam_grader.calibration_ui import CalibrationDialog
@@ -164,7 +164,17 @@ def test_new_exam_dialog_dimensions_and_controls(tmp_path):
     assert dlg.minimumWidth() >= 500
     assert "name" in dlg.fields
     assert "grade" in dlg.fields
+    assert dlg.fields["grade"].minimumContentsLength() >= 8
     assert dlg.template_combo.count() >= 3
+
+    # Verify label is "จำนวนข้อของข้อสอบ"
+    layout = dlg.layout()
+    labels = []
+    for row in range(layout.rowCount()):
+        item = layout.itemAt(row, QFormLayout.ItemRole.LabelRole)
+        if item and item.widget():
+            labels.append(item.widget().text())
+    assert "จำนวนข้อของข้อสอบ" in labels
 
     dlg.close()
     win.close()

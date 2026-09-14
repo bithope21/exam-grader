@@ -232,6 +232,7 @@ class ExamDialog(QDialog):
         self.importer = ImportService(application.exams.path)
         self.worker = None
         self.output_root = application.exams.output_root(exam.id) or default_output_root()
+        self.template_def = load_exam_template_def(application.exams.path, exam.id)
         self.student_sort_desc = False
         self.setWindowTitle(f"{exam.details.name} · Exam Grader")
         self.resize(1100, 760)
@@ -259,6 +260,16 @@ class ExamDialog(QDialog):
         self.confirm_key_button = QPushButton("ตรวจและยืนยันเฉลย → นักเรียน")
         self.confirm_key_button.clicked.connect(self.review_key)
         key_actions.addWidget(self.confirm_key_button)
+
+        key_actions.addSpacing(12)
+        self.template_badge = QLabel()
+        self._update_template_badge()
+        key_actions.addWidget(self.template_badge)
+
+        self.change_template_btn = QPushButton("⚙️ เปลี่ยนแม่แบบข้อสอบ…")
+        self.change_template_btn.clicked.connect(self._change_exam_template)
+        key_actions.addWidget(self.change_template_btn)
+
         key_actions.addStretch()
         key_page.addLayout(key_actions)
         key_page.addWidget(self.key_list)
@@ -437,6 +448,99 @@ class ExamDialog(QDialog):
         self.issue_drafts = {}
         self.issue_dirty = set()
         self.selected_issue_keys: set[tuple] = set()
+        self.refresh()
+
+    def _update_template_badge(self) -> None:
+        t_name = self.template_def.name if getattr(self, "template_def", None) else "Default #1"
+        c_count = self.template_def.choice_count if getattr(self, "template_def", None) else 5
+        q_count = self.exam.details.question_count if getattr(self, "exam", None) else 60
+        self.template_badge.setText(
+            f"แม่แบบข้อสอบ: <b>{t_name}</b> ({c_count} ตัวเลือก, {q_count} ข้อ)"
+        )
+
+    def _change_exam_template(self) -> None:
+        from PySide6.QtWidgets import QInputDialog
+        from exam_grader.template_manager import BUILTIN_TEMPLATE_IDS, load_builtin_template
+
+        available = []
+        for b_id in BUILTIN_TEMPLATE_IDS:
+            try:
+                available.append(load_builtin_template(b_id))
+            except Exception:
+                pass
+        try:
+            for t in self.application.exams.list_templates():
+                if t.template_id not in BUILTIN_TEMPLATE_IDS:
+                    available.append(t)
+        except Exception:
+            pass
+
+        items = [f"{t.name} ({t.choice_count} ตัวเลือก · {len(t.answer_blocks)} ชุด) [ID: {t.template_id}]" for t in available]
+        current_idx = 0
+        for i, t in enumerate(available):
+            if t.template_id == self.template_def.template_id:
+                current_idx = i
+                break
+
+        chosen_item, ok = QInputDialog.getItem(
+            self,
+            "เปลี่ยนรูปแบบกระดาษคำตอบของข้อสอบ",
+            f"ข้อสอบปัจจุบันใช้: {self.template_def.name}\nเลือกแม่แบบใหม่ที่ต้องการให้ข้อสอบนี้ใช้:",
+            items,
+            current_idx,
+            False,
+        )
+        if not ok or not chosen_item:
+            return
+
+        chosen_t = available[items.index(chosen_item)]
+        if chosen_t.template_id == self.template_def.template_id:
+            return
+
+        self.application.exams.update_exam_template(
+            self.exam.id, chosen_t.template_id, chosen_t.version, chosen_t.question_count
+        )
+        self.exam = self.application.exams.get(self.exam.id)
+        self.template_def = chosen_t
+        self._update_template_badge()
+
+        reply = QMessageBox.question(
+            self,
+            "ตรวจหาคำตอบใหม่",
+            f"เปลี่ยนแม่แบบเป็น '{chosen_t.name}' เรียบร้อยแล้ว\n\nต้องการตรวจหาคำตอบในใบเฉลยและกระดาษคำตอบใหม่ทั้งหมดตามแม่แบบนี้หรือไม่?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._reanalyze_all_sources()
+        else:
+            self.refresh()
+
+    def _reanalyze_all_sources(self) -> None:
+        from exam_grader.imaging import analyze, decode
+
+        with self.flow.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM sources WHERE exam_id=? AND archived_at IS NULL", (self.exam.id,)
+            ).fetchall()
+        for r in rows:
+            source = dict(r)
+            try:
+                data = self.importer.verified_bytes(source)
+                decoded = decode(data)
+                obs = analyze(
+                    data,
+                    template_def=self.template_def,
+                    app_data_dir=getattr(self.application, "data_dir", None),
+                    decoded_image=decoded,
+                )
+            except Exception as e:
+                obs = {
+                    "requires_review": True,
+                    "failure": str(e),
+                    "pipeline_version": "draft-omr-v2",
+                }
+            self.flow.save_detection(source["id"], obs)
         self.refresh()
 
     @staticmethod

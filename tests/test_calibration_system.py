@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from exam_grader.app import initialize
 from exam_grader.calibration_ui import (
@@ -231,3 +231,63 @@ def test_appearance_mode_theme_and_stylesheet(tmp_path):
     assert isinstance(qapp, QApplication)
     apply_appearance_theme(qapp, "light")
     assert "#F8FAFC" in qapp.styleSheet()
+
+
+def test_manual_row_editing_redesign(tmp_path, monkeypatch):
+    """Test redesigned manual editing: row count setting, append row, delete row, choice manipulation, and user_edited persistence."""
+    monkeypatch.setattr(QMessageBox, "information", lambda *args, **kwargs: None)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: None)
+    monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
+
+    app = initialize(tmp_path / "data")
+    data = open("tests/fixtures/real/default3/sheet.png", "rb").read()
+    res = discover_template(data)
+
+    dlg = CalibrationDialog(app)
+    dlg._on_discovery_finished(res)
+
+    td = dlg.current_template_def
+    assert td is not None
+    assert len(td.answer_blocks) == 3
+    assert td.answer_blocks[0].rows == 10
+
+    # Select block 0 (Target combo index 1: "ชุดที่ 1 ...")
+    dlg.nudge_target_combo.setCurrentIndex(1)
+    assert dlg.block_row_spin.isEnabled()
+    assert dlg.block_row_spin.value() == 10
+    assert dlg.btn_add_row.isEnabled()
+    assert dlg.btn_delete_row.isEnabled()
+
+    # Test "− ลบแถวล่างสุด" (decreases 10 -> 9 rows)
+    dlg.btn_delete_row.click()
+    updated_td = dlg.current_template_def
+    assert updated_td.answer_blocks[0].rows == 9
+    assert updated_td.answer_blocks[0].geometry_state == "user_edited"
+    assert updated_td.answer_blocks[1].question_start == 10
+    assert dlg.block_row_spin.value() == 9
+    assert dlg._geometry_dirty is True
+
+    # Test "+ เพิ่มแถวท้ายชุด" (now there is room, so 9 -> 10 rows)
+    dlg.btn_add_row.click()
+    updated_td = dlg.current_template_def
+    assert updated_td.answer_blocks[0].rows == 10
+    assert updated_td.answer_blocks[1].question_start == 11
+    assert dlg.block_row_spin.value() == 10
+
+    # Test setting row count directly via spinbox (reduce to 7 rows)
+    dlg.block_row_spin.setValue(7)
+    updated_td = dlg.current_template_def
+    assert updated_td.answer_blocks[0].rows == 7
+    assert updated_td.answer_blocks[1].question_start == 8
+    assert updated_td.question_count == 27
+
+    # Test choice append and remove
+    dlg.btn_add_choice.click()
+    assert dlg.current_template_def.answer_blocks[0].choice_count == 5
+    dlg.btn_delete_choice.click()
+    assert dlg.current_template_def.answer_blocks[0].choice_count == 4
+
+    # Test photo tips dialog callable without error
+    dlg._show_photo_tips()
+
+    dlg.close()

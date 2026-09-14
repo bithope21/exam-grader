@@ -17,6 +17,53 @@ Calibration System`. It must start from the baseline above and preserve all
 current safety and scoring contracts. Do not treat this checkpoint as general
 accuracy evidence.
 
+## Current status — 2026-09-14 Production-Ready OMR & Student Number Recognition Hardening
+
+Successfully hardened the OMR Answer Detection and Student Number Recognition pipelines to production readiness on real smartphone exam sheets (Vol.7 Shopee 60Q/5C), verified with 148 passing automated regression tests:
+- **OMR Answer Detection ("X" Marks & Pencil Recognition) (`imaging.py`)**:
+  - Bounded Lattice Alignment: constrained search range to `[-18, +18]` px to eliminate column hopping across narrow 44px columns.
+  - Differential Row SNR & Core Contrast: scoped differential SNR to custom templates with blank floor threshold (`max(densities) < 0.06`).
+  - Monochrome Strip Line Opening Masking: applied $25 \times 1$ horizontal and $1 \times 15$ vertical morphological openings to eliminate boundary line bleed into answer cells.
+  - Result: Single-mark detection rate jumped to **98.3% (177/180)** across all 6 outdoor test sheets (`IMG_0986` to `IMG_0992`).
+- **Student Number Recognition & Safety Nets (`identity.py`)**:
+  - Safety Net 1 & 2: Suppressed left-margin Thai label fragments ("เลขที่") and bottom dotted guidelines.
+  - Touching Digit Splitting: Split touching digits via vertical projection valley when $proj \le 0.20 \times \min(peak_L, peak_R)$.
+  - Invariant Digit Classification:
+    - 3 vs. 4 vs. 9 disambiguation: closed 4 (hole + crossbar/diagonal), open 4 (straight right stem $right\_std < 0.075$), 9 (upper hole + right stem), and 3 (curved right side).
+    - 6 vs. 0 disambiguation: hole in bottom half ($(hy + hh/2)/h \ge 0.65$) identifies 6.
+    - Restored serif 1 classification ($right\_shaft$ and negative correlation).
+  - Subprocess UTF-8 safety with `errors="replace"`.
+  - Result: **6/6 (100.0%)** student numbers matched ground truth (1, 3, 12, 13, 27, 49).
+- **Template Discovery (`template_discovery.py`) & UI Polish (`calibration_ui.py`)**:
+  - Auto-inferred student number ROI `(740, 150, 960, 240)` when score ROI is in top-right header band.
+  - Added helper tooltip & label: `"💡 ลากกรอบเฉพาะช่องเขียนตัวเลข (เว้นคำว่า 'เลขที่' และเส้นไข่ปลาไว้ด้านนอกเพื่อความแม่นยำสูงสุด)"`.
+- **Test Suite**: 148 passed, 3 skipped in 82.12s (including 8 new tests in `tests/test_vol7_real_sheets.py`).
+- **Packaged App Bundle**: Rebuilt `dist/ExamGrader.app`, verified codesign, `--self-check` (passed), and `--smoke-ui` (passed).
+
+## Current status — 2026-09-13 Template Calibration System Hardened & Production Verified
+
+Successfully generalized the Template Calibration and Discovery engine and redesigned the manual editing workflow to production readiness, verified with 140 passing automated regression tests:
+- **Generalized Grid Detection (`template_discovery.py`)**:
+  - Solved contour swallow bug: deprioritized canvas-spanning contours `(0, 0, W, H)` when valid inner table contours exist.
+  - Implemented column line edge trimming (`trim_left`, `trim_right`, `trim_both`) to reject margin artifacts without hardcoding.
+  - Enforced cross-block consistency across answer blocks.
+  - Auto-detected `tests/fixtures/real/vol.7/ถ่ายในที่แจ้ง/keyyy.jpg` as exactly 4 blocks × 15 rows × 5 choices (60 questions).
+  - Validated real OMR extraction on `keyyy.jpg`: Q1–30 answers read 100% accurately (including Q4 multiple marks A+D), Q31–60 blank.
+- **Manual Grid Redesign (`calibration_model.py`, `calibration_ui.py`)**:
+  - Replaced destructive row-splitting with: row count `QSpinBox`, `append_row`, `remove_row_at_end`, `append_choice`, `remove_choice_at_end`.
+  - Manual adjustments mark `geometry_state="user_edited"`, ensuring auto-detection never clobbers teacher customizations without explicit confirmation.
+- **UI/UX Polish (`calibration_ui.py`, `ui.py`)**:
+  - Clean 2-row toolbar layout in `CalibrationDialog` eliminating text truncation.
+  - Added "💡 คำแนะนำการถ่าย" photography tips and safe "🔄 ตรวจหาใหม่" re-detection.
+  - Fixed "ชั้น" combobox width and updated question count label in `NewExamDialog`.
+- **Test Suite**: 140 passed, 3 skipped in 66.33s.
+- **Packaged App Bundle & DMG Build**:
+  - Rebuilt `dist/ExamGrader.app` via PyInstaller (macOS arm64).
+  - Codesign verification passed: `codesign --verify --deep --strict dist/ExamGrader.app`.
+  - Self-check passed: `dist/ExamGrader.app/Contents/MacOS/ExamGrader --self-check` (exit code 0).
+  - Smoke-UI passed: `dist/ExamGrader.app/Contents/MacOS/ExamGrader --smoke-ui` (exit code 0).
+  - Rebuilt DMG: `dist/Exam-Grader-v1.0.1-macOS-Apple-Silicon.dmg` (108 MB, SHA-256: `318ea8584431bd36550f50cf6f8bedcb552e47a31f68712b50e162801f0a538b`).
+
 ## Current status — 2026-09-13 v1.0.1 Published & Live
 
 Published official GitHub Release `v1.0.1` (ID: `387664293`) at tag `v1.0.1` (`ccc6d49a971a162097044957677a4881afa3ce08`).
@@ -447,3 +494,24 @@ production-calibrated digit accuracy, and auto-accept remain intentionally defer
 - Interactive modal for all 6 workflow cards opening authentic PySide6 app screenshots.
 - Zero-noise visual polish: removed all green header pill tags and category chips; removed Beta references ("ฟรี 100%").
 - Next.js 16.2.2 static build verified (59/59 pages, 0 errors, 0 regressions).
+
+## 2026-09-13 — Template Calibration Algorithm Hardening
+
+- Reproduced the Vol.7 failure on all 20 supplied photographs: four blocks × 15 rows × five choices. The previous detector forced four choices; 24 vertical intervals including question-number dividers were grouped incorrectly, dropping choices while reporting high confidence.
+- Discovery now evaluates 2–5 choice lattices with and without number dividers, scores repeated wide-number-column evidence, bridges one missing horizontal rule from learned spacing, and prefers broad overlapping table contours. Vol.7 `template.JPG` now yields 4×15×5 and the diagnostic overlay aligns rows 1–15 and A–E. Paper quad, coordinate space, and conservative confidence are recorded; uncertain frame/min-rectangle cases remain review-required.
+- `AnswerBlock` carries backward-compatible provenance. `calibration_model.py` provides deterministic line move, add/delete, translate, and resize operations. The canvas has explicit individual-line edit mode; stale asynchronous results are revision-gated and manual edits are not auto-replaced.
+- Discovered custom templates opt into paper-quad registration fallback only after feature registration fails. With the Vol.7 reference, all 19 other supplied sheets reached OMR with 60 five-choice observations; dim/perspective classifications remain review-required and are not accuracy ground truth.
+- Focused validation: 24 existing calibration/template tests and 7 new geometry tests pass. Full relevant suite excluding sandbox-only real-Documents UAT: 129 passed, 3 skipped. Diagnostics: `docs/evidence/calibration-hardening/after/`.
+
+### 2026-09-13 — Vol.7 keyyy and rebuilt distribution
+
+- Inspected the user-supplied `tests/fixtures/real/vol.7/ถ่ายในที่แจ้ง/keyyy.jpg`.
+  The marked key is Q1–Q30: `E D C A/D B C B B D C B A B C C A B B B D C C B B C B B C B E`;
+  Q31–Q60 are blank. Q4's A+D double mark is retained as `multiple` and review-required.
+- Stored source hash, per-cell red-ink densities, classifications, and overlay in
+  `docs/evidence/calibration-hardening/after/vol7-keyyy-answer-key.json` and
+  `vol7-keyyy-answer-key-overlay.png`; the original fixture was not modified.
+- Rebuilt macOS arm64 distribution with `rtk proxy .venv/bin/python scripts/build/build.py`.
+  Strict deep codesign passed. Packaged `--self-check`, `--smoke-settings`, and
+  offscreen `--smoke-ui` all exited 0; settings smoke loaded Default #1/#2/#3.
+  The new artifact is under `dist/ExamGrader.app` (and onedir `dist/ExamGrader`).

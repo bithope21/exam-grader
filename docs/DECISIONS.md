@@ -18,6 +18,20 @@ Revisit: มี blocker พร้อม evidence และ Product Owner เป�
 
 ## Open
 
+## 2026-09-13 — Template Calibration Hardening and Manual Grid Editing Redesign
+
+Decision:
+1. Generalized Grid Detection: In `template_discovery.py`, deprioritize full-frame canvas bounding boxes `(0, 0, W, H)` when valid inner table contours exist. Evaluate column line edge trimming (`trim_left`, `trim_right`, `trim_both`) to eliminate outer margin line artifacts without breaking existing sheets. Enforce cross-block consistency. Tesseract OCR remains optional validation evidence, not a hard production dependency.
+2. Manual Grid Redesign: Replace the previous destructive row-splitting behavior with clean canonical controls: direct row count QSpinBox, `append_row` (appends at bottom using average row height), `remove_row_at_end`, and choice count append/remove (`append_choice`, `remove_choice_at_end`). Explicitly mark state as `geometry_state="user_edited"` to prevent auto-detect from clobbering user adjustments.
+3. UI Polish: Split `CalibrationDialog` toolbar into two distinct rows to eliminate text truncation/clipping on varied resolutions. Provide teacher photography guidance dialog and protected re-detect confirmation. Fix "ชั้น" combobox clipping and update exam question label in `NewExamDialog`.
+
+Why: Real-world answer keys (such as Vol.7 4 blocks × 15 rows × 5 choices) were failing detection due to outer margin closures and divisibility edge artifacts. Teachers experienced usability friction with the old row-splitting manual editor and clipped UI controls.
+
+Consequence:
+- `keyyy.jpg` and custom answer keys infer 60 questions / 5 choices / 4 blocks automatically with pixel-perfect alignment.
+- OMR accuracy reads 100% on `keyyy.jpg` (Q1-30, multiple mark Q4 A+D, Q31-60 blank).
+- Backward compatibility with built-in templates (default 1, 2, 3) and existing tests is 100% preserved (140 tests pass).
+
 ## 2026-09-12 — Exam Grader Landing Page Architecture & Truthful Marketing Gate
 
 Decision: Build the Exam Grader product landing page at route `/exam-grader` within `bithope-web` (`/Users/zubinpijit/bithope/apps/bithope-web`) strictly isolated from shared business logic. Enforce a Truthful Marketing Gate: claim only real, verified capabilities (Offline 100%, Human Review, Bulk Edit, Custom Template, and Excel .xlsx + Checked image export); keep unverified features (PDF, CSV, Windows installer) as Beta/Coming Soon or omitted. Centralize all download/external links in `constants.ts`. Use transparent 2D assets and real app Qt screenshots.
@@ -217,3 +231,28 @@ Key Architectural Decisions:
 3. **Interactive PySide6 App Evidence & Responsive Containment**:
    - Interactive modal on all 6 workflow cards showing authentic native desktop PySide6 app screenshots.
    - Added `export const viewport: Viewport` in Next.js page and responsive Thai typography wrapping (`[word-break:break-word]`), ensuring 100% clean rendering on 320px, 375px, 768px, and 1280px viewports.
+
+## 2026-09-13 — Production-hardening calibration geometry
+
+1. Keep canonical `AnswerBlock` row/column boundaries as the only geometry consumed
+   by OMR. Cells are derived from those boundaries; screen coordinates remain view state.
+2. Infer candidate lattices for 2–5 choices with optional question-number dividers. A
+   repeated wide first interval is evidence for a number column; ambiguous lattices
+   remain drafts/review-required rather than being right-aligned silently. Learned row
+   spacing may bridge one faint rule only when the gap is a lattice multiple.
+3. Persist additive provenance (`geometry_state`, confidence, source geometry) while
+   omitting default metadata from legacy JSON serialization. Manual edits are marked
+   `user_edited`; re-detection is explicit and revision-gated.
+4. Allow paper-quad registration fallback only for detector-produced custom templates.
+   Built-in and cross-template registration safeguards remain unchanged. Fallback
+   returns paper confidence, corners, inverse transform, coverage, and review state.
+5. Vol.7 has no answer adjudication; its 19-sheet OMR smoke proves cell-path
+   reachability, not production recognition accuracy. Teacher-key adjudication and
+   residual-skew benchmarking remain before automatic accuracy claims.
+
+6. Treat the supplied `keyyy.jpg` as an immutable teacher-key observation. A
+   dedicated red-ink mask records Q1–Q30 (Q4 = A+D multiple) and Q31–Q60 blank;
+   preserve the multiple state for review and never infer missing answers.
+7. Rebuild the macOS distribution whenever calibration runtime changes. The
+   2026-09-13 arm64 bundle passed strict deep codesign, storage self-check, all
+   built-in template resource smoke, and offscreen UI smoke from disposable data.

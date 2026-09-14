@@ -145,6 +145,20 @@ class ReviewDialog(QDialog):
             tabs.addTab(image_widget(original), "ดูต้นฉบับ")
         else:
             tabs.addTab(image_widget(original), "ต้นฉบับ · จัดแนวไม่ได้")
+            reg_fail_msg = (detection or {}).get("failure") or "จัดแนวภาพไม่ได้"
+            warning_box = QFrame()
+            warning_box.setProperty("role", "warning")
+            w_layout = QHBoxLayout(warning_box)
+            w_layout.setContentsMargins(10, 6, 10, 6)
+            warn_lbl = QLabel(
+                f"⚠️ <b>{reg_fail_msg}</b>: ภาพนี้อาจไม่ตรงกับแม่แบบ <b>'{self.template_def.name}'</b> ({self.template_def.choice_count} ตัวเลือก) ของข้อสอบนี้"
+            )
+            warn_lbl.setWordWrap(True)
+            w_layout.addWidget(warn_lbl, stretch=1)
+            change_t_btn = QPushButton("🔄 เปลี่ยนแม่แบบของข้อสอบ…")
+            change_t_btn.clicked.connect(self._change_exam_template_and_reanalyze)
+            w_layout.addWidget(change_t_btn)
+            layout.addWidget(warning_box)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(tabs)
@@ -417,3 +431,80 @@ class ReviewDialog(QDialog):
             QMessageBox.warning(self, "บันทึกไม่ได้", str(error))
             return
         super().accept()
+
+    def _change_exam_template_and_reanalyze(self) -> None:
+        from PySide6.QtWidgets import QInputDialog
+        from exam_grader.imaging import analyze, decode
+        from exam_grader.imports import ImportService
+        from exam_grader.storage import ExamStore
+        from exam_grader.template_manager import BUILTIN_TEMPLATE_IDS, load_builtin_template
+
+        store = ExamStore(self.database)
+        available = []
+        for b_id in BUILTIN_TEMPLATE_IDS:
+            try:
+                available.append(load_builtin_template(b_id))
+            except Exception:
+                pass
+        try:
+            for t in store.list_templates():
+                if t.template_id not in BUILTIN_TEMPLATE_IDS:
+                    available.append(t)
+        except Exception:
+            pass
+
+        items = [
+            f"{t.name} ({t.choice_count} ตัวเลือก · {len(t.answer_blocks)} ชุด) [ID: {t.template_id}]"
+            for t in available
+        ]
+        current_idx = 0
+        for i, t in enumerate(available):
+            if t.template_id == self.template_def.template_id:
+                current_idx = i
+                break
+
+        chosen_item, ok = QInputDialog.getItem(
+            self,
+            "เปลี่ยนแม่แบบของข้อสอบ",
+            f"ข้อสอบนี้กำลังใช้: {self.template_def.name}\nเลือกแม่แบบใหม่ที่ต้องการให้ข้อสอบนี้ใช้:",
+            items,
+            current_idx,
+            False,
+        )
+        if not ok or not chosen_item:
+            return
+
+        chosen_t = available[items.index(chosen_item)]
+        if chosen_t.template_id == self.template_def.template_id:
+            return
+
+        store.update_exam_template(
+            self.source["exam_id"], chosen_t.template_id, chosen_t.version, chosen_t.question_count
+        )
+        self.template_def = chosen_t
+
+        importer = ImportService(self.database)
+        data = importer.verified_bytes(self.source)
+        try:
+            decoded = decode(data)
+            obs = analyze(
+                data,
+                template_def=self.template_def,
+                app_data_dir=self.database.parent if hasattr(self.database, "parent") else None,
+                decoded_image=decoded,
+            )
+            self.flow.save_detection(self.source["id"], obs)
+            QMessageBox.information(
+                self,
+                "จัดแนวภาพสำเร็จ",
+                f"เปลี่ยนแม่แบบเป็น '{chosen_t.name}' และตรวจคำตอบสำเร็จเรียบร้อยแล้ว\nระบบจะปิดหน้านี้เพื่อแสดงผลการตรวจใหม่",
+            )
+            self.accept()
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "ผลการตรวจตามแม่แบบใหม่",
+                f"เปลี่ยนแม่แบบเป็น '{chosen_t.name}' แล้ว แต่การจัดแนวภาพยังไม่สำเร็จ: {e}",
+            )
+            self.accept()
+

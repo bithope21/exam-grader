@@ -75,6 +75,8 @@ class NewExamDialog(QDialog):
                         [f"ป.{i}" for i in range(1, 7)] + [f"ม.{i}" for i in range(1, 7)]
                     )
                     field.setToolTip("เลือกชั้น หรือพิมพ์เอง เช่น ปวช.1")
+                    field.setMinimumContentsLength(8)
+                    field.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
                 else:
                     field.addItems([str(i) for i in range(1, 13)])
                     field.setToolTip("เลือกห้อง หรือพิมพ์เอง")
@@ -101,7 +103,7 @@ class NewExamDialog(QDialog):
         self.question_count = QSpinBox()
         self.question_count.setRange(1, 60)
         self.question_count.setValue(60)
-        layout.addRow("จำนวนข้อ", self.question_count)
+        layout.addRow("จำนวนข้อของข้อสอบ", self.question_count)
 
         self._load_templates_list()
         self.template_combo.currentIndexChanged.connect(self._on_template_changed)
@@ -109,6 +111,7 @@ class NewExamDialog(QDialog):
         self.expected_number_max = QSpinBox()
         self.expected_number_max.setRange(0, 9999)
         self.expected_number_max.setSpecialValueText("ไม่กำหนด")
+        self.expected_number_max.setMinimumWidth(110)
         layout.addRow("เลขที่คาดหวังถึง", self.expected_number_max)
 
         buttons = QDialogButtonBox()
@@ -129,7 +132,12 @@ class NewExamDialog(QDialog):
             )
             dlg = TemplateSettingsDialog(self.application, self)
             dlg.exec()
-            self._load_templates_list(select_template_id=prev_id)
+            chosen_id = (
+                getattr(dlg, "last_created_template_id", None)
+                or (dlg.selected_template.template_id if getattr(dlg, "selected_template", None) else None)
+                or prev_id
+            )
+            self._load_templates_list(select_template_id=chosen_id)
 
     def _load_templates_list(self, select_template_id: str | None = None) -> None:
         self.available_templates = []

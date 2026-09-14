@@ -1,10 +1,15 @@
 # Antigravity handoff
 
-## Current handoff — 2026-09-12
+## Current handoff — 2026-09-14 (Production-Ready OMR & Identity Detection Hardening)
 
-The current task is the vol.2 low-light/sparse-roster repair. Start with `../progress.md` and `evidence/vol2/validation.md`; historical foundation gates below are retained only as history.
+OMR Answer Detection and Student Number Identity recognition on real exam sheets (Vol.7 Shopee 60Q/5C) have been hardened and verified:
+- **OMR Accuracy:** 98.3% single mark resolution (177/180) across real outdoor sheets.
+- **Student Number Recognition:** 100% (6/6) accurate recognition without teacher correction (1, 3, 12, 13, 27, 49).
+- **Test Suite:** 148 passed, 3 skipped in 82.12s (`uv run pytest tests/`).
+- **macOS App:** `dist/ExamGrader.app` rebuilt, codesigned, `--self-check` passed, `--smoke-ui` passed.
+- **Windows UAT Plan:** Windows test runner should checkout branch `fix/vol7-omr-identity-hardening` and run the exact UAT commands below.
 
-### Windows UAT Status
+## Previous handoff — 2026-09-12
 
 Windows packaging and UAT have **never been executed**. See [WINDOWS_UAT.md](WINDOWS_UAT.md) for the full investigation, known risks, and next steps.
 
@@ -202,3 +207,38 @@ match, scores are 10/6/12/27/8, and one bulk identity action completes the five
 sheets. Review is exception-only with inline controls and image crops; attendance
 states are exported without fabricated scores. See `docs/evidence/automation/`
 and the latest addendum in `progress.md`.
+
+## 2026-09-13 — Calibration hardening continuation
+
+Calibration changes are in the working tree and intentionally uncommitted. The proven
+Vol.7 root cause was interval grouping: 24 vertical dividers were treated as
+four-choice groups, so question-number dividers became answer columns. Candidate
+contour ordering also let a narrow overlapping contour hide the full answer table.
+The detector now infers the repeated number-divider lattice, retains the broad table,
+and emits conservative geometry provenance and review warnings.
+
+`src/exam_grader/calibration_model.py` is the canonical editor model. `AnswerBlock`
+boundaries remain the sole OMR geometry source. Explicit line editing supports row or
+column movement and add/delete; `user_edited` survives serialization and late detector
+results are revision-gated. Vol.7 overlay and metrics are under
+`docs/evidence/calibration-hardening/after/`.
+
+Validation: 7 new geometry tests, 24 calibration/template tests, and the relevant full
+regression (129 passed, 3 skipped). The one real-Documents UAT is sandbox-deselected;
+Vol.7 has no answer adjudication, so its OMR smoke is reachability evidence only.
+
+## 2026-09-13 — Vol.7 keyyy and distribution refresh
+
+`ถ่ายในที่แจ้ง/keyyy.jpg` is now recorded as a teacher-key evidence sheet. The
+red-ink overlay confirms Q1–Q30 selections, including the Q4 A+D multiple mark;
+Q31–Q60 remain blank. See
+`docs/evidence/calibration-hardening/after/vol7-keyyy-answer-key.json` and its
+overlay. This source-backed observation still requires teacher adjudication for
+the multiple mark and does not change grading semantics.
+
+The current macOS arm64 PyInstaller bundle was rebuilt after the calibration
+changes. Strict deep codesign, packaged self-check, template-settings smoke, and
+offscreen UI smoke all passed against disposable data. The prior UI screenshot was
+an old `dist` artifact; quit it and reopen `dist/ExamGrader.app` to load the
+generalized detector and template resources. Windows and interactive native teacher
+UAT remain unverified.

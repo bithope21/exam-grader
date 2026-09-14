@@ -249,6 +249,50 @@ class ExamStore:
                 "UPDATE exams SET expected_number_max=? WHERE id=?", (maximum, exam_id)
             )
 
+    def get(self, exam_id: str) -> Exam:
+        with closing(sqlite3.connect(self.path)) as connection:
+            row = connection.execute(
+                "SELECT id, name, academic_year, grade, room, subject, question_count, "
+                "expected_number_max, created_at, template_id, template_version FROM exams WHERE id=?",
+                (exam_id,),
+            ).fetchone()
+            if not row:
+                raise ValueError("ไม่พบข้อสอบ")
+            return Exam(
+                row[0],
+                ExamDetails(
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                    row[5],
+                    row[6],
+                    row[7],
+                    template_id=row[9] or "default-1",
+                    template_version=row[10] or 1,
+                ),
+                row[8],
+            )
+
+    def update_exam_template(
+        self,
+        exam_id: str,
+        template_id: str,
+        template_version: int = 1,
+        question_count: int | None = None,
+    ) -> None:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            if question_count is not None:
+                connection.execute(
+                    "UPDATE exams SET template_id=?, template_version=?, question_count=? WHERE id=?",
+                    (template_id, template_version, question_count, exam_id),
+                )
+            else:
+                connection.execute(
+                    "UPDATE exams SET template_id=?, template_version=? WHERE id=?",
+                    (template_id, template_version, exam_id),
+                )
+
     def set_output_root(self, exam_id: str, path: Path | None) -> None:
         value = str(path.expanduser().resolve()) if path is not None else None
         with closing(sqlite3.connect(self.path)) as connection, connection:

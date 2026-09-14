@@ -137,6 +137,16 @@ def _normalize_candidate(value: str) -> str | None:
     return digits or None
 
 
+HOMOGLYPH_MAP = {
+    "l": "1", "I": "1", "|": "1",
+    "O": "0", "o": "0",
+    "S": "5", "s": "5",
+    "B": "8",
+    "Z": "2", "z": "2",
+    "/": "7",
+}
+
+
 def preprocess(
     crop: np.ndarray,
     reference_crop: np.ndarray | None = None,
@@ -171,6 +181,19 @@ def preprocess(
             and w >= 6 * scale
             and w < crop.shape[1] * 0.85
         ):
+            # Safety Net 1: Suppress bottom dotted guide lines
+            if y + h >= crop.shape[0] - 4 * scale and h < 18 * scale:
+                continue
+            # Safety Net 2: Suppress left-margin Thai label components (e.g. 'เลขที่')
+            is_thai_left = (
+                x < crop.shape[1] * 0.45
+                and (
+                    (y > crop.shape[0] * 0.40 and h < 55 * scale)
+                    or (x <= 4 * scale and w < 0.15 * crop.shape[1])
+                )
+            )
+            if is_thai_left:
+                continue
             ink[labels == index] = 255
     occupied = np.flatnonzero(ink.any(axis=0))
     boxes = []
@@ -180,7 +203,96 @@ def preprocess(
             x1, x2 = int(group[0]), int(group[-1]) + 1
             ys = np.flatnonzero(ink[:, x1:x2].any(axis=1))
             boxes.append([x1, int(ys[0]), x2 - x1, int(ys[-1] - ys[0] + 1)])
-    return 255 - ink, boxes, gray.astype(np.uint8)
+
+    # Safety Net 3: Split touching digits (e.g. '49' where tail touches stem)
+    final_boxes = []
+    for b in boxes:
+        bx, by, bw, bh = b
+        if bw >= 0.60 * bh and bh >= 25 * scale:
+            box_ink = ink[by : by + bh, bx : bx + bw]
+            proj = (box_ink == 255).sum(axis=0)
+            start_x = int(bw * 0.25)
+            end_x = int(bw * 0.75)
+            if end_x > start_x:
+                mid = proj[start_x:end_x]
+                v_idx = start_x + int(np.argmin(mid))
+                left_peak = proj[:v_idx].max() if v_idx > 0 else 0
+                right_peak = proj[v_idx:].max() if v_idx < bw else 0
+                min_peak = min(left_peak, right_peak)
+                if min_peak > 0 and proj[v_idx] <= 0.20 * min_peak and proj[v_idx] <= 8 * scale:
+                    final_boxes.append([bx, by, v_idx, bh])
+                    final_boxes.append([bx + v_idx, by, bw - v_idx, bh])
+                    continue
+        final_boxes.append(b)
+
+    return 255 - ink, final_boxes, gray.astype(np.uint8)
+
+
+def resolve_ambiguous_4(ink_bin: np.ndarray) -> str:
+    """Disambiguate handwritten 3 and 9 when misclassified as 4 by eng-only OCR."""
+    h, w = ink_bin.shape
+    bot = ink_bin[int(0.75 * h) :]
+    bot_xs = np.where(bot == 255)[1]
+    if len(bot_xs) == 0:
+        return "4"
+    min_bot_x = bot_xs.min() / float(w)
+    mean_bot_x = bot_xs.mean() / float(w)
+
+    # Detect enclosed holes
+    contours, hierarchy = cv2.findContours(ink_bin, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    holes = []
+    if hierarchy is not None and len(contours) > 1:
+        for i, hier in enumerate(hierarchy[0]):
+            if hier[3] != -1:
+                hx, hy, hw, hh = cv2.boundingRect(contours[i])
+                area = cv2.contourArea(contours[i])
+                if area > 25:
+                    holes.append((hx, hy, hw, hh, area))
+
+    # Horizontal runs in middle band (crossbar of 4)
+    mid_start, mid_end = int(0.50 * h), int(0.78 * h)
+    mid_runs = []
+    for row in ink_bin[mid_start:mid_end]:
+        r, mr = 0, 0
+        for v in row:
+            if v == 255:
+                r += 1
+                mr = max(mr, r)
+            else:
+                r = 0
+        mid_runs.append(mr)
+    mid_max_run_ratio = max(mid_runs) / float(w) if (mid_runs and w > 0) else 0
+
+    # Upper leftmost edge correlation (diagonal stroke of 4)
+    left_ys, left_xs = [], []
+    for r in range(int(0.65 * h)):
+        row_xs = np.where(ink_bin[r] == 255)[0]
+        if len(row_xs) > 0:
+            left_ys.append(r)
+            left_xs.append(row_xs.min())
+    diag_corr = float(np.corrcoef(left_xs, left_ys)[0, 1]) if len(left_xs) > 6 else 0
+
+    # Right stem straightness
+    right_xs = []
+    for r in range(int(0.15 * h), h):
+        row_xs = np.where(ink_bin[r] == 255)[0]
+        if len(row_xs) > 0:
+            right_xs.append(row_xs.max())
+    right_std = np.std(right_xs) / float(w) if len(right_xs) > 5 else 1.0
+
+    # 1. Closed 4: enclosed hole + crossbar/diagonal
+    if len(holes) > 0:
+        if mid_max_run_ratio >= 0.60 or (diag_corr < -0.80 and mid_max_run_ratio >= 0.50):
+            return "4"
+        if mean_bot_x > 0.55 and mid_max_run_ratio < 0.55:
+            return "9"
+
+    # 2. Open 4: no enclosed hole, but straight vertical right stem from top to bottom
+    if len(holes) == 0 and right_std < 0.075:
+        return "4"
+
+    # 3. Digit 3:
+    return "3"
 
 
 def _ocr(executable: str, path: Path, psm: int, *, allow_zero: bool = False) -> dict:
@@ -195,11 +307,13 @@ def _ocr(executable: str, path: Path, psm: int, *, allow_zero: bool = False) -> 
                 "--psm",
                 str(psm),
                 "-c",
-                "tessedit_char_whitelist=0123456789",
+                "tessedit_char_whitelist=0123456789lIOoSsBZz/",
                 "tsv",
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=8,
         )
@@ -210,7 +324,8 @@ def _ocr(executable: str, path: Path, psm: int, *, allow_zero: bool = False) -> 
         for row in csv.DictReader(io.StringIO(result.stdout), delimiter="\t")
         if row.get("level") == "5" and row.get("text", "").strip()
     ]
-    value = "".join(row["text"].strip() for row in words)
+    raw_chars = "".join(row["text"].strip() for row in words)
+    value = "".join(HOMOGLYPH_MAP.get(ch, ch) for ch in raw_chars)
     valid = (
         value.isascii()
         and value.isdigit()
@@ -367,6 +482,15 @@ def observe(
     if slender and "1" in candidates and "4" in candidates:
         candidates.remove("1")
         candidates.insert(0, "1")
+    elif slender and not candidates and ink_glyph.shape[1] / ink_glyph.shape[0] < 0.38:
+        candidates.insert(0, "1")
+    if candidates and candidates[0] == "4" and len(boxes) == 1:
+        single_ink_bin = (ink_glyph == 0).astype(np.uint8) * 255
+        corrected = resolve_ambiguous_4(single_ink_bin)
+        if corrected != "4":
+            if corrected in candidates:
+                candidates.remove(corrected)
+            candidates.insert(0, corrected)
     diagnostics["recognizer_runs"] = runs
     diagnostics["slender_shaft_1_4"] = bool(slender)
     if 2 <= len(boxes) <= 6:
@@ -384,6 +508,8 @@ def observe(
                     ("gray", pixels, 64, 10, 12),
                     ("gray-word", pixels, 64, 8, 18),
                     ("ink", ink, 100, 13, 12),
+                    ("ink-word", ink, 64, 8, 16),
+                    ("ink-line", ink, 64, 7, 16),
                 ):
                     scaled = cv2.resize(
                         part,
@@ -423,14 +549,27 @@ def observe(
                 )
                 if right_shaft and w / h < 0.75 and correlation < -0.65:
                     value = "1"
+                elif value == "4":
+                    digit_ink_bin = (ink == 0).astype(np.uint8) * 255
+                    value = resolve_ambiguous_4(digit_ink_bin)
+                elif value == "0":
+                    digit_ink_bin = (ink == 0).astype(np.uint8) * 255
+                    contours, hierarchy = cv2.findContours(
+                        digit_ink_bin, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+                    )
+                    if hierarchy is not None and len(contours) > 1:
+                        for i, hier in enumerate(hierarchy[0]):
+                            if hier[3] != -1:
+                                hx, hy, hw, hh = cv2.boundingRect(contours[i])
+                                if (hy + hh / 2.0) / h >= 0.65:
+                                    value = "6"
+                                    break
+                elif value is None and is_one:
+                    value = "1"
                 elif value is None and right_shaft and w / h < 0.65 and correlation > 0.65:
                     value = "4"
                 if value is None and w / h < 0.28 and h > 30:
                     value = "1"
-                if right_shaft and w / h < 0.75 and correlation < -0.65:
-                    value = "1"
-                elif value is None and right_shaft and w / h < 0.65 and correlation > 0.65:
-                    value = "4"
                 # Whole-word OCR can resolve an isolated glyph that yields no
                 # character result. Require agreement at this exact position.
                 whole = [v[index] for v in values if len(v) == len(boxes)]

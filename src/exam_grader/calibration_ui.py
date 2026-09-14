@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import uuid
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import cv2
@@ -43,6 +44,23 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from exam_grader.calibration_model import (
+    CalibrationDraft,
+    append_choice,
+    append_row,
+    cell_box_for_block,
+    compile_draft,
+    remove_choice_at_end,
+    remove_grid_line,
+    remove_row_at_end,
+    renumber_blocks,
+    resize_block_from_origin,
+    set_block_choice_count,
+    set_block_row_count,
+    set_boundary_position,
+    split_cell,
+    translate_block,
+)
 from exam_grader.imaging import analyze
 from exam_grader.template_discovery import (
     DiscoveryResult,
@@ -64,10 +82,23 @@ if TYPE_CHECKING:
     from exam_grader.app import Application
 
 
+def _blocks_overlap(first: AnswerBlock, second: AnswerBlock) -> bool:
+    """Return whether two answer grids occupy overlapping positive-area boxes."""
+    ax1, ay1, ax2, ay2 = (
+        first.col_boundaries[0], first.row_boundaries[0],
+        first.col_boundaries[-1], first.row_boundaries[-1],
+    )
+    bx1, by1, bx2, by2 = (
+        second.col_boundaries[0], second.row_boundaries[0],
+        second.col_boundaries[-1], second.row_boundaries[-1],
+    )
+    return max(ax1, bx1) < min(ax2, bx2) and max(ay1, by1) < min(ay2, by2)
+
+
 class DiscoveryWorker(QThread):
     """Background worker to run template discovery without blocking GUI."""
 
-    finished = Signal(object)  # DiscoveryResult
+    completed = Signal(object)  # DiscoveryResult
     failed = Signal(str)
 
     def __init__(self, image_bytes: bytes) -> None:
@@ -77,7 +108,42 @@ class DiscoveryWorker(QThread):
     def run(self) -> None:
         try:
             result = discover_template(self.image_bytes)
-            self.finished.emit(result)
+            self.completed.emit(result)
+        except Exception as err:
+            self.failed.emit(str(err))
+
+
+class GridDetectionWorker(QThread):
+    """Detect one explicitly selected grid area without blocking the canvas."""
+
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        gray: np.ndarray,
+        area_rect: tuple[int, int, int, int],
+        choice_count: int,
+        question_start: int,
+    ) -> None:
+        super().__init__()
+        self.gray = gray
+        self.area_rect = area_rect
+        self.choice_count = choice_count
+        self.question_start = question_start
+
+    def run(self) -> None:
+        try:
+            _, horizontal, vertical = extract_line_masks(self.gray)
+            self.completed.emit(
+                infer_grid_in_area(
+                    self.area_rect,
+                    vertical,
+                    horizontal,
+                    choice_count=self.choice_count,
+                    question_start=self.question_start,
+                )
+            )
         except Exception as err:
             self.failed.emit(str(err))
 
@@ -86,6 +152,7 @@ class CalibrationCanvas(QWidget):
     """Interactive, zoomable canvas supporting mouse selection, dragging, and box drawing."""
 
     MODE_SELECT_MOVE = "select_move"
+    MODE_EDIT_GRID_LINE = "edit_grid_line"
     MODE_DRAW_GRID_AREA = "draw_grid_area"
     MODE_DRAW_STUDENT_ROI = "draw_student_roi"
     MODE_DRAW_SCORE_ROI = "draw_score_roi"
@@ -93,6 +160,7 @@ class CalibrationCanvas(QWidget):
     target_selected = Signal(str)
     roi_updated = Signal(str, tuple)  # ("student"|"score", (x1, y1, x2, y2))
     block_updated = Signal(int, object)  # (block_index, AnswerBlock)
+    line_selected = Signal(int, str, int, int)  # block_index, axis, boundary_index, position
     grid_area_completed = Signal(tuple)  # (bx, by, bw, bh) in canonical coords
     template_modified = Signal()
 
@@ -118,6 +186,10 @@ class CalibrationCanvas(QWidget):
         self.drag_current_pt: QPoint | None = None
         self.active_handle: str | None = None
         self.drag_orig_rect: tuple[int, int, int, int] | None = None
+        self.drag_origin_block: AnswerBlock | None = None
+        self.active_line: tuple[int, str, int] | None = None
+        self.line_origin_block: AnswerBlock | None = None
+        self.selected_line: tuple[int, str, int] | None = None
 
     def set_reference(self, image_bgr: np.ndarray, template_def: TemplateDefinition | None) -> None:
         self.reference_bgr = image_bgr
@@ -146,6 +218,8 @@ class CalibrationCanvas(QWidget):
         self.mode = mode
         if mode == self.MODE_SELECT_MOVE:
             self.setCursor(Qt.CursorShape.ArrowCursor)
+        elif mode == self.MODE_EDIT_GRID_LINE:
+            self.setCursor(Qt.CursorShape.SizeAllCursor)
         else:
             self.setCursor(Qt.CursorShape.CrossCursor)
         self.update()
@@ -226,9 +300,33 @@ class CalibrationCanvas(QWidget):
             return
 
         pt = event.position().toPoint()
+        td = self.template_def
+        if td is None:
+            return
         self.drag_start_pt = pt
         self.drag_current_pt = pt
         self.is_dragging = True
+
+        if self.mode == self.MODE_EDIT_GRID_LINE:
+            selected = self._pick_grid_line(pt)
+            if selected is None:
+                self.is_dragging = False
+                self.drag_start_pt = None
+                self.drag_current_pt = None
+                return
+            self.active_line = selected
+            self.selected_line = selected
+            block_index, axis, boundary_index = selected
+            self.line_origin_block = td.answer_blocks[block_index]
+            boundaries = (
+                self.line_origin_block.row_boundaries
+                if axis == "row"
+                else self.line_origin_block.col_boundaries
+            )
+            self.target_selected.emit(f"block_{block_index}")
+            self.line_selected.emit(block_index, axis, boundary_index, boundaries[boundary_index])
+            self.update()
+            return
 
         if self.mode == self.MODE_SELECT_MOVE:
             # Check if clicked on a handle of the currently selected target
@@ -240,14 +338,21 @@ class CalibrationCanvas(QWidget):
                     if h_rect.contains(pt):
                         self.active_handle = h_name
                         self.drag_orig_rect = target_rect
+                        if self.selected_target.startswith("block_"):
+                            self.drag_origin_block = td.answer_blocks[
+                                int(self.selected_target.split("_")[1])
+                            ]
                         return
                 if qrect.contains(pt):
                     self.active_handle = "move"
                     self.drag_orig_rect = target_rect
+                    if self.selected_target.startswith("block_"):
+                        self.drag_origin_block = td.answer_blocks[
+                            int(self.selected_target.split("_")[1])
+                        ]
                     return
 
             # Check if clicked on Student ROI
-            td = self.template_def
             if td.student_number_roi is not None:
                 sq = self._img_rect_to_canvas(td.student_number_roi)
                 if sq.contains(pt):
@@ -288,6 +393,7 @@ class CalibrationCanvas(QWidget):
                         b.col_boundaries[-1],
                         b.row_boundaries[-1],
                     )
+                    self.drag_origin_block = b
                     self.target_selected.emit(f"block_{idx}")
                     self.update()
                     return
@@ -323,6 +429,32 @@ class CalibrationCanvas(QWidget):
                         self.setCursor(Qt.CursorShape.SizeAllCursor)
                         return
                 self.setCursor(Qt.CursorShape.ArrowCursor)
+            return
+
+        if self.mode == self.MODE_EDIT_GRID_LINE and self.active_line and self.line_origin_block:
+            block_index, axis, boundary_index = self.active_line
+            coordinate = round(
+                (pt.x() if axis == "col" else pt.y()) / max(0.01, self.scale_factor)
+            )
+            td = self.template_def
+            if td is not None:
+                try:
+                    updated = set_boundary_position(
+                        self.line_origin_block,
+                        axis=axis,  # type: ignore[arg-type]
+                        index=boundary_index,
+                        position=coordinate,
+                        canonical_width=td.canonical_width,
+                        canonical_height=td.canonical_height,
+                        cell_inset=td.cell_inset,
+                    )
+                except ValueError:
+                    pass
+                else:
+                    self.block_updated.emit(block_index, updated)
+                    values = updated.row_boundaries if axis == "row" else updated.col_boundaries
+                    self.line_selected.emit(block_index, axis, boundary_index, values[boundary_index])
+            self.update()
             return
 
         # Dragging logic
@@ -388,7 +520,45 @@ class CalibrationCanvas(QWidget):
         self.drag_current_pt = None
         self.active_handle = None
         self.drag_orig_rect = None
+        self.drag_origin_block = None
+        self.active_line = None
+        self.line_origin_block = None
         self.update()
+
+    def _pick_grid_line(self, point: QPoint) -> tuple[int, str, int] | None:
+        td = self.template_def
+        if td is None:
+            return None
+        candidates: list[tuple[int, int, str, int]] = []
+        if self.selected_target.startswith("block_"):
+            try:
+                indices = [int(self.selected_target.split("_")[1])]
+            except (ValueError, IndexError):
+                indices = []
+        else:
+            indices = list(range(len(td.answer_blocks)))
+
+        for block_index in indices:
+            if not 0 <= block_index < len(td.answer_blocks):
+                continue
+            block = td.answer_blocks[block_index]
+            rect = self._img_rect_to_canvas(
+                (block.col_boundaries[0], block.row_boundaries[0],
+                 block.col_boundaries[-1], block.row_boundaries[-1])
+            )
+            if not rect.adjusted(-8, -8, 8, 8).contains(point):
+                continue
+            for axis, boundaries in (("col", block.col_boundaries), ("row", block.row_boundaries)):
+                point_value = point.x() if axis == "col" else point.y()
+                for line_index, image_value in enumerate(boundaries):
+                    canvas_value = round(image_value * self.scale_factor)
+                    distance = abs(point_value - canvas_value)
+                    if distance <= 8:
+                        candidates.append((distance, block_index, axis, line_index))
+        if not candidates:
+            return None
+        _, block_index, axis, line_index = min(candidates)
+        return block_index, axis, line_index
 
     def _apply_interactive_rect(self, rect: tuple[int, int, int, int]) -> None:
         td = self.template_def
@@ -404,31 +574,13 @@ class CalibrationCanvas(QWidget):
                 b_idx = int(self.selected_target.split("_")[1])
                 if 0 <= b_idx < len(td.answer_blocks):
                     old_b = td.answer_blocks[b_idx]
-                    # Rescale column and row boundaries to the new rect
-                    old_w = old_b.col_boundaries[-1] - old_b.col_boundaries[0]
-                    old_h = old_b.row_boundaries[-1] - old_b.row_boundaries[0]
-                    new_w = max(20, x2 - x1)
-                    new_h = max(20, y2 - y1)
-                    scale_x = new_w / max(1, old_w)
-                    scale_y = new_h / max(1, old_h)
-
-                    new_cols = [
-                        int(x1 + (c - old_b.col_boundaries[0]) * scale_x)
-                        for c in old_b.col_boundaries
-                    ]
-                    new_rows = [
-                        int(y1 + (r - old_b.row_boundaries[0]) * scale_y)
-                        for r in old_b.row_boundaries
-                    ]
-
-                    new_b = AnswerBlock(
-                        block_index=old_b.block_index,
-                        question_start=old_b.question_start,
-                        question_end=old_b.question_end,
-                        rows=old_b.rows,
-                        choice_count=old_b.choice_count,
-                        col_boundaries=new_cols,
-                        row_boundaries=new_rows,
+                    origin = self.drag_origin_block or old_b
+                    new_b = resize_block_from_origin(
+                        origin,
+                        rect=rect,
+                        canonical_width=td.canonical_width,
+                        canonical_height=td.canonical_height,
+                        cell_inset=td.cell_inset,
                     )
                     self.block_updated.emit(b_idx, new_b)
             except (ValueError, IndexError):
@@ -490,17 +642,30 @@ class CalibrationCanvas(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
 
             for q in range(block.question_start, block.question_end + 1):
+                row_index = q - block.question_start
                 for c in range(block.choice_count):
-                    cx, cy, cw, ch = cell_box_rect_for_template(td, q, c)
+                    cx, cy, cw, ch = cell_box_for_block(block, row_index, c)
                     cq_rect = self._img_rect_to_canvas((cx, cy, cx + cw, cy + ch))
                     painter.drawRect(cq_rect)
+
+            # Structured grid boundaries remain visible and individually editable.
+            for axis, boundaries in (("col", block.col_boundaries), ("row", block.row_boundaries)):
+                for line_index, image_value in enumerate(boundaries):
+                    selected = self.selected_line == (idx, axis, line_index)
+                    color = QColor(255, 196, 0) if selected else QColor(48, 120, 145, 170)
+                    painter.setPen(QPen(color, 2 if selected else 1))
+                    canvas_value = round(image_value * self.scale_factor)
+                    if axis == "col":
+                        painter.drawLine(canvas_value, b_rect.top(), canvas_value, b_rect.bottom())
+                    else:
+                        painter.drawLine(b_rect.left(), canvas_value, b_rect.right(), canvas_value)
 
             # Block label header
             painter.setPen(block_color)
             painter.drawText(
                 b_rect.x() + 4,
                 b_rect.y() - 4,
-                f"ชุดที่ {idx + 1} (ข้อ {block.question_start}-{block.question_end})",
+                f"ชุดที่ {idx + 1} (ข้อ {block.question_start}-{block.question_end}) · {block.choice_count} ตัวเลือก",
             )
 
             # Handles if this specific block is selected
@@ -897,11 +1062,19 @@ class CalibrationDialog(QDialog):
         self.canonical_ref_bgr: np.ndarray | None = None
         self.current_template_def: TemplateDefinition | None = None
         self.discovery_worker: DiscoveryWorker | None = None
+        self._active_workers: list[QThread] = []
+        self._discovery_generation = 0
+        self._grid_generation = 0
+        self._draft_revision = 0
+        self._geometry_dirty = False
+        self._geometry_warnings: list[str] = []
+        self._close_pending = False
         self.canvas = CalibrationCanvas()
         self.canvas.roi_updated.connect(self._on_canvas_roi_updated)
         self.canvas.block_updated.connect(self._on_canvas_block_updated)
         self.canvas.grid_area_completed.connect(self._on_canvas_grid_area_completed)
         self.canvas.target_selected.connect(self._on_canvas_target_selected)
+        self.canvas.line_selected.connect(self._on_canvas_line_selected)
 
         title = "ปรับเทียบและสร้างรูปแบบกระดาษคำตอบใหม่"
         if edit_template is not None:
@@ -952,46 +1125,99 @@ class CalibrationDialog(QDialog):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
 
-        # Toolbar
-        toolbar = QHBoxLayout()
+        # Toolbar Row 1: Actions & View controls
+        toolbar_row1 = QHBoxLayout()
+        toolbar_row1.setSpacing(6)
+
         self.load_img_btn = QPushButton("📁 เลือกภาพ…")
-        self.load_img_btn.setStyleSheet("font-weight: bold; padding: 6px 10px;")
+        self.load_img_btn.setStyleSheet("font-weight: bold; padding: 5px 12px;")
         self.load_img_btn.setToolTip("เลือกไฟล์ภาพกระดาษคำตอบ (JPG, PNG) เพื่อใช้ในการปรับเทียบ")
         self.load_img_btn.clicked.connect(self._select_image)
-        toolbar.addWidget(self.load_img_btn)
+        toolbar_row1.addWidget(self.load_img_btn)
 
-        toolbar.addSpacing(6)
+        self.redetect_btn = QPushButton("🔄 ตรวจหาใหม่")
+        self.redetect_btn.setToolTip("ตรวจหาตำแหน่งและโครงสร้างตารางคำตอบจากภาพปัจจุบันใหม่อีกครั้ง")
+        self.redetect_btn.setEnabled(False)
+        self.redetect_btn.clicked.connect(self._redetect_current_image)
+        toolbar_row1.addWidget(self.redetect_btn)
 
-        # Tool buttons group
+        self.help_photo_btn = QPushButton("💡 คำแนะนำการถ่าย")
+        self.help_photo_btn.setToolTip("ดูคำแนะนำการถ่ายภาพกระดาษคำตอบให้ได้ผลตรวจจับที่แม่นยำ")
+        self.help_photo_btn.clicked.connect(self._show_photo_tips)
+        toolbar_row1.addWidget(self.help_photo_btn)
+
+        toolbar_row1.addStretch()
+
+        self.toggle_overlay_btn = QPushButton("👁️ เส้น Overlay")
+        self.toggle_overlay_btn.setCheckable(True)
+        self.toggle_overlay_btn.setChecked(True)
+        self.toggle_overlay_btn.setToolTip("เปิด/ปิดการแสดงเส้นโครงร่างตารางคำตอบบนภาพ")
+        self.toggle_overlay_btn.clicked.connect(self._toggle_overlay)
+        toolbar_row1.addWidget(self.toggle_overlay_btn)
+
+        zoom_out_btn = QPushButton("➖")
+        zoom_out_btn.setToolTip("ย่อภาพ")
+        zoom_out_btn.clicked.connect(lambda: self._zoom(-0.1))
+        toolbar_row1.addWidget(zoom_out_btn)
+
+        self.zoom_lbl = QLabel("50%")
+        toolbar_row1.addWidget(self.zoom_lbl)
+
+        zoom_in_btn = QPushButton("➕")
+        zoom_in_btn.setToolTip("ขยายภาพ")
+        zoom_in_btn.clicked.connect(lambda: self._zoom(0.1))
+        toolbar_row1.addWidget(zoom_in_btn)
+
+        left_layout.addLayout(toolbar_row1)
+
+        # Toolbar Row 2: Interactive Tool Palette
+        toolbar_row2 = QHBoxLayout()
+        toolbar_row2.setSpacing(6)
+
+        tool_label = QLabel("เครื่องมือ:")
+        tool_label.setStyleSheet("font-weight: bold; color: #475569;")
+        toolbar_row2.addWidget(tool_label)
+
         self.tool_btn_group = QButtonGroup(self)
         self.tool_btn_group.setExclusive(True)
 
-        self.btn_tool_select = QPushButton("👆 เลือก/ย้าย")
+        self.btn_tool_select = QPushButton("👆 เลือก/ย้ายกรอบ")
         self.btn_tool_select.setCheckable(True)
         self.btn_tool_select.setChecked(True)
         self.btn_tool_select.setToolTip("คลิกลากเพื่อย้ายหรือปรับขนาดกรอบคำตอบ/ช่องคะแนน/ช่องเลขประจำตัว")
         self.btn_tool_select.clicked.connect(
             lambda: self.canvas.set_mode(CalibrationCanvas.MODE_SELECT_MOVE)
         )
-        toolbar.addWidget(self.btn_tool_select)
+        toolbar_row2.addWidget(self.btn_tool_select)
         self.tool_btn_group.addButton(self.btn_tool_select)
 
-        self.btn_tool_grid = QPushButton("📐 ตารางคำตอบ")
+        self.btn_tool_lines = QPushButton("✏️ ปรับเส้นตาราง")
+        self.btn_tool_lines.setCheckable(True)
+        self.btn_tool_lines.setToolTip("คลิกและลากเส้นแถวหรือคอลัมน์บนตารางที่เลือก")
+        self.btn_tool_lines.clicked.connect(
+            lambda: self.canvas.set_mode(CalibrationCanvas.MODE_EDIT_GRID_LINE)
+        )
+        toolbar_row2.addWidget(self.btn_tool_lines)
+        self.tool_btn_group.addButton(self.btn_tool_lines)
+
+        self.btn_tool_grid = QPushButton("📐 วาดตารางเพิ่ม")
         self.btn_tool_grid.setCheckable(True)
         self.btn_tool_grid.setToolTip("ลากพื้นที่สี่เหลี่ยมบนภาพเพื่อตรวจจับตารางคำตอบในบริเวณนั้น")
         self.btn_tool_grid.clicked.connect(
             lambda: self.canvas.set_mode(CalibrationCanvas.MODE_DRAW_GRID_AREA)
         )
-        toolbar.addWidget(self.btn_tool_grid)
+        toolbar_row2.addWidget(self.btn_tool_grid)
         self.tool_btn_group.addButton(self.btn_tool_grid)
 
         self.btn_tool_student = QPushButton("🔢 เลขประจำตัว")
         self.btn_tool_student.setCheckable(True)
-        self.btn_tool_student.setToolTip("ลากกรอบสี่เหลี่ยมเพื่อกำหนดตำแหน่งช่องเลขประจำตัว")
+        self.btn_tool_student.setToolTip(
+            "💡 ลากกรอบเฉพาะช่องเขียนตัวเลข (เว้นคำว่า 'เลขที่' และเส้นไข่ปลาไว้ด้านนอกเพื่อความแม่นยำสูงสุด)"
+        )
         self.btn_tool_student.clicked.connect(
             lambda: self.canvas.set_mode(CalibrationCanvas.MODE_DRAW_STUDENT_ROI)
         )
-        toolbar.addWidget(self.btn_tool_student)
+        toolbar_row2.addWidget(self.btn_tool_student)
         self.tool_btn_group.addButton(self.btn_tool_student)
 
         self.btn_tool_score = QPushButton("📝 คะแนนรวม")
@@ -1000,29 +1226,18 @@ class CalibrationDialog(QDialog):
         self.btn_tool_score.clicked.connect(
             lambda: self.canvas.set_mode(CalibrationCanvas.MODE_DRAW_SCORE_ROI)
         )
-        toolbar.addWidget(self.btn_tool_score)
+        toolbar_row2.addWidget(self.btn_tool_score)
         self.tool_btn_group.addButton(self.btn_tool_score)
 
-        toolbar.addStretch()
+        toolbar_row2.addStretch()
+        left_layout.addLayout(toolbar_row2)
 
-        self.toggle_overlay_btn = QPushButton("👁️ Overlay")
-        self.toggle_overlay_btn.setCheckable(True)
-        self.toggle_overlay_btn.setChecked(True)
-        self.toggle_overlay_btn.clicked.connect(self._toggle_overlay)
-        toolbar.addWidget(self.toggle_overlay_btn)
-
-        zoom_out_btn = QPushButton("➖")
-        zoom_out_btn.clicked.connect(lambda: self._zoom(-0.1))
-        toolbar.addWidget(zoom_out_btn)
-
-        self.zoom_lbl = QLabel("50%")
-        toolbar.addWidget(self.zoom_lbl)
-
-        zoom_in_btn = QPushButton("➕")
-        zoom_in_btn.clicked.connect(lambda: self._zoom(0.1))
-        toolbar.addWidget(zoom_in_btn)
-
-        left_layout.addLayout(toolbar)
+        self.roi_helper_lbl = QLabel(
+            "💡 ลากกรอบเฉพาะช่องเขียนตัวเลข (เว้นคำว่า 'เลขที่' และเส้นไข่ปลาไว้ด้านนอกเพื่อความแม่นยำสูงสุด)"
+        )
+        self.roi_helper_lbl.setStyleSheet("color: #718096; font-size: 11px; padding: 2px 4px;")
+        self.roi_helper_lbl.setWordWrap(True)
+        left_layout.addWidget(self.roi_helper_lbl)
 
         # Progress bar for background discovery
         self.progress_bar = QProgressBar()
@@ -1084,7 +1299,7 @@ class CalibrationDialog(QDialog):
         right_layout.addWidget(params_group)
 
         # Group 2: Fine-Tune / Nudge / Block Management
-        nudge_group = QGroupBox("ปรับแต่งพิกัดและจัดการชุดคำตอบ (Fine-Tune & Nudge)")
+        nudge_group = QGroupBox("ปรับตำแหน่งตารางคำตอบ")
         nudge_layout = QVBoxLayout(nudge_group)
         nudge_layout.setSpacing(6)
 
@@ -1092,7 +1307,7 @@ class CalibrationDialog(QDialog):
         nudge_target_layout.addWidget(QLabel("เป้าหมาย:"))
         self.nudge_target_combo = QComboBox()
         self.nudge_target_combo.addItems(
-            ["ทุกตารางคำตอบ (All Blocks)", "ช่องเลขประจำตัว (Student ROI)", "ช่องคะแนน (Score ROI)"]
+            ["ทุกชุดคำตอบพร้อมกัน", "ช่องเลขประจำตัวนักเรียน", "ช่องคะแนนรวม"]
         )
         self.nudge_target_combo.currentIndexChanged.connect(self._on_target_combo_changed)
         nudge_target_layout.addWidget(self.nudge_target_combo, 1)
@@ -1149,6 +1364,65 @@ class CalibrationDialog(QDialog):
         block_action_box.addWidget(self.btn_del_block)
 
         nudge_layout.addLayout(block_action_box)
+
+        line_group = QGroupBox("ปรับจำนวนแถวและเส้นตาราง")
+        line_layout = QVBoxLayout(line_group)
+        line_layout.setSpacing(6)
+
+        row_count_row = QHBoxLayout()
+        row_count_row.addWidget(QLabel("จำนวนแถว (ข้อ):"))
+        self.block_row_spin = QSpinBox()
+        self.block_row_spin.setRange(1, 60)
+        self.block_row_spin.setValue(10)
+        self.block_row_spin.setEnabled(False)
+        self.block_row_spin.setToolTip("ตั้งจำนวนแถวของชุดคำตอบที่เลือกโดยตรง")
+        self.block_row_spin.valueChanged.connect(self._on_block_row_spin_changed)
+        row_count_row.addWidget(self.block_row_spin, 1)
+        line_layout.addLayout(row_count_row)
+
+        row_edit = QHBoxLayout()
+        self.btn_add_row = QPushButton("➕ เพิ่มแถวท้ายชุด")
+        self.btn_add_row.setEnabled(False)
+        self.btn_add_row.setToolTip("เพิ่มข้อคำตอบต่อท้ายชุดนี้ตามระยะห่างจริง")
+        self.btn_add_row.clicked.connect(self._on_append_row_clicked)
+        self.btn_delete_row = QPushButton("➖ ลบแถวล่างสุด")
+        self.btn_delete_row.setEnabled(False)
+        self.btn_delete_row.setToolTip("ลดข้อคำตอบข้อสุดท้ายของชุดนี้ออก")
+        self.btn_delete_row.clicked.connect(self._on_remove_row_clicked)
+        row_edit.addWidget(self.btn_add_row)
+        row_edit.addWidget(self.btn_delete_row)
+        line_layout.addLayout(row_edit)
+
+        choice_edit = QHBoxLayout()
+        self.btn_add_choice = QPushButton("➕ เพิ่มตัวเลือกขวา")
+        self.btn_add_choice.setEnabled(False)
+        self.btn_add_choice.setToolTip("เพิ่มคอลัมน์ตัวเลือกทางขวาสุดของชุดนี้")
+        self.btn_add_choice.clicked.connect(self._on_append_choice_clicked)
+        self.btn_delete_choice = QPushButton("➖ ลบตัวเลือกขวาสุด")
+        self.btn_delete_choice.setEnabled(False)
+        self.btn_delete_choice.setToolTip("ลดคอลัมน์ตัวเลือกล่าสุดออก")
+        self.btn_delete_choice.clicked.connect(self._on_remove_choice_clicked)
+        choice_edit.addWidget(self.btn_add_choice)
+        choice_edit.addWidget(self.btn_delete_choice)
+        line_layout.addLayout(choice_edit)
+
+        line_hint = QLabel("💡 ใช้เครื่องมือ ‘✏️ แก้เส้นตาราง’ บนแถบเครื่องมือ เพื่อคลิกลากเส้นตารางบนภาพได้โดยตรง")
+        line_hint.setWordWrap(True)
+        line_hint.setStyleSheet("color: #64748B; font-size: 11px;")
+        line_layout.addWidget(line_hint)
+
+        line_position_row = QHBoxLayout()
+        line_position_row.addWidget(QLabel("พิกัดเส้น (px):"))
+        self.line_position_spin = QSpinBox()
+        self.line_position_spin.setRange(0, 100000)
+        self.line_position_spin.setEnabled(False)
+        line_position_row.addWidget(self.line_position_spin, 1)
+        self.btn_set_line_position = QPushButton("ตั้งพิกัด")
+        self.btn_set_line_position.setEnabled(False)
+        self.btn_set_line_position.clicked.connect(self._set_selected_line_position)
+        line_position_row.addWidget(self.btn_set_line_position)
+        line_layout.addLayout(line_position_row)
+        nudge_layout.addWidget(line_group)
         right_layout.addWidget(nudge_group)
 
         # Group 3: Diagnostics Summary
@@ -1223,11 +1497,13 @@ class CalibrationDialog(QDialog):
             success, enc = cv2.imencode(".png", ref_bgr)
             if success:
                 self.raw_image_bytes = enc.tobytes()
-            self.current_template_def = source
-            self.canvas.set_reference(ref_bgr, source)
+            draft = CalibrationDraft.from_template(source)
+            self.current_template_def = draft
+            self.canvas.set_reference(ref_bgr, draft)
             self._update_target_combo()
             self.save_btn.setEnabled(True)
             self.test_btn.setEnabled(True)
+            self.redetect_btn.setEnabled(True)
             self._update_summary_display(
                 status_title=f"กำลังแก้ไขแม่แบบ '{source.name}'",
                 warnings=[],
@@ -1255,11 +1531,13 @@ class CalibrationDialog(QDialog):
             success, enc = cv2.imencode(".png", ref_bgr)
             if success:
                 self.raw_image_bytes = enc.tobytes()
-            self.current_template_def = source
-            self.canvas.set_reference(ref_bgr, source)
+            draft = CalibrationDraft.from_template(source)
+            self.current_template_def = draft
+            self.canvas.set_reference(ref_bgr, draft)
             self._update_target_combo()
             self.save_btn.setEnabled(True)
             self.test_btn.setEnabled(True)
+            self.redetect_btn.setEnabled(True)
             self._update_summary_display(
                 status_title=f"ทำสำเนาจาก '{source.name}'",
                 warnings=[],
@@ -1268,6 +1546,16 @@ class CalibrationDialog(QDialog):
             QMessageBox.warning(self, "โหลดภาพอ้างอิงไม่สำเร็จ", str(err))
 
     def _select_image(self) -> None:
+        if self._geometry_dirty:
+            answer = QMessageBox.question(
+                self,
+                "ยืนยันตรวจหาใหม่",
+                "การโหลดภาพใหม่จะแทนที่การแก้ไขตารางปัจจุบัน ต้องการตรวจหาโครงสร้างจากภาพอื่นหรือไม่?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "เลือกภาพกระดาษคำตอบเปล่าเพื่อปรับเทียบ",
@@ -1281,23 +1569,65 @@ class CalibrationDialog(QDialog):
             data = open(file_path, "rb").read()
             self.raw_image_bytes = data
             self.progress_bar.setVisible(True)
-            self.load_img_btn.setEnabled(False)
             self.summary_lbl.setText("กำลังประมวลผลและตรวจหาโครงสร้างตารางคำตอบ...")
-
-            self.discovery_worker = DiscoveryWorker(data)
-            self.discovery_worker.finished.connect(self._on_discovery_finished)
-            self.discovery_worker.failed.connect(self._on_discovery_failed)
-            self.discovery_worker.start()
+            self._discovery_generation += 1
+            generation = self._discovery_generation
+            revision = self._draft_revision
+            worker = DiscoveryWorker(data)
+            self.discovery_worker = worker
+            self._track_worker(worker)
+            worker.completed.connect(
+                lambda result, gen=generation, rev=revision: self._handle_discovery_finished(
+                    result, gen, rev
+                )
+            )
+            worker.failed.connect(
+                lambda message, gen=generation: self._handle_discovery_failed(message, gen)
+            )
+            worker.start()
         except Exception as err:
             QMessageBox.critical(self, "อ่านไฟล์ไม่ได้", str(err))
 
+    def _track_worker(self, worker: QThread) -> None:
+        self._active_workers.append(worker)
+        worker.finished.connect(lambda w=worker: self._release_worker(w))
+
+    def _release_worker(self, worker: QThread) -> None:
+        if worker in self._active_workers:
+            self._active_workers.remove(worker)
+        if worker is self.discovery_worker:
+            self.discovery_worker = None
+
+    def _handle_discovery_finished(
+        self, result: DiscoveryResult, generation: int, revision: int
+    ) -> None:
+        if generation != self._discovery_generation:
+            return
+        self.progress_bar.setVisible(False)
+        if revision != self._draft_revision:
+            self._update_summary_display(
+                "เก็บการแก้ไขล่าสุดไว้; ละเว้นผลตรวจภาพเก่าที่เพิ่งเสร็จ",
+                self._geometry_warnings,
+            )
+            return
+        self._on_discovery_finished(result)
+
+    def _handle_discovery_failed(self, err_msg: str, generation: int) -> None:
+        if generation != self._discovery_generation:
+            return
+        self.progress_bar.setVisible(False)
+        self._on_discovery_failed(err_msg)
+
     def _on_discovery_finished(self, result: DiscoveryResult) -> None:
         self.progress_bar.setVisible(False)
-        self.load_img_btn.setEnabled(True)
 
         td = result.template_def
-        self.current_template_def = td
+        draft = CalibrationDraft.from_template(td)
+        self.current_template_def = draft
         self.canonical_ref_bgr = result.warped_image
+        self._geometry_warnings = list(result.warnings)
+        self._geometry_dirty = False
+        self._draft_revision += 1
 
         if not self.name_input.text():
             self.name_input.setText(
@@ -1311,17 +1641,97 @@ class CalibrationDialog(QDialog):
         self.inset_spin.setValue(td.cell_inset)
 
         if self.canonical_ref_bgr is not None:
-            self.canvas.set_reference(self.canonical_ref_bgr, td)
+            self.canvas.set_reference(self.canonical_ref_bgr, draft)
 
         self._update_target_combo()
-        self._update_summary_display(result.status_message, result.warnings)
+        self._update_summary_display(result.status_message, self._geometry_warnings)
 
         self.save_btn.setEnabled(True)
         self.test_btn.setEnabled(True)
+        self.redetect_btn.setEnabled(True)
+
+    def _handle_grid_detection_finished(
+        self, inferred: list[AnswerBlock], generation: int, revision: int, area_rect: tuple[int, int, int, int]
+    ) -> None:
+        if generation != self._grid_generation:
+            return
+        self.progress_bar.setVisible(False)
+        if revision != self._draft_revision:
+            self._update_summary_display("เก็บการแก้ไขล่าสุดไว้; ละเว้นผลตรวจพื้นที่เก่าที่เพิ่งเสร็จ", self._geometry_warnings)
+            return
+        td = self.current_template_def
+        if td is None:
+            return
+        if not inferred:
+            QMessageBox.information(
+                self,
+                "ไม่พบตารางในพื้นที่ที่เลือก",
+                "ไม่พบเส้นตารางที่ชัดเจนในกรอบที่ลาก กรุณาลองลากให้ครอบคลุมขอบตารางทั้งหมด",
+            )
+            return
+        if sum(block.rows for block in td.answer_blocks) + sum(block.rows for block in inferred) > 60:
+            QMessageBox.warning(self, "ข้อจำกัด", "จำนวนข้อคำตอบรวมไม่สามารถเกิน 60 ข้อได้")
+            return
+
+        blocks = list(td.answer_blocks)
+        for detected in inferred:
+            candidate = replace(
+                detected,
+                block_index=len(blocks),
+                geometry_state="draft",
+                confidence=None,
+                source_geometry={
+                    "kind": "roi_grid_inference",
+                    "coordinate_space": "canonical_px",
+                    "candidate_box": list(area_rect),
+                    "detected_column_boundaries": list(detected.col_boundaries),
+                    "detected_row_boundaries": list(detected.row_boundaries),
+                },
+            )
+            if any(_blocks_overlap(candidate, existing) for existing in blocks):
+                QMessageBox.warning(self, "ตารางซ้อนกัน", "พื้นที่ตารางใหม่ทับซ้อนกับชุดคำตอบเดิม จึงไม่ได้เพิ่ม")
+                return
+            blocks.append(candidate)
+        blocks = renumber_blocks(blocks)
+        total_q = sum(block.rows for block in blocks)
+        self.q_count_spin.setValue(total_q)
+        self.current_template_def = replace(td, answer_blocks=blocks, question_count=total_q)
+        self._mark_geometry_changed()
+        self.canvas.set_template_def(self.current_template_def)
+        self._update_target_combo()
+        self.btn_tool_select.setChecked(True)
+        self.canvas.set_mode(CalibrationCanvas.MODE_SELECT_MOVE)
+        self._update_summary_display(f"เพิ่มชุดคำตอบใหม่ {len(inferred)} ชุดสำเร็จ", self._geometry_warnings)
+
+    def _handle_grid_detection_failed(self, err_msg: str, generation: int) -> None:
+        if generation != self._grid_generation:
+            return
+        self.progress_bar.setVisible(False)
+        QMessageBox.warning(self, "ตรวจหาพื้นที่ไม่สำเร็จ", err_msg)
+
+    def _mark_geometry_changed(self) -> None:
+        self._draft_revision += 1
+        self._geometry_dirty = True
+
+    def _apply_block_list(self, blocks: list[AnswerBlock], message: str) -> None:
+        td = self.current_template_def
+        if td is None:
+            return
+        normalized = renumber_blocks(blocks)
+        total_questions = sum(block.rows for block in normalized)
+        self.q_count_spin.setValue(max(1, total_questions))
+        self.current_template_def = replace(
+            td,
+            answer_blocks=normalized,
+            question_count=total_questions,
+        )
+        self._mark_geometry_changed()
+        self.canvas.set_template_def(self.current_template_def)
+        self._update_target_combo()
+        self._update_summary_display(message, self._geometry_warnings)
 
     def _on_discovery_failed(self, err_msg: str) -> None:
         self.progress_bar.setVisible(False)
-        self.load_img_btn.setEnabled(True)
         QMessageBox.critical(self, "การปรับเทียบล้มเหลว", f"เกิดข้อผิดพลาด: {err_msg}")
         self.summary_lbl.setText(
             f"❌ วิเคราะห์โครงสร้างไม่สำเร็จ: {err_msg}\n\n"
@@ -1331,6 +1741,27 @@ class CalibrationDialog(QDialog):
             "• สามารถใช้เครื่องมือ 'ลากตารางคำตอบ' บนภาพ เพื่อกำหนดขอบเขตด้วยตนเองได้"
         )
 
+    def closeEvent(self, event: Any) -> None:
+        self._discovery_generation += 1
+        self._grid_generation += 1
+        running = [worker for worker in self._active_workers if worker.isRunning()]
+        if running:
+            # Never block the GUI thread waiting for OpenCV.  QThread completion
+            # will release the worker and retry the pending close safely.
+            self._close_pending = True
+            event.ignore()
+            for worker in running:
+                if not getattr(worker, "_close_hooked", False):
+                    worker._close_hooked = True  # type: ignore[attr-defined]
+                    worker.finished.connect(self._finish_pending_close)
+            return
+        super().closeEvent(event)
+
+    def _finish_pending_close(self) -> None:
+        if self._close_pending and not any(worker.isRunning() for worker in self._active_workers):
+            self._close_pending = False
+            self.close()
+
     def _update_target_combo(self) -> None:
         td = self.current_template_def
         if td is None:
@@ -1338,16 +1769,17 @@ class CalibrationDialog(QDialog):
         curr_idx = self.nudge_target_combo.currentIndex()
         self.nudge_target_combo.blockSignals(True)
         self.nudge_target_combo.clear()
-        self.nudge_target_combo.addItem("ทุกตารางคำตอบ (All Blocks)")
+        self.nudge_target_combo.addItem("ทุกชุดคำตอบพร้อมกัน")
         for i, b in enumerate(td.answer_blocks):
-            self.nudge_target_combo.addItem(f"ชุดที่ {i + 1} (ข้อ {b.question_start}-{b.question_end})")
-        self.nudge_target_combo.addItem("ช่องเลขประจำตัว (Student ROI)")
-        self.nudge_target_combo.addItem("ช่องคะแนน (Score ROI)")
+            self.nudge_target_combo.addItem(f"ชุดที่ {i + 1} (ข้อ {b.question_start}–{b.question_end})")
+        self.nudge_target_combo.addItem("ช่องเลขประจำตัวนักเรียน")
+        self.nudge_target_combo.addItem("ช่องคะแนนรวม")
         if 0 <= curr_idx < self.nudge_target_combo.count():
             self.nudge_target_combo.setCurrentIndex(curr_idx)
         else:
             self.nudge_target_combo.setCurrentIndex(0)
         self.nudge_target_combo.blockSignals(False)
+        self._sync_selected_block_controls()
 
     def _on_target_combo_changed(self, idx: int) -> None:
         td = self.current_template_def
@@ -1362,6 +1794,7 @@ class CalibrationDialog(QDialog):
         else:
             block_idx = idx - 1
             self.canvas.set_selected_target(f"block_{block_idx}")
+        self._sync_selected_block_controls()
 
     def _on_canvas_target_selected(self, target: str) -> None:
         self.nudge_target_combo.blockSignals(True)
@@ -1378,6 +1811,7 @@ class CalibrationDialog(QDialog):
             except (ValueError, IndexError):
                 pass
         self.nudge_target_combo.blockSignals(False)
+        self._sync_selected_block_controls()
 
     def _on_canvas_roi_updated(self, roi_type: str, rect: tuple[int, int, int, int]) -> None:
         td = self.current_template_def
@@ -1389,82 +1823,292 @@ class CalibrationDialog(QDialog):
             self.current_template_def = replace(td, student_number_roi=rect)
         elif roi_type == "score":
             self.current_template_def = replace(td, score_roi=rect)
+        self._mark_geometry_changed()
         self.canvas.set_template_def(self.current_template_def)
-        self._update_summary_display("ปรับตำแหน่ง ROI สำเร็จ", [])
+        self._update_summary_display("ปรับตำแหน่ง ROI สำเร็จ", self._geometry_warnings)
 
     def _on_canvas_block_updated(self, block_index: int, new_block: AnswerBlock) -> None:
         td = self.current_template_def
         if td is None:
             return
-        from dataclasses import replace
-
         new_blocks = list(td.answer_blocks)
         if 0 <= block_index < len(new_blocks):
             new_blocks[block_index] = new_block
-            self.current_template_def = replace(td, answer_blocks=new_blocks)
-            self.canvas.set_template_def(self.current_template_def)
-            self._update_summary_display(f"ปรับพิกัดชุดคำตอบที่ {block_index + 1} สำเร็จ", [])
+            self._apply_block_list(new_blocks, f"ปรับพิกัดชุดคำตอบที่ {block_index + 1} สำเร็จ")
+
+    def _on_canvas_line_selected(
+        self, block_index: int, axis: str, boundary_index: int, position: int
+    ) -> None:
+        td = self.current_template_def
+        if td is None or not 0 <= block_index < len(td.answer_blocks):
+            return
+        self._on_canvas_target_selected(f"block_{block_index}")
+        maximum = td.canonical_height if axis == "row" else td.canonical_width
+        self.line_position_spin.blockSignals(True)
+        self.line_position_spin.setRange(0, maximum)
+        self.line_position_spin.setValue(position)
+        self.line_position_spin.blockSignals(False)
+        self.line_position_spin.setEnabled(True)
+        self.btn_set_line_position.setEnabled(True)
+
+    def _selected_block_index_silent(self) -> int | None:
+        td = self.current_template_def
+        if td is None or not td.answer_blocks:
+            return None
+        if self.canvas.selected_target.startswith("block_"):
+            try:
+                idx = int(self.canvas.selected_target.split("_")[1])
+                if 0 <= idx < len(td.answer_blocks):
+                    return idx
+            except (ValueError, IndexError):
+                pass
+        idx = self.nudge_target_combo.currentIndex() - 1
+        if 0 <= idx < len(td.answer_blocks):
+            return idx
+        if len(td.answer_blocks) == 1:
+            return 0
+        return None
+
+    def _selected_block_index(self) -> int | None:
+        idx = self._selected_block_index_silent()
+        if idx is not None:
+            return idx
+        td = self.current_template_def
+        if td is not None and len(td.answer_blocks) > 1:
+            QMessageBox.information(self, "เลือกชุดคำตอบ", "กรุณาเลือกชุดคำตอบที่ต้องการปรับจากเมนูเป้าหมายก่อน")
+        return None
+
+    def _sync_selected_block_controls(self) -> None:
+        td = self.current_template_def
+        if td is None:
+            return
+        b_idx = self._selected_block_index_silent()
+        if b_idx is not None and 0 <= b_idx < len(td.answer_blocks):
+            block = td.answer_blocks[b_idx]
+            self.block_row_spin.blockSignals(True)
+            self.block_row_spin.setValue(block.rows)
+            self.block_row_spin.blockSignals(False)
+            self.block_row_spin.setEnabled(True)
+            self.btn_add_row.setEnabled(True)
+            self.btn_delete_row.setEnabled(True)
+            self.btn_add_choice.setEnabled(True)
+            self.btn_delete_choice.setEnabled(True)
+        else:
+            self.block_row_spin.setEnabled(False)
+            self.btn_add_row.setEnabled(False)
+            self.btn_delete_row.setEnabled(False)
+            self.btn_add_choice.setEnabled(False)
+            self.btn_delete_choice.setEnabled(False)
+
+    def _on_block_row_spin_changed(self, new_rows: int) -> None:
+        td = self.current_template_def
+        if td is None:
+            return
+        b_idx = self._selected_block_index_silent()
+        if b_idx is None:
+            return
+        block = td.answer_blocks[b_idx]
+        if block.rows == new_rows:
+            return
+        try:
+            updated = set_block_row_count(
+                block,
+                new_rows,
+                canonical_height=td.canonical_height,
+                cell_inset=self.inset_spin.value(),
+            )
+            blocks = list(td.answer_blocks)
+            blocks[b_idx] = updated
+            self._apply_block_list(blocks, f"ปรับจำนวนแถวชุดที่ {b_idx + 1} เป็น {new_rows} แถวสำเร็จ")
+        except ValueError as err:
+            QMessageBox.warning(self, "ปรับจำนวนแถวไม่ได้", str(err))
+            self._sync_selected_block_controls()
+
+    def _on_append_row_clicked(self) -> None:
+        td = self.current_template_def
+        if td is None:
+            return
+        b_idx = self._selected_block_index()
+        if b_idx is None:
+            return
+        block = td.answer_blocks[b_idx]
+        try:
+            updated = append_row(
+                block,
+                canonical_height=td.canonical_height,
+                cell_inset=self.inset_spin.value(),
+            )
+            blocks = list(td.answer_blocks)
+            blocks[b_idx] = updated
+            self._apply_block_list(blocks, f"เพิ่มแถวท้ายชุดที่ {b_idx + 1} สำเร็จ (รวม {updated.rows} แถว)")
+        except ValueError as err:
+            QMessageBox.warning(self, "เพิ่มแถวไม่ได้", str(err))
+
+    def _on_remove_row_clicked(self) -> None:
+        td = self.current_template_def
+        if td is None:
+            return
+        b_idx = self._selected_block_index()
+        if b_idx is None:
+            return
+        block = td.answer_blocks[b_idx]
+        try:
+            updated = remove_row_at_end(block)
+            blocks = list(td.answer_blocks)
+            blocks[b_idx] = updated
+            self._apply_block_list(blocks, f"ลบแถวล่างสุดของชุดที่ {b_idx + 1} สำเร็จ (เหลือ {updated.rows} แถว)")
+        except ValueError as err:
+            QMessageBox.warning(self, "ลบแถวไม่ได้", str(err))
+
+    def _on_append_choice_clicked(self) -> None:
+        td = self.current_template_def
+        if td is None:
+            return
+        b_idx = self._selected_block_index()
+        if b_idx is None:
+            return
+        block = td.answer_blocks[b_idx]
+        try:
+            updated = append_choice(
+                block,
+                canonical_width=td.canonical_width,
+                cell_inset=self.inset_spin.value(),
+            )
+            blocks = list(td.answer_blocks)
+            blocks[b_idx] = updated
+            self._apply_block_list(blocks, f"เพิ่มตัวเลือกชุดที่ {b_idx + 1} สำเร็จ ({updated.choice_count} ตัวเลือก)")
+        except ValueError as err:
+            QMessageBox.warning(self, "เพิ่มตัวเลือกไม่ได้", str(err))
+
+    def _on_remove_choice_clicked(self) -> None:
+        td = self.current_template_def
+        if td is None:
+            return
+        b_idx = self._selected_block_index()
+        if b_idx is None:
+            return
+        block = td.answer_blocks[b_idx]
+        try:
+            updated = remove_choice_at_end(block)
+            blocks = list(td.answer_blocks)
+            blocks[b_idx] = updated
+            self._apply_block_list(blocks, f"ลบตัวเลือกขวาสุดของชุดที่ {b_idx + 1} สำเร็จ (เหลือ {updated.choice_count} ตัวเลือก)")
+        except ValueError as err:
+            QMessageBox.warning(self, "ลบตัวเลือกไม่ได้", str(err))
+
+    def _show_photo_tips(self) -> None:
+        QMessageBox.information(
+            self,
+            "คำแนะนำการถ่ายภาพกระดาษคำตอบ",
+            "เพื่อให้ระบบตรวจจับขอบกระดาษและเส้นตารางได้อย่างแม่นยำ:\n\n"
+            "1. แสงสว่างสม่ำเสมอ: ถ่ายในที่สว่างเพียงพอ หลีกเลี่ยงเงามือหรือเงาโทรศัพท์พาดผ่านตารางคำตอบ\n"
+            "2. เห็นขอบกระดาษครบ 4 มุม: วางกระดาษให้เห็นมุมทั้งสี่อย่างชัดเจน เพื่อให้ระบบดึงระนาบภาพ (Perspective Warp) ได้ตรง\n"
+            "3. ถ่ายมุมตรง: ถือกล้องขนานกับกระดาษ หลีกเลี่ยงการถ่ายเอียงเกินไป\n"
+            "4. พื้นหลังสีตัดกับกระดาษ: วางกระดาษบนโต๊ะสีเข้มหรือพื้นผิวที่ตัดกับสีขาวของกระดาษ",
+        )
+
+    def _redetect_current_image(self) -> None:
+        if self.raw_image_bytes is None:
+            QMessageBox.information(self, "ยังไม่มีภาพ", "กรุณาเลือกภาพกระดาษคำตอบก่อน")
+            return
+        if self._geometry_dirty:
+            answer = QMessageBox.question(
+                self,
+                "ยืนยันตรวจหาใหม่",
+                "คุณได้ทำการปรับแก้เส้นตารางหรือโครงสร้างด้วยตนเอง การตรวจหาใหม่จะคำนวณตำแหน่งจากภาพใหม่ทั้งหมดและแทนที่การปรับแต่ง ต้องการทำต่อหรือไม่?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+        self.progress_bar.setVisible(True)
+        self.summary_lbl.setText("กำลังตรวจหาโครงสร้างตารางคำตอบใหม่อัตโนมัติ...")
+        self._discovery_generation += 1
+        generation = self._discovery_generation
+        revision = self._draft_revision
+        worker = DiscoveryWorker(self.raw_image_bytes)
+        self.discovery_worker = worker
+        self._track_worker(worker)
+        worker.completed.connect(
+            lambda result, gen=generation, rev=revision: self._handle_discovery_finished(
+                result, gen, rev
+            )
+        )
+        worker.failed.connect(
+            lambda message, gen=generation: self._handle_discovery_failed(message, gen)
+        )
+        worker.start()
+
+    def _set_selected_line_position(self) -> None:
+        td = self.current_template_def
+        selected = self.canvas.selected_line
+        if td is None or selected is None:
+            return
+        block_index, axis, boundary_index = selected
+        if not 0 <= block_index < len(td.answer_blocks):
+            return
+        try:
+            updated = set_boundary_position(
+                td.answer_blocks[block_index],
+                axis=axis,  # type: ignore[arg-type]
+                index=boundary_index,
+                position=self.line_position_spin.value(),
+                canonical_width=td.canonical_width,
+                canonical_height=td.canonical_height,
+                cell_inset=self.inset_spin.value(),
+            )
+        except ValueError as err:
+            QMessageBox.warning(self, "พิกัดไม่ถูกต้อง", str(err))
+            return
+        blocks = list(td.answer_blocks)
+        blocks[block_index] = updated
+        self._apply_block_list(blocks, "ปรับตำแหน่งเส้นตารางสำเร็จ")
+        boundaries = updated.row_boundaries if axis == "row" else updated.col_boundaries
+        self.canvas.line_selected.emit(block_index, axis, boundary_index, boundaries[boundary_index])
+
+    def _edit_grid_line(self, axis: str, add: bool) -> None:
+        if add:
+            if axis == "row":
+                self._on_append_row_clicked()
+            else:
+                self._on_append_choice_clicked()
+        else:
+            if axis == "row":
+                self._on_remove_row_clicked()
+            else:
+                self._on_remove_choice_clicked()
 
     def _on_canvas_grid_area_completed(self, area_rect: tuple[int, int, int, int]) -> None:
         if self.canonical_ref_bgr is None or self.current_template_def is None:
             return
-
-        gray = cv2.cvtColor(self.canonical_ref_bgr, cv2.COLOR_BGR2GRAY)
-        _, h_lines, v_lines = extract_line_masks(gray)
-
-        choice_cnt = self.choice_count_spin.value()
-        curr_q = (
-            1
-            if not self.current_template_def.answer_blocks
-            else self.current_template_def.answer_blocks[-1].question_end + 1
-        )
-        if curr_q > 60:
-            curr_q = 1
-
-        inferred = infer_grid_in_area(
-            area_rect,
-            v_lines,
-            h_lines,
-            choice_count=choice_cnt,
-            question_start=curr_q,
-        )
-
-        if not inferred:
-            QMessageBox.information(
-                self,
-                "ไม่พบตารางในพื้นที่ที่เลือก",
-                "ไม่พบเส้นตารางที่ชัดเจนในกรอบที่ลาก กรุณาลองลากให้ครอบคลุมขอบตารางทั้งหมด",
-            )
+        td = self.current_template_def
+        question_start = sum(block.rows for block in td.answer_blocks) + 1
+        if question_start > 60:
+            QMessageBox.warning(self, "ข้อจำกัด", "จำนวนข้อคำตอบรวมถึง 60 ข้อแล้ว")
             return
-
-        from dataclasses import replace
-
-        new_blocks = list(self.current_template_def.answer_blocks)
-        for b in inferred:
-            new_blocks.append(
-                AnswerBlock(
-                    block_index=len(new_blocks),
-                    question_start=b.question_start,
-                    question_end=b.question_end,
-                    rows=b.rows,
-                    choice_count=b.choice_count,
-                    col_boundaries=b.col_boundaries,
-                    row_boundaries=b.row_boundaries,
-                )
-            )
-
-        total_q = new_blocks[-1].question_end
-        self.q_count_spin.setValue(total_q)
-        self.current_template_def = replace(
-            self.current_template_def,
-            answer_blocks=new_blocks,
-            question_count=total_q,
+        gray = cv2.cvtColor(self.canonical_ref_bgr, cv2.COLOR_BGR2GRAY)
+        self._grid_generation += 1
+        generation = self._grid_generation
+        revision = self._draft_revision
+        worker = GridDetectionWorker(
+            gray,
+            area_rect,
+            self.choice_count_spin.value(),
+            question_start,
         )
-        self.canvas.set_template_def(self.current_template_def)
-        self._update_target_combo()
-        self.btn_tool_select.setChecked(True)
-        self.canvas.set_mode(CalibrationCanvas.MODE_SELECT_MOVE)
-        self._update_summary_display(f"เพิ่มชุดคำตอบใหม่ {len(inferred)} ชุดสำเร็จ", [])
+        self._track_worker(worker)
+        worker.completed.connect(
+            lambda inferred, gen=generation, rev=revision, rect=area_rect: self._handle_grid_detection_finished(
+                inferred, gen, rev, rect
+            )
+        )
+        worker.failed.connect(
+            lambda message, gen=generation: self._handle_grid_detection_failed(message, gen)
+        )
+        self.progress_bar.setVisible(True)
+        self.summary_lbl.setText("กำลังตรวจหาเส้นตารางในพื้นที่ที่เลือก...")
+        worker.start()
 
     def _nudge(self, dir_x: int, dir_y: int) -> None:
         if self.current_template_def is None:
@@ -1474,83 +2118,134 @@ class CalibrationDialog(QDialog):
         dy = dir_y * step
         td = self.current_template_def
         target = self.nudge_target_combo.currentIndex()
-
-        from dataclasses import replace
-
-        if target == 0:  # All blocks
-            new_blocks = []
-            for b in td.answer_blocks:
-                new_cols = [c + dx for c in b.col_boundaries]
-                new_rows = [r + dy for r in b.row_boundaries]
-                new_blocks.append(
-                    AnswerBlock(
-                        block_index=b.block_index,
-                        question_start=b.question_start,
-                        question_end=b.question_end,
-                        rows=b.rows,
-                        choice_count=b.choice_count,
-                        col_boundaries=new_cols,
-                        row_boundaries=new_rows,
+        try:
+            if target == 0:  # All blocks
+                new_blocks = [
+                    translate_block(
+                        block,
+                        dx=dx,
+                        dy=dy,
+                        canonical_width=td.canonical_width,
+                        canonical_height=td.canonical_height,
+                        cell_inset=self.inset_spin.value(),
                     )
-                )
-            self.current_template_def = replace(td, answer_blocks=new_blocks)
-        elif target == self.nudge_target_combo.count() - 2:  # Student ROI
-            if td.student_number_roi is not None:
+                    for block in td.answer_blocks
+                ]
+                self.current_template_def = replace(td, answer_blocks=new_blocks)
+            elif target == self.nudge_target_combo.count() - 2:  # Student ROI
+                if td.student_number_roi is None:
+                    return
                 x1, y1, x2, y2 = td.student_number_roi
-                self.current_template_def = replace(
-                    td, student_number_roi=(x1 + dx, y1 + dy, x2 + dx, y2 + dy)
-                )
-        elif target == self.nudge_target_combo.count() - 1:  # Score ROI
-            if td.score_roi is not None:
+                roi = (x1 + dx, y1 + dy, x2 + dx, y2 + dy)
+                if not (0 <= roi[0] < roi[2] <= td.canonical_width and 0 <= roi[1] < roi[3] <= td.canonical_height):
+                    raise ValueError("ROI ต้องอยู่ภายในขอบเขตภาพ")
+                self.current_template_def = replace(td, student_number_roi=roi)
+            elif target == self.nudge_target_combo.count() - 1:  # Score ROI
+                if td.score_roi is None:
+                    return
                 x1, y1, x2, y2 = td.score_roi
-                self.current_template_def = replace(
-                    td, score_roi=(x1 + dx, y1 + dy, x2 + dx, y2 + dy)
-                )
-        else:  # Specific block
-            b_idx = target - 1
-            new_blocks = list(td.answer_blocks)
-            if 0 <= b_idx < len(new_blocks):
-                b = new_blocks[b_idx]
-                new_cols = [c + dx for c in b.col_boundaries]
-                new_rows = [r + dy for r in b.row_boundaries]
-                new_blocks[b_idx] = AnswerBlock(
-                    block_index=b.block_index,
-                    question_start=b.question_start,
-                    question_end=b.question_end,
-                    rows=b.rows,
-                    choice_count=b.choice_count,
-                    col_boundaries=new_cols,
-                    row_boundaries=new_rows,
+                roi = (x1 + dx, y1 + dy, x2 + dx, y2 + dy)
+                if not (0 <= roi[0] < roi[2] <= td.canonical_width and 0 <= roi[1] < roi[3] <= td.canonical_height):
+                    raise ValueError("ROI ต้องอยู่ภายในขอบเขตภาพ")
+                self.current_template_def = replace(td, score_roi=roi)
+            else:  # Specific block
+                b_idx = target - 1
+                if not 0 <= b_idx < len(td.answer_blocks):
+                    return
+                new_blocks = list(td.answer_blocks)
+                new_blocks[b_idx] = translate_block(
+                    new_blocks[b_idx],
+                    dx=dx,
+                    dy=dy,
+                    canonical_width=td.canonical_width,
+                    canonical_height=td.canonical_height,
+                    cell_inset=self.inset_spin.value(),
                 )
                 self.current_template_def = replace(td, answer_blocks=new_blocks)
+        except ValueError as err:
+            QMessageBox.warning(self, "ย้ายพิกัดไม่ได้", str(err))
+            return
 
+        self._mark_geometry_changed()
         self.canvas.set_template_def(self.current_template_def)
+        self._update_summary_display("ปรับพิกัดเรียบร้อย", self._geometry_warnings)
 
     def _add_block(self) -> None:
         td = self.current_template_def
         if td is None:
             return
-        from dataclasses import replace
-
         choice_count = self.choice_count_spin.value()
-        curr_q = td.answer_blocks[-1].question_end + 1 if td.answer_blocks else 1
-        if curr_q > 60:
+        used_questions = sum(block.rows for block in td.answer_blocks)
+        remaining = 60 - used_questions
+        if remaining <= 0:
             QMessageBox.warning(self, "ข้อจำกัด", "จำนวนข้อคำตอบรวมไม่สามารถเกิน 60 ข้อได้")
             return
-
+        rows = min(10, remaining)
+        curr_q = used_questions + 1
         last_b = td.answer_blocks[-1] if td.answer_blocks else None
-        step_w = 60
+        step_w = min(60, td.canonical_width // max(1, choice_count))
         step_h = 55
-        rows = 10
         total_block_w = step_w * choice_count
-
-        if last_b and (last_b.col_boundaries[-1] + 20 + total_block_w <= td.canonical_width):
-            x0 = last_b.col_boundaries[-1] + 20
-            y0 = last_b.row_boundaries[0]
-        else:
-            x0 = max(20, td.canonical_width - total_block_w - 20)
-            y0 = last_b.row_boundaries[0] if last_b else 600
-
+        minimum = 2 * self.inset_spin.value() + 4
+        step_w = max(minimum, step_w)
+        total_block_w = step_w * choice_count
+        total_block_h = step_h * rows
+        candidate_x = [20, td.canonical_width - total_block_w - 20]
+        candidate_y = [
+            (last_b.row_boundaries[0] if last_b else 600),
+            (last_b.row_boundaries[-1] + 20 if last_b else 100),
+            td.canonical_height - total_block_h - 20,
+        ]
+        rect: tuple[int, int] | None = None
+        for y0 in candidate_y:
+            for x0 in candidate_x:
+                if not (0 <= x0 and x0 + total_block_w <= td.canonical_width and 0 <= y0 and y0 + total_block_h <= td.canonical_height):
+                    continue
+                candidate = AnswerBlock(
+                    block_index=len(td.answer_blocks),
+                    question_start=curr_q,
+                    question_end=curr_q + rows - 1,
+                    rows=rows,
+                    choice_count=choice_count,
+                    col_boundaries=[x0 + i * step_w for i in range(choice_count + 1)],
+                    row_boundaries=[y0 + i * step_h for i in range(rows + 1)],
+                    geometry_state="draft",
+                )
+                if not any(_blocks_overlap(candidate, existing) for existing in td.answer_blocks):
+                    rect = (x0, y0)
+                    break
+            if rect is not None:
+                break
+        if rect is None:
+            # A crowded page may not have room for the default ten-row draft.
+            # Add the smallest useful one-row draft instead of opening a modal
+            # dialog from a programmatic/editor action; the teacher can resize
+            # or add rows explicitly.
+            rows = 1
+            total_block_h = step_h
+            for y0 in candidate_y + [20]:
+                for x0 in candidate_x:
+                    if not (0 <= x0 and x0 + total_block_w <= td.canonical_width and 0 <= y0 and y0 + total_block_h <= td.canonical_height):
+                        continue
+                    candidate = AnswerBlock(
+                        block_index=len(td.answer_blocks),
+                        question_start=curr_q,
+                        question_end=curr_q,
+                        rows=1,
+                        choice_count=choice_count,
+                        col_boundaries=[x0 + i * step_w for i in range(choice_count + 1)],
+                        row_boundaries=[y0, y0 + step_h],
+                        geometry_state="draft",
+                    )
+                    if not any(_blocks_overlap(candidate, existing) for existing in td.answer_blocks):
+                        rect = (x0, y0)
+                        break
+                if rect is not None:
+                    break
+            if rect is None:
+                QMessageBox.warning(self, "เพิ่มชุดไม่ได้", "ไม่พบพื้นที่ว่างเพียงพอสำหรับชุดคำตอบใหม่")
+                return
+        x0, y0 = rect
         new_b = AnswerBlock(
             block_index=len(td.answer_blocks),
             question_start=curr_q,
@@ -1559,15 +2254,9 @@ class CalibrationDialog(QDialog):
             choice_count=choice_count,
             col_boundaries=[x0 + i * step_w for i in range(choice_count + 1)],
             row_boundaries=[y0 + i * step_h for i in range(rows + 1)],
+            geometry_state="draft",
         )
-
-        new_blocks = list(td.answer_blocks) + [new_b]
-        total_q = new_blocks[-1].question_end
-        self.q_count_spin.setValue(total_q)
-        self.current_template_def = replace(td, answer_blocks=new_blocks, question_count=total_q)
-        self.canvas.set_template_def(self.current_template_def)
-        self._update_target_combo()
-        self._update_summary_display(f"เพิ่มชุดคำตอบที่ {len(new_blocks)} เรียบร้อย", [])
+        self._apply_block_list(list(td.answer_blocks) + [new_b], f"เพิ่มชุดคำตอบที่ {len(td.answer_blocks) + 1} เรียบร้อย")
 
     def _delete_selected_block(self) -> None:
         td = self.current_template_def
@@ -1579,32 +2268,8 @@ class CalibrationDialog(QDialog):
             return
 
         b_idx = idx - 1
-        from dataclasses import replace
-
         new_blocks = [b for i, b in enumerate(td.answer_blocks) if i != b_idx]
-        # Re-index
-        reindexed = []
-        curr_q = 1
-        for i, b in enumerate(new_blocks):
-            reindexed.append(
-                AnswerBlock(
-                    block_index=i,
-                    question_start=curr_q,
-                    question_end=curr_q + b.rows - 1,
-                    rows=b.rows,
-                    choice_count=b.choice_count,
-                    col_boundaries=b.col_boundaries,
-                    row_boundaries=b.row_boundaries,
-                )
-            )
-            curr_q += b.rows
-
-        total_q = reindexed[-1].question_end if reindexed else 0
-        self.q_count_spin.setValue(total_q)
-        self.current_template_def = replace(td, answer_blocks=reindexed, question_count=total_q)
-        self.canvas.set_template_def(self.current_template_def)
-        self._update_target_combo()
-        self._update_summary_display(f"ลบชุดคำตอบที่ {b_idx + 1} เรียบร้อย", [])
+        self._apply_block_list(new_blocks, f"ลบชุดคำตอบที่ {b_idx + 1} เรียบร้อย")
 
     def _update_summary_display(self, status_title: str, warnings: list[str]) -> None:
         td = self.current_template_def
@@ -1614,20 +2279,34 @@ class CalibrationDialog(QDialog):
         lines = [f"📋 <b>{status_title}</b>", ""]
         lines.append(f"• จำนวนชุดคำตอบ: {len(td.answer_blocks)} ชุด")
         for i, b in enumerate(td.answer_blocks):
+            confidence = "ไม่ระบุ" if b.confidence is None else f"{b.confidence:.2f}"
             lines.append(
-                f"   - ชุดที่ {i + 1}: ข้อ {b.question_start}–{b.question_end} ({b.choice_count} ตัวเลือก)"
+                f"   - ชุดที่ {i + 1}: ข้อ {b.question_start}–{b.question_end} "
+                f"({b.choice_count} ตัวเลือก · {b.geometry_state} · confidence {confidence})"
             )
         lines.append(f"• จำนวนข้อรวม: {td.question_count} ข้อ")
-        lines.append(f"• ตัวเลือก: {td.choice_count} ตัวเลือก")
+        lines.append(f"• ตัวเลือกแม่แบบที่เลือก: {self.choice_count_spin.value()} ตัวเลือก")
+        if any(block.choice_count != self.choice_count_spin.value() for block in td.answer_blocks):
+            lines.append("⚠️ จำนวนตัวเลือกบางชุดยังไม่ตรงกับค่าของแม่แบบ")
         sn_status = "✅ กำหนดแล้ว" if td.student_number_roi else "⚪ ยังไม่กำหนด"
         lines.append(f"• ช่องเลขประจำตัว: {sn_status}")
         sc_status = "✅ กำหนดแล้ว" if td.score_roi else "⚪ ยังไม่กำหนด"
         lines.append(f"• ช่องคะแนนรวม: {sc_status}")
 
-        if warnings:
+        all_warnings = list(dict.fromkeys([*self._geometry_warnings, *warnings]))
+        for i, block in enumerate(td.answer_blocks, start=1):
+            if block.geometry_state == "draft":
+                all_warnings.append(f"ชุดที่ {i} เป็นตารางร่าง ต้องตรวจเส้นทั้งหมดก่อนบันทึก")
+            if block.confidence is not None and block.confidence < 0.85:
+                all_warnings.append(f"ชุดที่ {i} มีความเชื่อมั่นต่ำ ({block.confidence:.2f})")
+        all_warnings = list(dict.fromkeys(all_warnings))
+        if not td.answer_blocks:
+            all_warnings.append("ยังไม่มีชุดคำตอบ ตารางยังบันทึกใช้งานไม่ได้")
+
+        if all_warnings:
             lines.append("")
             lines.append("⚠️ <b>ข้อควรตรวจสอบ:</b>")
-            for w in warnings:
+            for w in all_warnings:
                 lines.append(f"• {w}")
 
         self.summary_lbl.setText("<br>".join(lines))
@@ -1641,7 +2320,31 @@ class CalibrationDialog(QDialog):
         self.zoom_lbl.setText(f"{int(self.canvas.scale_factor * 100)}%")
 
     def _on_choice_count_changed(self, count: int) -> None:
-        pass
+        td = self.current_template_def
+        if td is None or td.choice_count == count:
+            return
+        canonical_labels = list(CANONICAL_CHOICES[:count])
+        display_labels = (
+            list(DEFAULT_THAI_LABELS[:count])
+            if self.header_style_combo.currentIndex() == 0
+            else list(CANONICAL_CHOICES[:count])
+        )
+        choice_map: dict[str, str] = {}
+        for index, label in enumerate(canonical_labels):
+            choice_map[label] = label
+            choice_map[label.lower()] = label
+            choice_map[str(index + 1)] = label
+            choice_map[DEFAULT_THAI_LABELS[index]] = label
+        self.current_template_def = replace(
+            td,
+            choice_count=count,
+            choice_labels=canonical_labels,
+            display_choice_labels=display_labels,
+            choice_map=choice_map,
+        )
+        self._mark_geometry_changed()
+        self.canvas.set_template_def(self.current_template_def)
+        self._update_summary_display("อัปเดตจำนวนตัวเลือกแม่แบบแล้ว", self._geometry_warnings)
 
     def _build_current_template_def(self) -> TemplateDefinition:
         """Construct validated TemplateDefinition from current inputs."""
@@ -1674,6 +2377,8 @@ class CalibrationDialog(QDialog):
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         inset = self.inset_spin.value()
         orig = self.current_template_def
+        if any(block.geometry_state == "draft" for block in orig.answer_blocks):
+            raise ValueError("ยังมีชุดตารางร่างอยู่ กรุณาตรวจหรือแก้เส้นทั้งหมดก่อนบันทึก")
 
         version = (
             self.edit_template.version + 1
@@ -1681,7 +2386,9 @@ class CalibrationDialog(QDialog):
             else 1
         )
 
-        return TemplateDefinition(
+        draft = CalibrationDraft.from_template(orig)
+        draft = replace(
+            draft,
             template_id=tid,
             name=name,
             kind="custom",
@@ -1702,6 +2409,7 @@ class CalibrationDialog(QDialog):
             created_at=orig.created_at or now_iso,
             updated_at=now_iso,
         )
+        return compile_draft(draft, cell_inset=inset)
 
     def _test_current_geometry(self) -> None:
         try:
@@ -1740,6 +2448,26 @@ class CalibrationDialog(QDialog):
             QMessageBox.warning(self, "ข้อมูลไม่ถูกต้อง", str(err))
             return
 
+        needs_review = bool(self._geometry_warnings) or any(
+            block.geometry_state in ("draft", "user_edited")
+            or (block.confidence is not None and block.confidence < 0.85)
+            for block in td.answer_blocks
+        )
+        if needs_review:
+            review_details = "\n".join(self._geometry_warnings[:5])
+            message = "มีข้อมูลตารางที่ต้องตรวจทานก่อนบันทึก\n\nตรวจเส้นและจำนวนช่องบนภาพแล้ว ยืนยันบันทึกแม่แบบนี้หรือไม่?"
+            if review_details:
+                message += f"\n\n{review_details}"
+            answer = QMessageBox.question(
+                self,
+                "ยืนยันการตรวจทานตาราง",
+                message,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
         if self.canonical_ref_bgr is not None:
             success, enc = cv2.imencode(".png", self.canonical_ref_bgr)
             if not success:
@@ -1753,6 +2481,10 @@ class CalibrationDialog(QDialog):
 
         try:
             self.application.exams.save_template(td)
+            self.saved_template_id = td.template_id
+            from exam_grader.preferences import save_default_template_id
+
+            save_default_template_id(td.template_id)
             QMessageBox.information(
                 self,
                 "บันทึกสำเร็จ",
