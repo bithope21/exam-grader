@@ -17,6 +17,17 @@ Calibration System`. It must start from the baseline above and preserve all
 current safety and scoring contracts. Do not treat this checkpoint as general
 accuracy evidence.
 
+## Current status — 2026-09-14 Final Release v1.0.2 & Web Sync Completed
+
+Published official release **v1.0.2** on GitHub and synchronized `bithope.app` web landing page:
+- **Git HEAD**: `73692fe` (on `main`). Tag: `v1.0.2`.
+- **Release Artifacts**:
+  - macOS DMG: `Exam-Grader-v1.0.2-macOS-Apple-Silicon.dmg` (SHA-256: `8902e716...`)
+  - Windows EXE: `Exam-Grader-v1.0.2-Windows-Setup.exe` (SHA-256: `b7249c9b...`)
+- **bithope.app Web Sync**:
+  - Hardened `bithope-web` `release.ts` resolver with dynamic minute cache-buster (`?_t=${cacheMinute}`), Next.js ISR `revalidate: 60`, and version-resilient download URL fallbacks.
+  - Deployed `bithope-web` to Vercel production. Both macOS and Windows cards reflect `v1.0.2` on live site.
+
 ## Current status — 2026-09-14 Production-Ready OMR & Student Number Recognition Hardening
 
 Successfully hardened the OMR Answer Detection and Student Number Recognition pipelines to production readiness on real smartphone exam sheets (Vol.7 Shopee 60Q/5C), verified with 148 passing automated regression tests:
