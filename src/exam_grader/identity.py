@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import os
 import re
 import shutil
 import subprocess
@@ -34,6 +35,17 @@ def find_tesseract() -> str | None:
     # Finder-launched macOS apps do not inherit the interactive shell PATH.
     if sys.platform == "darwin":
         for location in ("/opt/homebrew/bin/tesseract", "/usr/local/bin/tesseract"):
+            if Path(location).is_file():
+                return location
+    elif sys.platform == "win32":
+        local_app = os.environ.get("LOCALAPPDATA", "")
+        prog_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        prog_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
+        for location in (
+            os.path.join(local_app, "Programs", "Tesseract-OCR", "tesseract.exe"),
+            os.path.join(prog_files, "Tesseract-OCR", "tesseract.exe"),
+            os.path.join(prog_files_x86, "Tesseract-OCR", "tesseract.exe"),
+        ):
             if Path(location).is_file():
                 return location
     return None
@@ -529,8 +541,16 @@ def observe(
                 digits = [
                     o["candidate"] for o in options if o["candidate"] and len(o["candidate"]) == 1
                 ]
+                digit_ink_bin = (ink == 0).astype(np.uint8) * 255
+                contours, hierarchy = cv2.findContours(
+                    digit_ink_bin, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+                )
+                has_hole = hierarchy is not None and any(
+                    hier[3] != -1 and cv2.contourArea(contours[i]) > 15
+                    for i, hier in enumerate(hierarchy[0])
+                )
                 shaft = np.flatnonzero((ink[2 * h // 3 :] == 0).any(axis=0))
-                is_one = w / h < 0.5 and shaft.size > 0 and np.ptp(shaft) / w < 0.55
+                is_one = (not has_hole) and w / h < 0.5 and shaft.size > 0 and np.ptp(shaft) / w < 0.55
                 left_y, left_x = np.where(ink[:, : w // 2] == 0)
                 bottom_y, bottom_x = np.where(ink[3 * h // 4 :] == 0)
                 correlation = (
@@ -547,16 +567,11 @@ def observe(
                 value = (
                     "1" if is_one and "1" in digits else ranked[0]["candidate"] if ranked else None
                 )
-                if right_shaft and w / h < 0.75 and correlation < -0.65:
+                if right_shaft and (not has_hole) and w / h < 0.75 and correlation < -0.65:
                     value = "1"
                 elif value == "4":
-                    digit_ink_bin = (ink == 0).astype(np.uint8) * 255
                     value = resolve_ambiguous_4(digit_ink_bin)
                 elif value == "0":
-                    digit_ink_bin = (ink == 0).astype(np.uint8) * 255
-                    contours, hierarchy = cv2.findContours(
-                        digit_ink_bin, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
-                    )
                     if hierarchy is not None and len(contours) > 1:
                         for i, hier in enumerate(hierarchy[0]):
                             if hier[3] != -1:
@@ -564,11 +579,15 @@ def observe(
                                 if (hy + hh / 2.0) / h >= 0.65:
                                     value = "6"
                                     break
+                elif value == "9" and not has_hole:
+                    whole_digits = [v[index] for v in values if len(v) == len(boxes) and v[index] != "9"]
+                    if whole_digits:
+                        value = whole_digits[0]
                 elif value is None and is_one:
                     value = "1"
                 elif value is None and right_shaft and w / h < 0.65 and correlation > 0.65:
                     value = "4"
-                if value is None and w / h < 0.28 and h > 30:
+                if value is None and (not has_hole) and w / h < 0.28 and h > 30:
                     value = "1"
                 # Whole-word OCR can resolve an isolated glyph that yields no
                 # character result. Require agreement at this exact position.
