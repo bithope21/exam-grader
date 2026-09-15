@@ -6,7 +6,7 @@ from typing import cast
 import cv2
 import numpy as np
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QImage, QPixmap
+from PySide6.QtGui import QColor, QCursor, QImage, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from exam_grader.document_normalization_ui import ManualCropDialog
 from exam_grader.imaging import decode
 from exam_grader.imports import ImportService
 from exam_grader.review_service import ReviewService
@@ -111,9 +112,87 @@ def image_widget(pixels: np.ndarray) -> QWidget:
     return scroll
 
 
+def _normalization_corners(detection: dict | None, image_shape: tuple[int, ...]) -> np.ndarray:
+    registration = (detection or {}).get("registration") or {}
+    diagnostics = (detection or {}).get("alignment_diagnostics") or {}
+    # A detected registration quad may belong to the printed answer grid, while
+    # this editor is specifically for the physical page boundary. Prefer the
+    # separately tracked boundary; a human-adjusted crop is authoritative.
+    for key in ("physical_paper_corners", "paper_corners"):
+        corners = registration.get(key)
+        if corners is None:
+            corners = diagnostics.get(key)
+        if corners is not None:
+            try:
+                points = np.asarray(corners, dtype=np.float32).reshape(4, 2)
+                if np.isfinite(points).all():
+                    return points
+            except (TypeError, ValueError):
+                pass
+    candidates = registration.get("paper_boundary_candidates") or diagnostics.get(
+        "paper_boundary_candidates", []
+    )
+    if candidates:
+        ranked = sorted(
+            candidates,
+            key=lambda item: (
+                float(item.get("physical_boundary_confidence", item.get("geometry_confidence", 0.0))),
+                float(item.get("physical_edge_support", 0.0)),
+                float(item.get("proposal_score", 0.0)),
+            ),
+            reverse=True,
+        )
+        for candidate in ranked:
+            corners = candidate.get("corners")
+            if corners is not None:
+                try:
+                    points = np.asarray(corners, dtype=np.float32).reshape(4, 2)
+                    if np.isfinite(points).all():
+                        return points
+                except (TypeError, ValueError):
+                    pass
+    for key in ("selected_corners",):
+        corners = registration.get(key)
+        if corners is None:
+            corners = diagnostics.get(key)
+        if corners is not None:
+            try:
+                points = np.asarray(corners, dtype=np.float32).reshape(4, 2)
+                if np.isfinite(points).all():
+                    return points
+            except (TypeError, ValueError):
+                pass
+    height, width = image_shape[:2]
+    return np.asarray(
+        [[0.0, 0.0], [width - 1.0, 0.0], [width - 1.0, height - 1.0], [0.0, height - 1.0]],
+        dtype=np.float32,
+    )
+
+
+def _paper_overlay(image: np.ndarray, corners: np.ndarray) -> np.ndarray:
+    preview = image.copy()
+    points = np.rint(corners).astype(np.int32).reshape(4, 1, 2)
+    cv2.polylines(preview, [points], True, (0, 168, 137), max(2, round(min(image.shape[:2]) / 450)))
+    radius = max(5, round(min(image.shape[:2]) / 95))
+    for index, point in enumerate(points[:, 0, :], 1):
+        cv2.circle(preview, tuple(map(int, point)), radius, (0, 168, 137), -1, cv2.LINE_AA)
+        cv2.putText(
+            preview,
+            str(index),
+            (int(point[0]) + radius, int(point[1]) - radius),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            max(0.55, min(image.shape[:2]) / 900),
+            (255, 255, 255),
+            2,
+            cv2.LINE_AA,
+        )
+    return preview
+
+
 class ReviewDialog(QDialog):
     def __init__(self, database, source: dict, parent=None):
         super().__init__(parent)
+        self.database = database
         self.flow = Workflow(database)
         self.source = source
         self.observed_detection = ReviewService(database).state(source)["detection_id"]
@@ -121,6 +200,7 @@ class ReviewDialog(QDialog):
         self.key = None if self.key_mode else self.flow.current_key(source["exam_id"])
         self.setWindowTitle("ตรวจเฉลย" if self.key_mode else "ตรวจทานคำตอบนักเรียน")
         self.resize(1180, 850)
+        self.normalization_updated = False
         layout = QVBoxLayout(self)
         notice = QLabel("แก้ไขข้อมูลได้ทุกข้อ · ระบบส่งเฉพาะข้อมูลที่ยังมีปัญหาไปแท็บตรวจทาน")
         self.notice = notice
@@ -128,12 +208,47 @@ class ReviewDialog(QDialog):
         notice.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         layout.addWidget(notice)
         body = QHBoxLayout()
-        original = decode(ImportService(database).verified_bytes(source))
+        self.source_bytes = ImportService(database).verified_bytes(source)
+        original = decode(self.source_bytes)
+        self.original_image = original
         tabs = QTabWidget()
         from exam_grader.template_manager import load_exam_template_def
 
         self.template_def = load_exam_template_def(database, source["exam_id"])
         detection = self.flow.latest_detection(source["id"])
+        self.detection = detection or {}
+        self.boundary_corners = _normalization_corners(detection, original.shape)
+        registration = (detection or {}).get("registration") or {}
+        confidence = float(
+            (detection or {}).get("document_normalization", {}).get(
+                "normalization_confidence",
+                registration.get("normalization_confidence", registration.get("alignment_confidence", 0.0)),
+            )
+            or 0.0
+        )
+        self.normalization_status = QLabel()
+        if registration and confidence >= 0.82 and not registration.get("normalization_requires_review"):
+            self.normalization_status.setText("✓ ตรวจพบกระดาษและจัดแนวแล้ว")
+            self.normalization_status.setProperty("role", "success")
+        elif registration:
+            self.normalization_status.setText("ตรวจพบกรอบเบื้องต้น · โปรดดูภาพก่อนยืนยัน")
+            self.normalization_status.setProperty("role", "warning")
+        else:
+            self.normalization_status.setText("ยังจัดแนวไม่ได้ · ปรับมุมกระดาษด้วยตนเองได้")
+            self.normalization_status.setProperty("role", "warning")
+        self.normalization_status.setWordWrap(True)
+        self.normalization_status.setToolTip(
+            "ถ่ายให้เห็นกระดาษครบ 4 มุม วางกล้องเหนือกระดาษ และหลีกเลี่ยงเงาหรือแสงสะท้อน"
+        )
+        normalization_actions = QHBoxLayout()
+        normalization_actions.addWidget(self.normalization_status, stretch=1)
+        self.adjust_corners_button = QPushButton("ปรับมุมกระดาษ…")
+        self.adjust_corners_button.setToolTip(
+            "ใช้เมื่อกรอบอัตโนมัติไม่ตรง: ให้เห็นกระดาษครบ 4 มุม ถ่ายเหนือกระดาษ และหลีกเลี่ยงเงา/แสงสะท้อน"
+        )
+        self.adjust_corners_button.clicked.connect(self._adjust_document_corners)
+        normalization_actions.addWidget(self.adjust_corners_button)
+        layout.addLayout(normalization_actions)
         if detection and "registration" in detection:
             aligned = cv2.warpPerspective(
                 original,
@@ -142,8 +257,10 @@ class ReviewDialog(QDialog):
                 borderValue=(255, 255, 255),
             )
             tabs.addTab(image_widget(aligned), "ภาพจัดแนว (หลัก)")
+            tabs.addTab(image_widget(_paper_overlay(original, self.boundary_corners)), "ขอบกระดาษ")
             tabs.addTab(image_widget(original), "ดูต้นฉบับ")
         else:
+            tabs.addTab(image_widget(_paper_overlay(original, self.boundary_corners)), "ขอบที่พบ")
             tabs.addTab(image_widget(original), "ต้นฉบับ · จัดแนวไม่ได้")
             reg_fail_msg = (detection or {}).get("failure") or "จัดแนวภาพไม่ได้"
             warning_box = QFrame()
@@ -185,6 +302,18 @@ class ReviewDialog(QDialog):
                 hint = QLabel(f"ผู้ช่วยอ่านได้หลายแบบ: {' / '.join(candidates)} · ต้องตรวจทาน")
                 hint.setProperty("role", "warning")
                 controls.addWidget(hint)
+            suggestions = number_observation.get("review_suggestions") or []
+            suggested_numbers = [
+                str(item["candidate"])
+                for item in suggestions
+                if isinstance(item, dict) and item.get("candidate")
+            ]
+            if suggested_numbers:
+                hint = QLabel(
+                    f"รูปร่างตัวเลขแนะนำให้ตรวจเพิ่ม: {' / '.join(suggested_numbers)} · ยังไม่ใช่ผล OCR ที่ยืนยัน"
+                )
+                hint.setProperty("role", "warning")
+                controls.addWidget(hint)
         self.count = QSpinBox()
         self.count.setRange(1, 60)
         self.count.setValue(
@@ -206,6 +335,8 @@ class ReviewDialog(QDialog):
         self.table.setMinimumWidth(360)
         tabs.setMinimumWidth(280)
         self.combos = []
+        self.edited_questions: set[int] = set()
+        self.skip_remaining_completed = False
         previous = None if self.key_mode else self.flow.latest_review(source["id"])
         partial = (
             []
@@ -230,6 +361,7 @@ class ReviewDialog(QDialog):
                 self.number.setText(identity)
             elif suggested_candidate:
                 self.number.setText(suggested_candidate)
+        self.initial_number = self.number.text()
         canonical_labels = self.template_def.choice_labels
         display_labels = self.template_def.display_choice_labels
 
@@ -293,6 +425,9 @@ class ReviewDialog(QDialog):
                 editor.addItem("หลายคำตอบ (0 คะแนน)", "multiple")
                 editor.addItem("คาบเส้นสองช่อง (0 คะแนน)", "boundary_cross")
                 editor.setCurrentIndex(max(0, editor.findData(selected_value)))
+                editor.currentIndexChanged.connect(
+                    lambda _index, question=index + 1: self.edited_questions.add(question)
+                )
             self.combos.append(editor)
             self.table.setCellWidget(index, 2, editor)
         self.count.valueChanged.connect(self.update_rows)
@@ -355,10 +490,136 @@ class ReviewDialog(QDialog):
             "ยืนยันเฉลย" if self.key_mode else "บันทึกการตรวจทาน",
             QDialogButtonBox.ButtonRole.AcceptRole,
         )
+        if not self.key_mode:
+            self.skip_remaining_button = buttons.addButton(
+                "ข้ามรายการที่เหลือ → ไปผลลัพธ์",
+                QDialogButtonBox.ButtonRole.ActionRole,
+            )
+            self.skip_remaining_button.clicked.connect(self._skip_remaining)
         buttons.addButton("ยกเลิก", QDialogButtonBox.ButtonRole.RejectRole)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _adjust_document_corners(self) -> None:
+        crop_dialog = ManualCropDialog(
+            self.original_image,
+            self.boundary_corners,
+            target_size=(
+                self.template_def.canonical_width,
+                self.template_def.canonical_height,
+            ),
+            parent=self,
+        )
+        if crop_dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        corners = crop_dialog.accepted_corners()
+        if corners is None:
+            return
+
+        from exam_grader.identity import observe as observe_student_number
+        from exam_grader.imaging import RegistrationError, analyze
+
+        self.adjust_corners_button.setEnabled(False)
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        try:
+            observation = analyze(
+                self.source_bytes,
+                template_def=self.template_def,
+                app_data_dir=getattr(self.database, "parent", None),
+                decoded_image=self.original_image,
+                manual_corners=corners,
+            )
+            if not self.key_mode:
+                try:
+                    observation["student_number_observation"] = observe_student_number(
+                        self.source_bytes,
+                        observation.get("registration", {}).get("matrix"),
+                        template_def=self.template_def,
+                        app_data_dir=getattr(self.database, "parent", None),
+                        image=self.original_image,
+                    )
+                except (ValueError, OSError, cv2.error):
+                    observation["student_number_observation"] = {
+                        "candidate": None,
+                        "confidence": None,
+                        "review_reason": "เลขที่ยังต้องตรวจด้วยคน",
+                    }
+        except (RegistrationError, ValueError, OSError, cv2.error) as error:
+            diagnostics = getattr(error, "diagnostics", {}) or {}
+            stage = diagnostics.get("stage")
+            stage_text = f"\\nขั้นที่ล้มเหลว: {stage}" if stage else ""
+            QMessageBox.warning(
+                self,
+                "จัดแนวจากกรอบนี้ไม่ได้",
+                f"{error}{stage_text}\\nลองปรับมุมใหม่ หรือยกเลิกแล้วถ่ายกระดาษให้เห็นครบทั้ง 4 มุม",
+            )
+            self.boundary_corners = corners
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.adjust_corners_button.setEnabled(True)
+
+        self.flow.save_detection(self.source["id"], observation)
+        self.normalization_updated = True
+        self.reject()
+
+    def _skip_remaining(self) -> None:
+        if not self.confirmed.isChecked():
+            QMessageBox.warning(self, "ยังไม่ยืนยัน", "โปรดยืนยันข้อมูลก่อนข้ามรายการที่เหลือ")
+            return
+        answer_edits: dict[str, dict[int, str]] = {}
+        for question in self.edited_questions:
+            value = cast(QComboBox, self.combos[question - 1]).currentData()
+            if isinstance(value, str):
+                answer_edits.setdefault(self.source["id"], {})[question] = value
+        identity_edits = {}
+        current_number = self.number.text().strip()
+        if current_number and current_number != getattr(self, "initial_number", current_number):
+            try:
+                from exam_grader.review_service import normalize_number
+
+                identity_edits[self.source["id"]] = normalize_number(current_number)
+            except ValueError as error:
+                QMessageBox.warning(self, "เลขที่ไม่ถูกต้อง", str(error))
+                return
+
+        service = ReviewService(self.flow.database)
+        try:
+            summary = service.skip_summary(
+                self.source["exam_id"],
+                answer_edits=answer_edits,
+                identity_edits=identity_edits,
+            )
+        except (ValueError, sqlite3.Error) as error:
+            QMessageBox.warning(self, "ข้ามรายการไม่ได้", str(error))
+            return
+        message = (
+            f"เลขที่ยังไม่ยืนยัน: {summary['unconfirmed_identities']}\n"
+            f"คำตอบ/ข้อที่ยังไม่ชัด: {summary['unclear_answers']}\n"
+            f"กระดาษที่ยังมีรายการค้าง: {summary['unresolved_sheets']}\n\n"
+            "ระบบจะไม่เดาคำตอบที่ยังไม่ชัดและจะคิดเป็น 0 คะแนนในผลลัพธ์บางส่วน"
+        )
+        answer = QMessageBox.question(
+            self,
+            "ข้ามรายการตรวจทานที่เหลือ",
+            message,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            service.skip_remaining(
+                self.source["exam_id"],
+                answer_edits=answer_edits,
+                identity_edits=identity_edits,
+            )
+        except (ValueError, OSError, sqlite3.Error) as error:
+            QMessageBox.warning(self, "ข้ามรายการไม่ได้", str(error))
+            return
+        self.skip_remaining_completed = True
+        super().accept()
 
     def _archive_this_sheet(self):
         answer = QMessageBox.question(
@@ -434,6 +695,7 @@ class ReviewDialog(QDialog):
 
     def _change_exam_template_and_reanalyze(self) -> None:
         from PySide6.QtWidgets import QInputDialog
+
         from exam_grader.imaging import analyze, decode
         from exam_grader.imports import ImportService
         from exam_grader.storage import ExamStore
@@ -507,4 +769,3 @@ class ReviewDialog(QDialog):
                 f"เปลี่ยนแม่แบบเป็น '{chosen_t.name}' แล้ว แต่การจัดแนวภาพยังไม่สำเร็จ: {e}",
             )
             self.accept()
-

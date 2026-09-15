@@ -6,7 +6,7 @@ from typing import cast
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QEvent, QRect, Qt, QThread, QUrl, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
@@ -37,19 +37,30 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
 
 from exam_grader.exporting import export_results
 from exam_grader.identity import observe as observe_student_number
-from exam_grader.imaging import OMR_PIPELINE_VERSION, analyze, decode
+from exam_grader.imaging import OMR_PIPELINE_VERSION, RegistrationError, analyze, decode
 from exam_grader.imports import ImportService
 from exam_grader.preferences import default_output_root
 from exam_grader.review_service import ReviewService
 from exam_grader.review_ui import ReviewDialog
 from exam_grader.template_manager import load_exam_template_def
 from exam_grader.workflow import Workflow
+
+PHOTO_GUIDANCE_TEXT = (
+    "ถ่ายให้ตรวจได้แม่นขึ้น\n"
+    "• ให้เห็นกระดาษครบ 4 มุม\n"
+    "• ถ่ายเหนือกระดาษให้ตรงที่สุด\n"
+    "• อย่าตัดขอบ/ตารางคำตอบ\n"
+    "• หลีกเลี่ยงเงาและแสงสะท้อนแรง\n"
+    "• ให้ตัวหนังสือและรอยกากบาทเห็นชัด"
+)
 
 
 class CheckBoxDelegate(QStyledItemDelegate):
@@ -161,7 +172,11 @@ class BatchWorker(QThread):
             try:
                 source = importer.import_file(self.exam_id, path, self.purpose)
                 existing = flow.latest_detection(source["id"])
-                if existing is None or existing.get("pipeline_version") != OMR_PIPELINE_VERSION:
+                if (
+                    existing is None
+                    or existing.get("pipeline_version") != OMR_PIPELINE_VERSION
+                    or existing.get("alignment_needs_review")
+                ):
                     source_bytes = importer.verified_bytes(source)
                     decoded = decode(source_bytes)
                     try:
@@ -171,6 +186,14 @@ class BatchWorker(QThread):
                             app_data_dir=getattr(self.database, "parent", None),
                             decoded_image=decoded,
                         )
+                    except RegistrationError as error:
+                        observation = {
+                            "requires_review": True,
+                            "failure": str(error),
+                            "pipeline_version": OMR_PIPELINE_VERSION,
+                            "alignment_needs_review": True,
+                            "alignment_diagnostics": getattr(error, "diagnostics", {}),
+                        }
                     except ValueError as error:
                         observation = {
                             "requires_review": True,
@@ -282,6 +305,13 @@ class ExamDialog(QDialog):
         student_menu.addAction("เลือกโฟลเดอร์…", self.pick_folder)
         self.student_button.setMenu(student_menu)
         student_actions.addWidget(self.student_button)
+        self.photo_guidance_button = QToolButton()
+        self.photo_guidance_button.setText("ⓘ")
+        self.photo_guidance_button.setAccessibleName("คำแนะนำการถ่ายภาพ")
+        self.photo_guidance_button.setToolTip(PHOTO_GUIDANCE_TEXT)
+        self.photo_guidance_button.setAutoRaise(True)
+        self.photo_guidance_button.clicked.connect(self._show_photo_guidance)
+        student_actions.addWidget(self.photo_guidance_button)
         self.delete_student_button = QPushButton("ลบกระดาษที่เลือก…")
         self.delete_student_button.clicked.connect(self.archive_selected_student)
         student_actions.addWidget(self.delete_student_button)
@@ -450,6 +480,14 @@ class ExamDialog(QDialog):
         self.selected_issue_keys: set[tuple] = set()
         self.refresh()
 
+    def _show_photo_guidance(self):
+        button = self.photo_guidance_button
+        QToolTip.showText(
+            button.mapToGlobal(QPoint(0, button.height())),
+            PHOTO_GUIDANCE_TEXT,
+            button,
+        )
+
     def _update_template_badge(self) -> None:
         t_name = self.template_def.name if getattr(self, "template_def", None) else "Default #1"
         c_count = self.template_def.choice_count if getattr(self, "template_def", None) else 5
@@ -460,6 +498,7 @@ class ExamDialog(QDialog):
 
     def _change_exam_template(self) -> None:
         from PySide6.QtWidgets import QInputDialog
+
         from exam_grader.template_manager import BUILTIN_TEMPLATE_IDS, load_builtin_template
 
         available = []
@@ -607,6 +646,7 @@ class ExamDialog(QDialog):
 
         records = self.importer.list_sources(self.exam.id)
         failures = self.importer.list_failures(self.exam.id)
+        student_sources = [source for source in records if source["purpose"] == "student"]
         ready = review_count = prefilled_count = 0
         reviewed_numbers: dict[int, int] = {}
         identity_states = {s["source"]["id"]: s for s in self.review_service.states(self.exam.id)}
@@ -712,12 +752,47 @@ class ExamDialog(QDialog):
                 pass
         t_name = self.template_def.name if getattr(self, "template_def", None) else "Default #1"
         self.output_label.setText(f"แม่แบบกระดาษ: {t_name}\nตำแหน่งบันทึกผลลัพธ์: {self.output_root}")
-        self.results_summary.setText(
+        partial_count = 0
+        try:
+            partial_count = sum(
+                result.get("status") == "review_skipped"
+                for result in self.flow.snapshot(self.exam.id)["results"]
+            )
+        except ValueError:
+            pass
+        summary = (
             f"สถานะปัจจุบัน: พร้อม {ready} · พร้อมยืนยัน {prefilled_count} · "
             f"ต้องตรวจ {review_count} · ล้มเหลว {failed_count}\n"
-            + ("พร้อมบันทึกผลตรวจ" if key and not current_issues else "ตรวจทานรายการที่ค้างอยู่ก่อนบันทึกผล")
         )
-        self.progress_label.setText("พร้อมทำงาน")
+        if partial_count:
+            summary += (
+                f"มีผลลัพธ์บางส่วน {partial_count} กระดาษ · รายการที่ยังไม่ชัดคิดเป็น 0 คะแนน "
+                "และบันทึกสถานะ review_skipped"
+            )
+        else:
+            summary += (
+                "พร้อมบันทึกผลตรวจ"
+                if key and not current_issues
+                else "ตรวจทานรายการที่ค้างอยู่ก่อนบันทึกผล"
+            )
+        self.results_summary.setText(summary)
+        processed_count = sum(self.flow.latest_detection(source["id"]) is not None for source in student_sources)
+        pending_sheets = len(
+            {issue["source"]["id"] for issue in current_issues if issue.get("source")}
+        )
+        if student_sources and processed_count == len(student_sources):
+            self.progress_label.setText(
+                f"ประมวลผล 100% · รอตรวจทาน {pending_sheets} กระดาษ"
+                if pending_sheets
+                else "ประมวลผล 100% · พร้อมออกผล"
+            )
+        elif student_sources:
+            percentage = round(processed_count * 100 / len(student_sources))
+            self.progress_label.setText(
+                f"ประมวลผล {percentage}% · รอตรวจทาน {pending_sheets} กระดาษ"
+            )
+        else:
+            self.progress_label.setText("พร้อมทำงาน")
         self.export_history.clear()
         for run in self.application.exams.export_runs(self.exam.id):
             path = Path(run["path"])
@@ -1330,7 +1405,17 @@ class ExamDialog(QDialog):
             self.retry_selected()
             return
         try:
-            accepted = ReviewDialog(self.application.exams.path, source, self).exec()
+            while True:
+                dialog = ReviewDialog(self.application.exams.path, source, self)
+                accepted = dialog.exec()
+                if dialog.normalization_updated:
+                    continue
+                break
+            if dialog.skip_remaining_completed:
+                self.refresh()
+                self.tabs.setCurrentIndex(3)
+                self.export()
+                return
             self.review_service.finalize(self.exam.id)
             self.refresh()
             if source["purpose"] == "key" and accepted:
