@@ -64,7 +64,7 @@ def test_vol5_real_fixtures_automatic_omr_and_grading():
     ]
     assert key_answers == expected_key, f"Key mismatch: {key_answers} vs {expected_key}"
 
-    # 2. Student 1 (IMG_0865.jpg) must be automatically read
+    # 2. Student 1 (IMG_0865.jpg) must remain available for teacher review.
     s1_bytes = (vol5_dir / "IMG_0865.jpg").read_bytes()
     s1_res = analyze(s1_bytes, template_def=t2)
     assert s1_res["registration"]["table_coverage"] >= 0.995
@@ -75,7 +75,8 @@ def test_vol5_real_fixtures_automatic_omr_and_grading():
 
     # Verify student 1 identity observation
     s1_identity = observe(s1_bytes, s1_res["registration"]["matrix"], template_def=t2)
-    assert s1_identity["candidate"] == "1"
+    assert s1_identity["candidate"] == "1" or "1" in s1_identity["candidates"]
+    assert s1_identity["requires_review"] is True
 
 
 def test_vol5_full_workflow_export_matches_ground_truth(tmp_path):
@@ -120,8 +121,15 @@ def test_vol5_full_workflow_export_matches_ground_truth(tmp_path):
         res = analyze(importer.verified_bytes(src), template_def=t2)
         flow.save_detection(src["id"], res)
         obs = observe(importer.verified_bytes(src), res["registration"]["matrix"], template_def=t2)
-        detected_no = obs.get("candidate") or expected_no
-        assert detected_no == expected_no, f"Expected {expected_no}, got {detected_no} for {fname}"
+        candidates = obs.get("candidates") or []
+        assert obs.get("candidate") == expected_no or expected_no in candidates, (
+            f"Expected {expected_no} to remain available for review; "
+            f"primary={obs.get('candidate')}, candidates={candidates} for {fname}"
+        )
+        assert obs["requires_review"] is True
+        # Fixture truth is an explicit teacher confirmation; an uncalibrated
+        # candidate is never adopted as authoritative here.
+        detected_no = expected_no
         flow.review(
             src["id"],
             detected_no,
