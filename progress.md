@@ -1,5 +1,64 @@
 # Exam Grader progress
 
+## Current task handoff — 2026-09-15 Vol.9 runtime/UI geometry and review-gate root cause
+
+This is a read-only verification handoff for the next implementation chat. No
+source, test, fixture, build, or Git state was changed in this turn. The
+working tree remains intentionally dirty and must be preserved.
+
+### Confirmed findings
+
+- Runtime and UI do not share one geometry-resolution contract. Runtime
+  registration is resolved in `imaging.register()`/`analyze()`, while
+  `review_ui._normalization_corners()` independently chooses preview corners
+  and `exam_ui.populate_issues()` independently resolves issue crops. This
+  permits the displayed crop and the measured runtime ROI to disagree.
+- IMG_1071/IMG_1080 can be read correctly yet remain in review because
+  `imaging.py` makes every answer's `auto_resolved` false when the global
+  `registration.normalization_requires_review` flag is true. A page-level
+  warning is therefore acting as a question-level answer gate. The safe fix is
+  separate page, block, answer, and identity decisions; do not lower the
+  confidence threshold globally.
+- The IMG_1078 screenshot shows q10–q15 previews containing the neighboring
+  printed q25–q30 number strip. A direct current-pipeline replay of the raw
+  `tests/fixtures/real/vol.9/IMG_1078.jpg` with built-in `default-1` produced
+  answer ROIs confined to the five answer columns, so the screenshot is not
+  reproduced by that path. The remaining likely causes are a stale detection
+  or a newly-created custom template whose `with_number`/column inference
+  retained the question-number interval. The exact new exam DB/template/
+  detection payload is still required before naming one as the sole cause.
+- Student-number confirmation is persisted through the full review path, but
+  the Students tab still derives its label from the broader unresolved state.
+  Confirmed identity must refresh immediately and remain visibly separate from
+  any answer-review-pending state.
+
+### Required next implementation
+
+Introduce one persisted/current resolver result containing source hash,
+pipeline version, physical corners, canonical transform, grid/block geometry,
+per-answer ROIs, and confidence/provenance. Make runtime classification,
+review thumbnails, and template/test previews consume it. Add a hard invariant
+that five answer ROIs stay inside their own block and cannot overlap an
+adjacent printed question-number strip; malformed custom geometry must remain
+review-required, never be guessed. Then split review policy by stage: accept
+strong unambiguous answers, keep true multiple/uncertain/invalid geometry
+review-required, and keep student-number confirmation mandatory. After number
+confirmation, refresh Students-tab identity text without auto-confirming
+answers. Preserve immutable originals, bulk prefill confirmation, fail-closed
+uncertainty, and the working OMR/crop behavior.
+
+### Evidence and gate
+
+Current branch is `fix/vol8-current-usable-checkpoint` at `ae973e1`; existing
+focused evidence is 37 + 30 + 7 + 7 passed, with the current local app at
+`/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`. These checks and
+the package predate this read-only verification and are not evidence that the
+new fixes are implemented. The Vol.3 broad benchmark still has its recorded
+unrelated mismatch. Next chat must inspect the exact new exam payload, add
+focused regressions for resolver consistency, IMG_1078 column isolation,
+1071/1080 answer acceptance, and identity refresh, then build a fresh `.app`.
+Product Owner native UAT remains the gate before release/tag/publish.
+
 ## Current checkpoint — 2026-09-15 Vol.9 freshness, review preview, and settings controls
 
 This checkpoint is built from the current working tree on branch

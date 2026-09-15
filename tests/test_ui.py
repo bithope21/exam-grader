@@ -3,8 +3,10 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QPushButton
+from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLineEdit, QMessageBox, QPushButton
 
+import exam_grader.imaging as imaging
+import exam_grader.review_ui as review_ui
 from exam_grader.app import initialize
 from exam_grader.domain import ExamDetails
 from exam_grader.imaging import OMR_PIPELINE_VERSION
@@ -72,6 +74,63 @@ def test_key_review_prefills_clear_multi_answer_for_teacher_confirmation(tmp_pat
     assert "เติมหลายคำตอบ" in dialog.notice.text()
     assert not dialog.confirmed.isChecked()
     assert dialog.result() == 0
+    dialog.close()
+
+
+def test_manual_crop_reruns_from_original_and_reopens_review_without_approving_key(
+    tmp_path, monkeypatch
+):
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("สอบ", "2569", "ป.1", "1", "วิชา", 2))
+    key_path = tmp_path / "key.png"
+    image = QImage(120, 160, QImage.Format.Format_RGB32)
+    image.fill(0xFFFFFFFF)
+    image.save(str(key_path))
+    importer = ImportService(application.exams.path)
+    source = importer.import_file(exam.id, key_path, "key")
+    flow = Workflow(application.exams.path)
+    flow.save_detection(source["id"], {"failure": "จัดแนวไม่สำเร็จ", "pipeline_version": OMR_PIPELINE_VERSION})
+    original_bytes = importer.verified_bytes(source)
+    chosen_corners = [[10, 10], [110, 10], [110, 150], [10, 150]]
+
+    class AcceptedCrop:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+        def accepted_corners(self):
+            return chosen_corners
+
+    def fake_analyze(data, **kwargs):
+        assert data == original_bytes
+        assert kwargs["manual_corners"] == chosen_corners
+        return {
+            "pipeline_version": OMR_PIPELINE_VERSION,
+            "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+            "answers": [
+                {"question": 1, "classification": "uncertain", "selected": [], "auto_resolved": False},
+                {"question": 2, "classification": "uncertain", "selected": [], "auto_resolved": False},
+            ],
+            "manual_test_corners": kwargs["manual_corners"],
+        }
+
+    monkeypatch.setattr(review_ui, "ManualCropDialog", AcceptedCrop)
+    monkeypatch.setattr(imaging, "analyze", fake_analyze)
+    dialog = ReviewDialog(application.exams.path, source)
+
+    dialog.adjust_corners_button.click()
+
+    assert dialog.normalization_updated is True
+    assert dialog.result() == QDialog.DialogCode.Rejected
+    assert flow.latest_detection(source["id"])["manual_test_corners"] == chosen_corners
+    assert importer.verified_bytes(source) == original_bytes
+    import pytest
+
+    with pytest.raises(ValueError):
+        flow.current_key(exam.id)
     dialog.close()
 
 
@@ -165,6 +224,59 @@ def test_review_dialog_respects_4_choice_template(tmp_path):
     dialog.close()
 
 
+def test_skip_remaining_review_button_confirms_partial_results(tmp_path, monkeypatch):
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("สอบบางส่วน", "2569", "ม.4", "1", "วิชา", 2))
+    key_path, student_path = tmp_path / "key.png", tmp_path / "student.png"
+    for path, color in ((key_path, 0xFFFFFFFF), (student_path, 0xFFF5F5F5)):
+        image = QImage(30, 40, QImage.Format.Format_RGB32)
+        image.fill(color)
+        image.save(str(path))
+    importer = ImportService(application.exams.path)
+    key_source = importer.import_file(exam.id, key_path, "key")
+    student_source = importer.import_file(exam.id, student_path, "student")
+    flow = Workflow(application.exams.path)
+    flow.approve_key(exam.id, ["A", "B"], key_source["id"])
+    flow.save_detection(
+        student_source["id"],
+        {
+            "pipeline_version": OMR_PIPELINE_VERSION,
+            "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+            "student_number_observation": {"candidate": None, "candidates": []},
+            "answers": [
+                {"classification": "single_mark", "selected": ["A"], "auto_resolved": True},
+                {"classification": "uncertain", "selected": ["B"], "auto_resolved": False},
+            ],
+        },
+    )
+    warnings = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: warnings.append(args))
+    dialog = ReviewDialog(application.exams.path, student_source)
+    dialog.skip_remaining_button.click()
+    assert dialog.result() != QDialog.DialogCode.Accepted
+    assert warnings and warnings[-1][2] == "โปรดยืนยันข้อมูลก่อนข้ามรายการที่เหลือ"
+
+    prompts = []
+
+    def confirm(*args):
+        prompts.append(args[2])
+        return QMessageBox.StandardButton.Yes
+
+    monkeypatch.setattr(QMessageBox, "question", confirm)
+    dialog.confirmed.setChecked(True)
+    dialog.skip_remaining_button.click()
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    assert dialog.skip_remaining_completed
+    assert "เลขที่ยังไม่ยืนยัน: 1" in prompts[0]
+    assert "คำตอบ/ข้อที่ยังไม่ชัด: 1" in prompts[0]
+    assert "กระดาษที่ยังมีรายการค้าง: 1" in prompts[0]
+    result = flow.snapshot(exam.id)["results"][0]
+    assert result["student_number"] == "ไม่ทราบเลขที่ #1"
+    assert result["answers"] == ["A", "unresolved"]
+    assert result["score"] == 1
+
+
 def test_parse_key_answer_thai_and_bounds():
     import pytest
 
@@ -232,9 +344,9 @@ def test_settings_and_template_buttons_visibility(tmp_path):
     application = initialize(tmp_path / "data")
     window = MainWindow(application)
 
-    # 1. MainWindow settings gear button
+    # 1. MainWindow settings control uses compact native-style affordances
     assert hasattr(window, "settings_button")
-    assert "⚙️" in window.settings_button.text()
+    assert window.settings_button.text() == "ตั้งค่า"
     menu = window.settings_button.menu()
     assert menu is not None
     actions_text = [a.text() for a in menu.actions()]
@@ -244,7 +356,7 @@ def test_settings_and_template_buttons_visibility(tmp_path):
     # 2. NewExamDialog manage templates button
     dialog = NewExamDialog(window)
     assert hasattr(dialog, "manage_template_button")
-    assert "⚙️" in dialog.manage_template_button.text()
+    assert dialog.manage_template_button.text() == "จัดการแม่แบบ…"
     assert dialog.manage_template_button.isEnabled()
     dialog.close()
 
@@ -262,15 +374,122 @@ def test_settings_and_template_buttons_visibility(tmp_path):
     exam = application.exams.create(ExamDetails("ทดสอบ", "2569", "ป.1", "1", "วิชา", 10))
     exam_dlg = ExamDialog(application, exam)
     assert hasattr(exam_dlg, "color_button")
-    assert "🎨" in exam_dlg.color_button.text()
+    assert exam_dlg.color_button.text() == "สีรอยตรวจ…"
     exam_dlg.close()
     window.close()
+
+
+def test_compact_help_icon_and_native_combo_arrows(tmp_path):
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    window = MainWindow(application)
+    dialog = NewExamDialog(window)
+
+    assert not window.camera_help_button.icon().isNull()
+    assert window.camera_help_button.size().width() == 36
+    assert window.camera_help_button.size().height() == 36
+    assert "QComboBox::drop-down" not in QApplication.instance().styleSheet()
+    assert "QSpinBox::up-button" not in QApplication.instance().styleSheet()
+
+    dialog.close()
+    window.close()
+
+
+def test_settings_controls_open_and_stale_detection_requests_current_pipeline(tmp_path, monkeypatch):
+    from exam_grader import settings_ui
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    window = MainWindow(application)
+
+    # The entire settings control must be a menu target, not only a native arrow.
+    assert window.settings_button.menu() is not None
+    assert window.settings_button.popupMode().name == "InstantPopup"
+
+    opened = []
+
+    class FakeTemplateSettingsDialog:
+        selected_template = None
+        last_created_template_id = None
+
+        def __init__(self, *args, **kwargs):
+            opened.append(True)
+
+        def exec(self):
+            return QDialog.DialogCode.Rejected
+
+    monkeypatch.setattr(settings_ui, "TemplateSettingsDialog", FakeTemplateSettingsDialog)
+    new_exam = NewExamDialog(window)
+    new_exam.manage_template_button.click()
+    assert opened
+    new_exam.close()
+
+    exam = application.exams.create(ExamDetails("ทดสอบ pipeline", "2569", "ป.1", "1", "วิชา", 3))
+    importer = ImportService(application.exams.path)
+    key_path = tmp_path / "key.png"
+    student_path = tmp_path / "student.png"
+    image = QImage(100, 100, QImage.Format.Format_RGB32)
+    image.fill(0xFFFFFFFF)
+    image.save(str(key_path))
+    image.fill(0xFFF0F0F0)
+    image.save(str(student_path))
+    key_source = importer.import_file(exam.id, key_path, "key")
+    student_source = importer.import_file(exam.id, student_path, "student")
+    flow = Workflow(application.exams.path)
+    flow.save_detection(
+        key_source["id"],
+        {
+            "pipeline_version": OMR_PIPELINE_VERSION,
+            "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+            "answers": [],
+        },
+    )
+    flow.approve_key(exam.id, ["A", "B", "C"], key_source["id"])
+    flow.save_detection(
+        student_source["id"],
+        {"pipeline_version": "omr-illumination-v9-document-normalization-v1"},
+    )
+
+    dialog = ExamDialog(application, exam)
+    calls = []
+    monkeypatch.setattr(
+        dialog,
+        "start_import",
+        lambda paths, purpose: calls.append((list(paths), purpose)),
+    )
+    dialog._ensure_current_pipeline()
+    assert calls == [
+        ([application.exams.path.parent / student_source["relative_path"]], "student")
+    ]
+    dialog.close()
+    window.close()
+
+
+def test_student_import_shows_nonblocking_photo_guidance(tmp_path):
+    from exam_grader.exam_ui import PHOTO_GUIDANCE_TEXT, ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("ทดสอบ", "2569", "ป.1", "1", "วิชา", 10))
+    dialog = ExamDialog(application, exam)
+
+    guidance = dialog.photo_guidance_button
+    assert guidance.accessibleName() == "คำแนะนำการถ่ายภาพ"
+    assert guidance.toolTip() == PHOTO_GUIDANCE_TEXT
+    assert "ครบ 4 มุม" in guidance.toolTip()
+    assert "ตารางคำตอบ" in guidance.toolTip()
+    assert "แสงสะท้อน" in guidance.toolTip()
+    assert "รอยกากบาท" in guidance.toolTip()
+
+    dialog.close()
 
 
 def test_review_tab_bulk_edit_ui(tmp_path):
     """Test multi-row checkbox selection and bulk edit in Review tab."""
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
+
     QApplication.instance() or QApplication([])
     from exam_grader.app import initialize
     from exam_grader.domain import ExamDetails
@@ -300,6 +519,7 @@ def test_review_tab_bulk_edit_ui(tmp_path):
     key_img.write_bytes(b"fake_key_bytes")
     # Create simple dummy PNG for imports
     from PySide6.QtGui import QImage
+
     img = QImage(100, 100, QImage.Format.Format_RGB32)
     img.fill(0xFFFFFF)
     img.save(str(key_img))
@@ -338,22 +558,23 @@ def test_review_tab_bulk_edit_ui(tmp_path):
     # 1. Verify 6 columns
     assert dialog.issue_table.columnCount() == 6
     assert dialog.issue_table.horizontalHeaderItem(0).text() == "เลือก"
-    print("Issues in dialog:", [(i.get("kind"), i.get("question"), i.get("label")) for i in dialog.issue_rows])
+    print(
+        "Issues in dialog:",
+        [(i.get("kind"), i.get("question"), i.get("label")) for i in dialog.issue_rows],
+    )
     assert dialog.issue_table.rowCount() == 3
 
     # 2. Test Select All
     dialog.select_all_btn.click()
     assert all(
-        dialog.issue_table.item(r, 0).checkState() == Qt.CheckState.Checked
-        for r in range(3)
+        dialog.issue_table.item(r, 0).checkState() == Qt.CheckState.Checked for r in range(3)
     )
     assert "เลือก 3 รายการ" in dialog.selection_label.text()
 
     # 3. Test Clear Selection
     dialog.clear_selection_btn.click()
     assert all(
-        dialog.issue_table.item(r, 0).checkState() == Qt.CheckState.Unchecked
-        for r in range(3)
+        dialog.issue_table.item(r, 0).checkState() == Qt.CheckState.Unchecked for r in range(3)
     )
     assert "เลือก 0 รายการ" in dialog.selection_label.text()
     assert not dialog.bulk_apply_btn.isEnabled()
@@ -369,8 +590,10 @@ def test_review_tab_bulk_edit_ui(tmp_path):
     dialog.bulk_combo.setCurrentIndex(blank_idx)
     assert dialog.bulk_apply_btn.isEnabled()
 
+
     # Apply bulk edit without dialog popups blocking
     from unittest.mock import patch
+
     with patch("PySide6.QtWidgets.QMessageBox.information"):
         dialog.apply_bulk_edit()
 
@@ -393,6 +616,68 @@ def test_review_tab_bulk_edit_ui(tmp_path):
     assert dialog.issue_table.rowCount() == 1
     assert dialog.issue_table.item(0, 1).text() == "1"
     assert "ข้อ 3" in dialog.issue_table.item(0, 2).text()
+
+
+def test_confirmed_student_number_refreshes_students_without_answer_confirmation(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+    from exam_grader.review_service import ReviewService
+    from exam_grader.workflow import Workflow
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("เลขที่รีเฟรช", "2569", "ป.1", "1", "วิชา", 1))
+    importer = ImportService(application.exams.path)
+    flow = Workflow(application.exams.path)
+
+    key_path = tmp_path / "key.png"
+    student_path = tmp_path / "student.png"
+    image = QImage(100, 100, QImage.Format.Format_RGB32)
+    image.fill(0xFFFFFFFF)
+    image.save(str(key_path))
+    image.fill(0xFFFEFEFE)
+    image.save(str(student_path))
+    key_source = importer.import_file(exam.id, key_path, "key")
+    flow.approve_key(exam.id, ["A"], key_source["id"])
+    student_source = importer.import_file(exam.id, student_path, "student")
+    detection = {
+        "pipeline_version": OMR_PIPELINE_VERSION,
+        "registration": {
+            "matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            "inverse_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        },
+        "student_number_observation": {
+            "candidate": "7",
+            "candidates": ["7"],
+            "requires_review": True,
+        },
+        "answers": [
+            {
+                "question": 1,
+                "classification": "single_mark",
+                "selected": ["A"],
+                "auto_resolved": True,
+            }
+        ],
+    }
+    flow.save_detection(student_source["id"], detection)
+
+    dialog = ExamDialog(application, exam)
+    dialog.tabs.setCurrentIndex(1)
+    before = dialog.student_list.item(0).text()
+    assert "ต้องตรวจทาน" in before
+    assert [issue["kind"] for issue in dialog.issue_rows] == ["number"]
+
+    editor = dialog.issue_table.cellWidget(0, 4)
+    assert isinstance(editor, QLineEdit)
+    editor.setText("7")
+    dialog.save_issue(dialog.issue_rows[0], editor)
+
+    after = dialog.student_list.item(0).text()
+    assert after != before
+    assert "ยืนยันเลขที่ 7" in after
+    assert flow.latest_review(student_source["id"]) is None
+    assert ReviewService(flow.database).state(student_source)["number"] == "7"
+    dialog.close()
 
 
 def test_review_tab_checkbox_delegate_ux_and_state_preservation(tmp_path):
@@ -432,10 +717,12 @@ def test_review_tab_checkbox_delegate_ux_and_state_preservation(tmp_path):
     }
     flow.save_detection(s_src["id"], det)
     from exam_grader.review_service import ReviewService
+
     service = ReviewService(app.exams.path)
     service.set_number(s_src, "1", expected_detection=service.state(s_src)["detection_id"])
 
     from exam_grader.exam_ui import ExamDialog
+
     dialog = ExamDialog(app, exam)
     dialog.tabs.setCurrentIndex(2)  # Review tab
     dialog.resize(900, 600)
@@ -454,22 +741,42 @@ def test_review_tab_checkbox_delegate_ux_and_state_preservation(tmp_path):
     pt_edge = rect0.topLeft() + QPoint(4, 4)
 
     # Click center: Unchecked -> Checked
-    QTest.mouseClick(dialog.issue_table.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, pt_center)
+    QTest.mouseClick(
+        dialog.issue_table.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        pt_center,
+    )
     assert dialog.issue_table.item(0, 0).checkState() == Qt.CheckState.Checked
     assert "เลือก 1 รายการ" in dialog.selection_label.text()
 
     # Click center again: Checked -> Unchecked
-    QTest.mouseClick(dialog.issue_table.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, pt_center)
+    QTest.mouseClick(
+        dialog.issue_table.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        pt_center,
+    )
     assert dialog.issue_table.item(0, 0).checkState() == Qt.CheckState.Unchecked
     assert "เลือก 0 รายการ" in dialog.selection_label.text()
 
     # Click near edge (wide hit area): Unchecked -> Checked
-    QTest.mouseClick(dialog.issue_table.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, pt_edge)
+    QTest.mouseClick(
+        dialog.issue_table.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        pt_edge,
+    )
     assert dialog.issue_table.item(0, 0).checkState() == Qt.CheckState.Checked
     assert "เลือก 1 รายการ" in dialog.selection_label.text()
 
     # Right-click does NOT toggle
-    QTest.mouseClick(dialog.issue_table.viewport(), Qt.MouseButton.RightButton, Qt.KeyboardModifier.NoModifier, pt_center)
+    QTest.mouseClick(
+        dialog.issue_table.viewport(),
+        Qt.MouseButton.RightButton,
+        Qt.KeyboardModifier.NoModifier,
+        pt_center,
+    )
     assert dialog.issue_table.item(0, 0).checkState() == Qt.CheckState.Checked
 
     # Keyboard Space key on Row 1 toggles
@@ -489,7 +796,12 @@ def test_review_tab_checkbox_delegate_ux_and_state_preservation(tmp_path):
 
     # --- 3. Uncheck Row 1 after refresh ---
     rect1 = dialog.issue_table.visualRect(dialog.issue_table.model().index(1, 0))
-    QTest.mouseClick(dialog.issue_table.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, rect1.center())
+    QTest.mouseClick(
+        dialog.issue_table.viewport(),
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+        rect1.center(),
+    )
     assert dialog.issue_table.item(0, 0).checkState() == Qt.CheckState.Checked
     assert dialog.issue_table.item(1, 0).checkState() == Qt.CheckState.Unchecked
     assert "เลือก 1 รายการ" in dialog.selection_label.text()
@@ -500,6 +812,7 @@ def test_review_tab_checkbox_delegate_ux_and_state_preservation(tmp_path):
     assert dialog.bulk_apply_btn.isEnabled()
 
     from unittest.mock import patch
+
     with patch("PySide6.QtWidgets.QMessageBox.information"):
         dialog.apply_bulk_edit()
 

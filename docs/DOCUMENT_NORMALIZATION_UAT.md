@@ -1,5 +1,30 @@
 # Document Normalization / Auto-Crop — UAT Checkpoint
 
+## 2026-09-15 — Vol.9 runtime/UI mismatch follow-up
+
+The Product Owner reported that IMG_1071 and IMG_1080 are visually/correctly
+read but still sent to review, and that IMG_1078 q10–q15 previews include the
+printed neighboring q25–q30 strip even though the page crop itself looks
+correct. The current source was inspected without edits.
+
+- The 1071/1080 behavior has a confirmed policy cause: a page-level
+  `normalization_requires_review` flag clears `auto_resolved` for every answer.
+  This must become stage-specific; a page warning must not force a clear answer
+  back into manual answer review.
+- The 1078 strip symptom is not reproduced by a direct current-pipeline replay
+  of the raw Vol.9 image with built-in `default-1`; its stored answer ROIs stay
+  within the five answer columns. The screenshot therefore remains
+  unconfirmed between stale persisted detection and newly-created custom
+  template geometry. Inspect the exact exam DB/template/detection JSON before
+  changing thresholds or column logic.
+- Runtime registration, ReviewDialog corner selection, and issue-preview crops
+  currently resolve geometry independently. The next implementation should
+  centralize the persisted transform/ROI/provenance and add an invariant that
+  answer ROIs cannot overlap adjacent printed question-number strips.
+
+No accuracy claim is made from this observation. Any unverifiable geometry or
+identity remains review-required, and immutable source bytes must be preserved.
+
 ## 2026-09-15 follow-up — Vol.9 stale detection and review-crop correction
 
 This follow-up addresses the Product Owner report that Vol.9 IMG_1071, IMG_1078,

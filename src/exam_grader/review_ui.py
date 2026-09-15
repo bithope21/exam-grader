@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from exam_grader.document_normalization_ui import ManualCropDialog
+from exam_grader.geometry_resolution import GeometryResolutionError, geometry_from_detection
 from exam_grader.imaging import decode
 from exam_grader.imports import ImportService
 from exam_grader.review_service import ReviewService
@@ -217,7 +218,21 @@ class ReviewDialog(QDialog):
         self.template_def = load_exam_template_def(database, source["exam_id"])
         detection = self.flow.latest_detection(source["id"])
         self.detection = detection or {}
-        self.boundary_corners = _normalization_corners(detection, original.shape)
+        try:
+            self.geometry_resolution = geometry_from_detection(
+                detection,
+                self.template_def,
+                source_sha256=source.get("sha256"),
+            )
+        except GeometryResolutionError:
+            # A malformed/stale geometry result is review-required and must not
+            # be guessed into an aligned preview.
+            self.geometry_resolution = None
+        resolved_corners = (self.geometry_resolution or {}).get("physical_paper_corners")
+        if isinstance(resolved_corners, (list, tuple)) and len(resolved_corners) == 4:
+            self.boundary_corners = np.asarray(resolved_corners, dtype=np.float32)
+        else:
+            self.boundary_corners = _normalization_corners(detection, original.shape)
         registration = (detection or {}).get("registration") or {}
         confidence = float(
             (detection or {}).get("document_normalization", {}).get(
@@ -249,10 +264,15 @@ class ReviewDialog(QDialog):
         self.adjust_corners_button.clicked.connect(self._adjust_document_corners)
         normalization_actions.addWidget(self.adjust_corners_button)
         layout.addLayout(normalization_actions)
-        if detection and "registration" in detection:
+        matrix = (
+            (self.geometry_resolution or {}).get("transform", {}).get("matrix")
+            if self.geometry_resolution
+            else None
+        )
+        if detection and matrix is not None:
             aligned = cv2.warpPerspective(
                 original,
-                np.asarray(detection["registration"]["matrix"], dtype=np.float64),
+                np.asarray(matrix, dtype=np.float64),
                 (self.template_def.canonical_width, self.template_def.canonical_height),
                 borderValue=(255, 255, 255),
             )

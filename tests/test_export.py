@@ -74,8 +74,8 @@ def test_filename_collision_and_invalid_number_never_expose_ids_or_paths():
     used: set[str] = set()
     assert checked_filename("02", used) == "เลขที่-02.jpg"
     assert checked_filename("๒", used) == "เลขที่-02_02.jpg"
-    assert checked_filename("../../bad", used) == "ไม่ทราบเลขที่_01.jpg"
-    assert checked_filename(None, used) == "ไม่ทราบเลขที่_02.jpg"
+    assert checked_filename("../../bad", used) == "ไม่ทราบเลขที่-01.jpg"
+    assert checked_filename(None, used) == "ไม่ทราบเลขที่-02.jpg"
 
 
 @pytest.mark.parametrize("maximum", [1, 30, 60])

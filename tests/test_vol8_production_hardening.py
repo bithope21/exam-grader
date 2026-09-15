@@ -57,7 +57,11 @@ def test_valid_manual_crop_survives_weak_grid_fit_and_routes_answers_to_review()
     assert registration["normalization_boundary_status"] == "human-adjusted"
     assert registration["normalization_requires_review"] is True
     assert registration["manual_grid_status"] == "review-required"
-    assert all(not answer["auto_resolved"] for answer in result["answers"])
+    assert result["review_gates"]["page"] is True
+    assert all(
+        answer["auto_resolved"] == (answer["classification"] in {"single_mark", "blank"})
+        for answer in result["answers"]
+    )
 
 
 def test_manual_corner_editor_prefers_verified_physical_boundary_over_raw_shape_rank():
@@ -228,4 +232,8 @@ def test_vol8_1025_keeps_strong_grid_fit_in_review_when_page_edge_is_uncertain()
     assert registration["alignment_confidence"] >= 0.85
     assert registration["physical_boundary_confidence"] < 0.82
     assert registration["normalization_requires_review"] is True
-    assert all(not answer["auto_resolved"] for answer in result["answers"])
+    assert result["review_gates"]["page"] is True
+    assert all(
+        answer["auto_resolved"] == (answer["classification"] in {"single_mark", "blank"})
+        for answer in result["answers"]
+    )

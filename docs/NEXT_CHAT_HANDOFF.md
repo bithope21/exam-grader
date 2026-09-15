@@ -1,5 +1,57 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+## Current handoff — 2026-09-15 central resolver and Vol.9 review-gate fix
+
+Use this section as the source of truth for the next implementation chat. This
+turn used `$v` and `$seamless-handoff` in read-only mode: no code, tests,
+fixtures, build, staging, commit, or release was performed.
+
+### Workspace safety
+
+- Repo: `/Users/zubinpijit/private/exam-grader`
+- Branch: `fix/vol8-current-usable-checkpoint`
+- HEAD: `ae973e1 fix: refresh stale detections and review previews`
+- Preserve all existing dirty/untracked work: modified
+  `src/exam_grader/{exporting.py,storage.py,ui.py,workflow.py}` and
+  `tests/{test_export.py,test_ui.py}`, plus untracked Vol.8/Vol.9 fixtures and
+  `tests/test_vol8_home_help.py`. Do not reset, clean, or absorb it.
+
+### Verified root causes and limits
+
+1. Runtime registration, ReviewDialog corner selection, and issue-preview ROI
+   selection are separate resolvers. Runtime uses `imaging.register()`;
+   `review_ui._normalization_corners()` and `exam_ui.populate_issues()` make
+   independent choices. Add a central persisted resolver result and consume it
+   everywhere so runtime and UI show the same transform/ROI/provenance.
+2. IMG_1071/1080 are over-reviewed by the global
+   `normalization_requires_review` gate: `imaging.py` sets each answer's
+   `auto_resolved` false when the page flag is true, even when the mark itself
+   is clear. Split page/block/answer/identity confidence. Strong, unambiguous
+   answers may be accepted/prefilled; true ambiguity and bad geometry remain
+   review-required. Do not weaken the global threshold as a shortcut.
+3. IMG_1078's screenshot shows q10–q15 crops including printed q25–q30. A
+   direct current `v10` replay of raw `tests/fixtures/real/vol.9/IMG_1078.jpg`
+   with built-in `default-1` keeps five answer ROIs inside the block, so this
+   exact symptom is not reproduced there. Verify the newly-created exam's
+   SQLite/template/detection payload; likely stale ROI or custom-template
+   `with_number`/column inference. Add a geometric invariant forbidding answer
+   ROIs from intersecting an adjacent question-number strip; fail closed.
+4. Confirming a student number must update the Students tab immediately while
+   leaving unresolved answers unresolved. Add a regression for identity-confirm
+   then list refresh and show `เลขที่ N` separately from answer-review status.
+
+### Next task and acceptance
+
+Implement only the above in the next chat. Preserve immutable originals,
+provenance, current good crop/OMR behavior, bulk confirmation of each row's
+existing prefill, mandatory teacher confirmation for student numbers, and
+fail-closed uncertainty. Add focused tests for resolver consistency, custom
+template column isolation, 1071/1080 answer acceptance, and number-confirm
+refresh. Run the focused suite plus final smoke; rebuild the macOS arm64
+`dist/ExamGrader.app` from the post-fix source and verify package self-check,
+codesign, and offscreen smoke. Do not release/tag/publish until Product Owner
+native UAT passes.
+
 ## Current handoff — 2026-09-15 Vol.9 current-pipeline fix
 
 The current working tree contains the follow-up needed for Product Owner UAT;

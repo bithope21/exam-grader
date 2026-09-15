@@ -4,8 +4,9 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -21,6 +22,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QStyle,
+    QToolButton,
+    QToolTip,
     QVBoxLayout,
     QWidget,
 )
@@ -38,6 +42,13 @@ from exam_grader.template_manager import (
     BUILTIN_TEMPLATE_IDS,
     TemplateDefinition,
     load_builtin_template,
+)
+
+HOME_CAMERA_GUIDANCE_TEXT = (
+    "ถ่ายภาพกระดาษคำตอบ\n"
+    "• ให้เห็นมุมกระดาษครบทั้ง 4 มุม บนพื้นหลังที่ตัดกับกระดาษ\n"
+    "• ถือกล้องขนานกับกระดาษ และหลีกเลี่ยงเงาหรือแสงสะท้อน\n"
+    "• ไม่ต้องครอปภาพ ระบบจะจัดแนวจากมุมกระดาษ"
 )
 
 
@@ -91,7 +102,7 @@ class NewExamDialog(QDialog):
 
         self.available_templates: list[TemplateDefinition] = []
         self.template_combo = QComboBox()
-        self.manage_template_button = QPushButton("⚙️ จัดการแม่แบบ…")
+        self.manage_template_button = QPushButton("จัดการแม่แบบ…")
         self.manage_template_button.setToolTip("เพิ่ม, ปรับเทียบ (Calibrate), หรือจัดการแม่แบบกระดาษคำตอบ")
         self.manage_template_button.clicked.connect(self._open_template_manager)
 
@@ -274,28 +285,55 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(title)
         header_layout.addStretch()
 
-        self.settings_button = QPushButton("⚙️ ตั้งค่า")
+        # A QToolButton with InstantPopup makes the whole visible control a
+        # reliable menu target on macOS. QPushButton.setMenu() can leave only
+        # the small native menu-indicator area responsive in packaged builds.
+        self.settings_button = QToolButton()
+        self.settings_button.setText("ตั้งค่า")
+        self.settings_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.settings_button.setToolTip("ตั้งค่าแม่แบบกระดาษคำตอบ, สีรอยตรวจ และโฟลเดอร์ผลลัพธ์")
         self.settings_button.setStyleSheet(
-            "QPushButton { font-size: 13px; padding: 6px 14px; font-weight: 500; } "
-            "QPushButton::menu-indicator { subcontrol-origin: padding; subcontrol-position: center right; right: 4px; }"
+            "QToolButton { font-size: 13px; padding: 5px 12px; font-weight: 500; "
+            "border: 1px solid #CBD5E1; border-radius: 7px; background: #FFFFFF; }"
+            "QToolButton:hover { background: #F1F5F9; border-color: #94A3B8; }"
+            "QToolButton:pressed { background: #E2E8F0; }"
         )
 
         settings_popup = QMenu(self)
         settings_popup.addAction(
-            "📋 รูปแบบกระดาษคำตอบ (เพิ่ม/ปรับเทียบ/จัดการแม่แบบ)…", self.open_template_settings
+            "รูปแบบกระดาษคำตอบ (เพิ่ม/ปรับเทียบ/จัดการแม่แบบ)…", self.open_template_settings
         )
-        settings_popup.addAction("🎨 สีรอยตรวจและสัญลักษณ์…", self.open_color_settings)
+        settings_popup.addAction("สีรอยตรวจและสัญลักษณ์…", self.open_color_settings)
         settings_popup.addSeparator()
 
-        appearance_submenu = settings_popup.addMenu("🌓 ธีมการแสดงผล (Appearance)")
+        appearance_submenu = settings_popup.addMenu("ธีมการแสดงผล (Appearance)")
         self._populate_appearance_menu(appearance_submenu)
 
         settings_popup.addSeparator()
-        settings_popup.addAction("📁 ตำแหน่งบันทึกผลลัพธ์…", self.choose_output_root)
-        settings_popup.addAction("🗑️ ถังขยะ…", self.show_trash)
+        settings_popup.addAction("ตำแหน่งบันทึกผลลัพธ์…", self.choose_output_root)
+        settings_popup.addAction("ถังขยะ…", self.show_trash)
         self.settings_button.setMenu(settings_popup)
         header_layout.addWidget(self.settings_button)
+
+        self.camera_help_button = QToolButton()
+        self.camera_help_button.setText("")
+        self.camera_help_button.setIcon(
+            QApplication.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
+        )
+        self.camera_help_button.setIconSize(QSize(18, 18))
+        self.camera_help_button.setFixedSize(36, 36)
+        self.camera_help_button.setAutoRaise(True)
+        self.camera_help_button.setToolTip(HOME_CAMERA_GUIDANCE_TEXT)
+        self.camera_help_button.setAccessibleName("คำแนะนำการถ่ายภาพกระดาษคำตอบ")
+        self.camera_help_button.setAccessibleDescription(HOME_CAMERA_GUIDANCE_TEXT)
+        self.camera_help_button.setStyleSheet(
+            "QToolButton { border: 0; border-radius: 7px; padding: 0; background: transparent; }"
+            "QToolButton:hover { background: #E8ECF0; }"
+            "QToolButton:pressed { background: #D9E1EA; }"
+        )
+        self.camera_help_button.clicked.connect(self._show_camera_help)
+        header_layout.addWidget(self.camera_help_button)
 
         layout.addLayout(header_layout)
         description = QLabel(
@@ -325,6 +363,14 @@ class MainWindow(QMainWindow):
         self._populate_appearance_menu(bar_appearance)
         self.menuBar().addAction("ถังขยะ…", self.show_trash)
         self.refresh()
+
+    def _show_camera_help(self) -> None:
+        button = self.camera_help_button
+        QToolTip.showText(
+            button.mapToGlobal(QPoint(0, button.height())),
+            HOME_CAMERA_GUIDANCE_TEXT,
+            button,
+        )
 
     def _populate_appearance_menu(self, menu: QMenu) -> None:
         current_mode = appearance_mode()
@@ -387,7 +433,7 @@ class MainWindow(QMainWindow):
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(8, 4, 8, 4)
             row_layout.addStretch()
-            remove = QPushButton("🗑️ ย้ายไปถังขยะ")
+            remove = QPushButton("ย้ายไปถังขยะ")
             remove.setToolTip("ย้ายชุดนี้ไปที่ถังขยะ · สามารถกู้คืนหรือลบถาวรได้จากเมนูถังขยะ")
             remove.clicked.connect(lambda _checked=False, value=exam: self.archive_exam(value))
             row_layout.addWidget(remove)

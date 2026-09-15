@@ -222,6 +222,59 @@ class Workflow:
                     "SELECT * FROM reviews WHERE source_id=? ORDER BY rowid DESC LIMIT 1",
                     (source["id"],),
                 ).fetchone()
+                partial = connection.execute(
+                    "SELECT * FROM partial_reviews WHERE source_id=? ORDER BY rowid DESC LIMIT 1",
+                    (source["id"],),
+                ).fetchone()
+                use_partial = bool(
+                    partial
+                    and partial["key_id"] == key["id"]
+                    and (review is None or partial["created_at"] > review["created_at"])
+                )
+                if use_partial:
+                    identity_text = partial["student_number"]
+                    identity_confirmed = bool(partial["identity_confirmed"])
+                    if identity_confirmed:
+                        if not identity_text.isascii() or not identity_text.isdigit():
+                            raise ValueError("ผลตรวจบางส่วนมีเลขที่ที่ยืนยันไม่ถูกต้อง")
+                        identity = int(identity_text)
+                        if exam["expected_number_max"] and identity > exam["expected_number_max"]:
+                            raise ValueError("เลขที่เกินช่วงที่กำหนด กรุณาแก้ก่อนออกผล")
+                        if identity in identities:
+                            raise ValueError(f"เลขที่ซ้ำ: {identity_text} กรุณาแก้ไขก่อนออกผล")
+                        identities.add(identity)
+                    elif not identity_text.startswith("ไม่ทราบเลขที่ #"):
+                        raise ValueError("ผลตรวจบางส่วนไม่มีเลขที่ที่ติดตามได้")
+                    answers = json.loads(partial["answers"])
+                    detection = None
+                    if partial["detection_id"]:
+                        detection = connection.execute(
+                            "SELECT payload FROM detections WHERE id=?", (partial["detection_id"],)
+                        ).fetchone()
+                    results.append(
+                        {
+                            "source": dict(source),
+                            "review_id": partial["id"],
+                            "partial_review_id": partial["id"],
+                            "detection_id": partial["detection_id"],
+                            "detection": json.loads(detection[0]) if detection else None,
+                            "student_number": identity_text,
+                            "identity_confirmed": identity_confirmed,
+                            "identity_origin": partial["identity_origin"],
+                            "answers": answers,
+                            "answer_provenance": json.loads(partial["answer_provenance"]),
+                            "review_issues": json.loads(partial["review_issues"]),
+                            "score": sum(
+                                score_answer(a, b)
+                                for a, b in zip(answers, key["answers"], strict=True)
+                            ),
+                            "max": len(key["answers"]),
+                            "status": "review_skipped",
+                            "decision_origin": "review_skipped",
+                            "review_record_type": "partial_review",
+                        }
+                    )
+                    continue
                 if review is None or review["key_id"] != key["id"]:
                     raise ValueError("ยังมีภาพที่ไม่ได้ตรวจทาน หรือเฉลยเปลี่ยน ต้องตรวจทานใหม่")
                 identity_edit = connection.execute(
@@ -247,6 +300,22 @@ class Workflow:
                     raise ValueError(f"เลขที่ซ้ำ: {review['student_number']} กรุณาแก้ไขก่อนออกผล")
                 identities.add(identity)
                 answers = json.loads(review["answers"])
+                override_questions = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT question FROM answer_overrides WHERE source_id=? AND key_id=? AND detection_id IS ?",
+                        (source["id"], key["id"], review["detection_id"]),
+                    )
+                }
+                answer_provenance = [
+                    {
+                        "question": index,
+                        "origin": "teacher_confirmed"
+                        if review["origin"] == "teacher" or index in override_questions
+                        else "machine_decision",
+                    }
+                    for index in range(1, len(answers) + 1)
+                ]
                 detection = None
                 if review["detection_id"]:
                     detection = connection.execute(
@@ -260,6 +329,9 @@ class Workflow:
                         "detection": json.loads(detection[0]) if detection else None,
                         "student_number": review["student_number"],
                         "answers": answers,
+                        "answer_provenance": answer_provenance,
+                        "identity_confirmed": True,
+                        "identity_origin": "teacher_confirmed",
                         "score": sum(
                             score_answer(a, b) for a, b in zip(answers, key["answers"], strict=True)
                         ),
@@ -268,11 +340,22 @@ class Workflow:
                         if review["origin"] == "teacher"
                         else review["origin"],
                         "decision_origin": review["origin"],
+                        "review_record_type": "complete_review",
                     }
                 )
-            results.sort(key=lambda result: int(result["student_number"]))
+            def result_order(result: dict) -> tuple[int, int]:
+                value = str(result["student_number"])
+                if value.isascii() and value.isdigit():
+                    return int(value), 0
+                try:
+                    ordinal = int(value.rsplit("#", 1)[1])
+                except (IndexError, ValueError):
+                    ordinal = 10**9
+                return 10**9, ordinal
+
+            results.sort(key=result_order)
             return {
-                "schema_version": 1,
+                "schema_version": 2,
                 "exam": dict(exam),
                 "key": key,
                 "scoring_policy": POLICY,
@@ -317,7 +400,11 @@ class Workflow:
 
     def missing_numbers(self, exam_id: str) -> dict:
         snapshot = self.snapshot(exam_id)
-        observed = sorted(int(item["student_number"]) for item in snapshot["results"])
+        observed = sorted(
+            int(item["student_number"])
+            for item in snapshot["results"]
+            if str(item["student_number"]).isascii() and str(item["student_number"]).isdigit()
+        )
         expected_max = snapshot["exam"].get("expected_number_max")
         if not observed:
             return {

@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (
 )
 
 from exam_grader.exporting import export_results
+from exam_grader.geometry_resolution import geometry_from_detection
 from exam_grader.identity import observe as observe_student_number
 from exam_grader.imaging import OMR_PIPELINE_VERSION, RegistrationError, analyze, decode
 from exam_grader.imports import ImportService
@@ -289,7 +290,7 @@ class ExamDialog(QDialog):
         self._update_template_badge()
         key_actions.addWidget(self.template_badge)
 
-        self.change_template_btn = QPushButton("⚙️ เปลี่ยนแม่แบบข้อสอบ…")
+        self.change_template_btn = QPushButton("เปลี่ยนแม่แบบข้อสอบ…")
         self.change_template_btn.clicked.connect(self._change_exam_template)
         key_actions.addWidget(self.change_template_btn)
 
@@ -423,7 +424,7 @@ class ExamDialog(QDialog):
         output_actions = QHBoxLayout()
         self.output_button = QPushButton("เปลี่ยนตำแหน่งบันทึก…")
         self.output_button.clicked.connect(self.choose_output_root)
-        self.color_button = QPushButton("🎨 สีรอยตรวจ…")
+        self.color_button = QPushButton("สีรอยตรวจ…")
         self.color_button.setToolTip("ตั้งค่าสีรอยตรวจ (ถูก/ผิด/คาบเส้น/คะแนน) สำหรับไฟล์ภาพผลตรวจ")
         self.color_button.clicked.connect(self.open_color_settings)
         self.export_button = QPushButton("บันทึกผลตรวจ + Excel")
@@ -718,7 +719,7 @@ class ExamDialog(QDialog):
                 state = (
                     "อ่านได้ครบ · พร้อมยืนยันเลขที่"
                     if not source.get("student_number")
-                    else "อ่านได้ครบ · พร้อมยืนยัน"
+                    else f"อ่านได้ครบ · ยืนยันเลขที่ {source['student_number']}"
                 )
                 prefilled_count += 1
             else:
@@ -727,7 +728,7 @@ class ExamDialog(QDialog):
             if detection and "failure" in detection:
                 state = f"อ่านไม่ได้ · {detection['failure']}"
             number_observation = (detection or {}).get("student_number_observation", {})
-            if not review and number_observation.get("candidate"):
+            if not review and not source.get("student_number") and number_observation.get("candidate"):
                 candidates = number_observation.get("candidates") or []
                 if candidates == [number_observation["candidate"]]:
                     state += f" · ผู้ช่วยอ่านเลขที่ {number_observation['candidate']} (ต้องตรวจทาน)"
@@ -1000,6 +1001,7 @@ class ExamDialog(QDialog):
         self.bulk_bar_widget.setVisible(bool(self.issue_rows))
         self.issue_table.setRowCount(len(self.issue_rows))
         previews = {}
+        geometries = {}
         # Retain selection state across populate / refresh using stable issue keys
         valid_keys = {self._issue_key(i) for i in self.issue_rows}
         self.selected_issue_keys.intersection_update(valid_keys)
@@ -1050,15 +1052,26 @@ class ExamDialog(QDialog):
                     detection = self.flow.latest_detection(sid)
                     if not detection:
                         raise ValueError("ยังไม่มีผลอ่าน")
+                    if sid not in geometries:
+                        geometries[sid] = geometry_from_detection(
+                            detection,
+                            t_def,
+                            source_sha256=issue["source"].get("sha256"),
+                        )
+                    geometry = geometries[sid]
                     if sid not in previews:
+                        matrix = geometry["transform"]["matrix"]
+                        if matrix is None:
+                            raise ValueError("ยังไม่มี transform ที่เชื่อถือได้")
                         previews[sid] = cv2.warpPerspective(
                             decode(self.importer.verified_bytes(issue["source"])),
-                            np.asarray(detection["registration"]["matrix"], dtype=np.float64),
+                            np.asarray(matrix, dtype=np.float64),
                             (t_def.canonical_width, t_def.canonical_height),
                         )
                     if issue["kind"] == "number":
-                        if t_def.student_number_roi:
-                            rx1, ry1, rx2, ry2 = t_def.student_number_roi
+                        identity_roi = geometry.get("identity_roi")
+                        if identity_roi:
+                            rx1, ry1, rx2, ry2 = identity_roi
                             pad_y = max(8, int((ry2 - ry1) * 0.15))
                             pad_x = max(8, int((rx2 - rx1) * 0.15))
                             y1 = max(0, ry1 - pad_y)
@@ -1069,50 +1082,19 @@ class ExamDialog(QDialog):
                             x1, y1, x2, y2 = 0, 0, 100, 50
                     else:
                         q_num = issue["question"]
-                        block = next(
-                            (
-                                b
-                                for b in t_def.answer_blocks
-                                if b.question_start <= q_num <= b.question_end
-                            ),
-                            None,
+                        roi_rects = geometry["answer_rois"].get(str(q_num))
+                        if not roi_rects:
+                            raise ValueError("ไม่พบ ROI ของข้อนี้ใน geometry resolver")
+                        x1 = max(0, min(int(rect[0]) for rect in roi_rects.values()) - 8)
+                        y1 = max(0, min(int(rect[1]) for rect in roi_rects.values()) - 4)
+                        x2 = min(
+                            t_def.canonical_width,
+                            max(int(rect[0]) + int(rect[2]) for rect in roi_rects.values()) + 8,
                         )
-                        if block:
-                            row_idx = q_num - block.question_start
-                            answer_observation = next(
-                                (
-                                    item
-                                    for item in detection.get("answers", [])
-                                    if item.get("question") == q_num
-                                ),
-                                {},
-                            )
-                            roi_rects = answer_observation.get("roi_rects") or {}
-                            if roi_rects:
-                                x1 = max(0, min(int(rect[0]) for rect in roi_rects.values()) - 8)
-                                y1 = max(0, min(int(rect[1]) for rect in roi_rects.values()) - 4)
-                                x2 = min(
-                                    t_def.canonical_width,
-                                    max(int(rect[0]) + int(rect[2]) for rect in roi_rects.values()) + 8,
-                                )
-                                y2 = min(
-                                    t_def.canonical_height,
-                                    max(int(rect[1]) + int(rect[3]) for rect in roi_rects.values()) + 4,
-                                )
-                            else:
-                                offsets = detection.get("registration", {}).get(
-                                    "omr_block_offsets", {}
-                                )
-                                dx, dy = offsets.get(str(block.block_index), [0, 0])
-                                x1 = max(0, block.col_boundaries[0] + int(dx) - 10)
-                                x2 = min(t_def.canonical_width, block.col_boundaries[-1] + int(dx) + 10)
-                                y1 = max(0, block.row_boundaries[row_idx] + int(dy) - 4)
-                                y2 = min(
-                                    t_def.canonical_height,
-                                    block.row_boundaries[row_idx + 1] + int(dy) + 4,
-                                )
-                        else:
-                            x1, y1, x2, y2 = 0, 0, 100, 50
+                        y2 = min(
+                            t_def.canonical_height,
+                            max(int(rect[1]) + int(rect[3]) for rect in roi_rects.values()) + 4,
+                        )
                     crop = np.ascontiguousarray(previews[sid][y1:y2, x1:x2])
                     picture = QImage(
                         crop.data,
@@ -1224,7 +1206,6 @@ class ExamDialog(QDialog):
             self.review_service.set_number(
                 issue["source"], value, expected_detection=issue["detection_id"]
             )
-            self.review_service.finalize(self.exam.id)
         elif issue["kind"] == "answer":
             self.review_service.resolve_answer(
                 issue["source"],

@@ -19,6 +19,7 @@ from exam_grader.document_normalization import (
     source_sha256,
     validate_manual_corners,
 )
+from exam_grader.geometry_resolution import GeometryResolutionError, resolve_geometry
 from exam_grader.template_manager import (
     AnswerBlock,
     TemplateDefinition,
@@ -1548,6 +1549,18 @@ def analyze(
     registration["omr_block_offsets"] = {
         str(block): [int(offset[0]), int(offset[1])] for block, offset in block_offsets.items()
     }
+    try:
+        geometry_resolution = resolve_geometry(
+            effective_template,
+            registration,
+            block_offsets=block_offsets,
+            source_sha256=source_sha256(data),
+        )
+    except GeometryResolutionError as error:
+        raise RegistrationError(
+            str(error),
+            diagnostics={"stage": "geometry-resolver", "geometry_error": str(error)},
+        ) from error
 
     q_to_block: dict[int, AnswerBlock] = {}
     for block in effective_template.answer_blocks:
@@ -1564,9 +1577,8 @@ def analyze(
         cores = []
         cross_features = []
         for choice in range(choice_count):
-            x, y, w, h = cell_rect(question, choice, template_def=effective_template)
-            x += dx
-            y += dy
+            roi = geometry_resolution["answer_rois"][str(question)][CHOICES[choice]]
+            x, y, w, h = roi
             cell_raw = darkness[y : y + h, x : x + w] > (16 if refined else INK_DARKNESS_THRESHOLD)
             cell_ink = cell_raw.astype(np.uint8) * 255
             # Morphological grid line removal: eliminates table borders that encroach on the cell
@@ -1733,6 +1745,10 @@ def analyze(
             if classification in {"uncertain", "multiple", "blank"}
             else "uncalibrated-single"
         )
+        block_review_required = bool(geometry_resolution["review_gates"]["block"])
+        answer_review_required = (
+            classification not in {"single_mark", "blank"} or block_review_required
+        )
         answers.append(
             {
                 "question": question,
@@ -1741,10 +1757,17 @@ def analyze(
                 "ink_density": densities,
                 "core_density": cores,
                 "decision_reason": reason,
-                "auto_resolved": (
-                    classification != "uncertain"
-                    and not registration["normalization_requires_review"]
-                ),
+                # Page confidence is a separate gate. A clear answer remains
+                # machine-resolved for prefill even when the page still needs
+                # teacher inspection; ambiguous/multiple/bad geometry does not.
+                "auto_resolved": not answer_review_required,
+                "answer_review_required": answer_review_required,
+                "review_gates": {
+                    "page": bool(registration["normalization_requires_review"]),
+                    "block": block_review_required,
+                    "answer": answer_review_required,
+                    "identity": True,
+                },
                 "top_two_margin": round(float(margin), 6),
                 "confidence_band": (
                     "normalization-review-required"
@@ -1753,16 +1776,7 @@ def analyze(
                     else confidence_band
                 ),
                 "feature": "relative-contrast-v2" if refined else "local-darkness-v1",
-                "roi_rects": {
-                    CHOICES[choice]: [
-                        int(x + dx),
-                        int(y + dy),
-                        int(w),
-                        int(h),
-                    ]
-                    for choice in range(choice_count)
-                    for x, y, w, h in [cell_rect(question, choice, template_def=effective_template)]
-                },
+                "roi_rects": geometry_resolution["answer_rois"][str(question)],
             }
         )
     omr_seconds = perf_counter() - omr_started
@@ -1845,6 +1859,13 @@ def analyze(
             },
         },
         "answers": answers,
+        "geometry_resolution": geometry_resolution,
+        "review_gates": {
+            "page": bool(registration["normalization_requires_review"]),
+            "block": bool(geometry_resolution["review_gates"]["block"]),
+            "answer": any(answer["answer_review_required"] for answer in answers),
+            "identity": True,
+        },
         "aligned": aligned,
         "student_number": None,
         "alignment_needs_review": bool(registration.get("alignment_needs_review", False)),

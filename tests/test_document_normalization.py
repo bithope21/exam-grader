@@ -336,7 +336,11 @@ def test_manual_low_confidence_preserves_source_and_forces_answer_review():
     assert result["document_normalization"]["original_immutable"] is True
     assert result["document_normalization"]["preview_storage"].startswith("regenerated-on-demand")
     assert result["registration"]["normalization_requires_review"] is True
-    assert all(not answer["auto_resolved"] for answer in result["answers"])
+    assert result["review_gates"]["page"] is True
+    assert all(
+        answer["auto_resolved"] == (answer["classification"] in {"single_mark", "blank"})
+        for answer in result["answers"]
+    )
     assert np.array_equal(source, original)
 
 

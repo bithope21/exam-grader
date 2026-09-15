@@ -283,18 +283,6 @@ def get_theme_stylesheet(mode: str) -> str:
                 background-color: #FFFFFF;
                 color: #0F172A;
             }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 24px;
-                border-left-width: 0px;
-                border-top-right-radius: 6px;
-                border-bottom-right-radius: 6px;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
-                width: 18px;
-                border-width: 0px;
-            }
             QComboBox:focus {
                 border: 1.5px solid #2563EB;
             }
@@ -564,18 +552,6 @@ def get_theme_stylesheet(mode: str) -> str:
                 padding: 4px 26px 4px 10px;
                 background-color: #1E293B;
                 color: #F8FAFC;
-            }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 24px;
-                border-left-width: 0px;
-                border-top-right-radius: 6px;
-                border-bottom-right-radius: 6px;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
-                width: 18px;
-                border-width: 0px;
             }
             QComboBox:focus {
                 border: 1.5px solid #3B82F6;
