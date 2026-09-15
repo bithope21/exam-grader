@@ -358,6 +358,13 @@ class ExamDialog(QDialog):
         self.selection_label = QLabel("เลือก 0 รายการ")
         self.selection_label.setStyleSheet("color: #64748b; font-weight: 500;")
 
+        self.bulk_confirm_btn = QPushButton("ยืนยันข้อมูลที่ระบบอ่านไว้")
+        self.bulk_confirm_btn.setToolTip(
+            "ยืนยันค่า prefill ของแต่ละแถวที่เลือก โดยไม่บังคับใช้คำตอบเดียวกับทุกแถว"
+        )
+        self.bulk_confirm_btn.setEnabled(False)
+        self.bulk_confirm_btn.clicked.connect(self.confirm_bulk_prefilled)
+
         self.bulk_combo = QComboBox()
         self.bulk_combo.setMinimumWidth(220)
         self.bulk_combo.addItem("— กำหนดคำตอบ / สถานะให้แถวที่เลือก —", None)
@@ -379,6 +386,7 @@ class ExamDialog(QDialog):
         bulk_bar.addWidget(self.clear_selection_btn)
         bulk_bar.addWidget(self.selection_label)
         bulk_bar.addSpacing(12)
+        bulk_bar.addWidget(self.bulk_confirm_btn)
         bulk_bar.addWidget(self.bulk_combo)
         bulk_bar.addWidget(self.bulk_apply_btn)
         bulk_bar.addStretch()
@@ -689,6 +697,7 @@ class ExamDialog(QDialog):
                 or "failure" in detection
                 or len(active_answers) < self.exam.details.question_count
                 or any(not item.get("auto_resolved") for item in active_answers)
+                or source["id"] in issue_source_ids
             )
             if (
                 review
@@ -1057,7 +1066,9 @@ class ExamDialog(QDialog):
                     pass
             editor: QLineEdit | QComboBox
             if issue["kind"] == "number":
-                editor = QLineEdit(issue.get("candidate") or issue["number"] or "")
+                editor = QLineEdit(
+                    issue.get("prefill") or issue.get("candidate") or issue["number"] or ""
+                )
                 editor.setPlaceholderText("เลขที่")
             else:
                 editor = QComboBox()
@@ -1080,7 +1091,9 @@ class ExamDialog(QDialog):
                     options += [("ใช้คำตอบเดิมกับเฉลยใหม่", "reuse")]
                 for label, value in options:
                     editor.addItem(label, value)
-                editor.setCurrentIndex(max(0, editor.findData(issue.get("candidate"))))
+                editor.setCurrentIndex(
+                    max(0, editor.findData(issue.get("prefill") or issue.get("candidate")))
+                )
             issue_key = self._issue_key(issue)
             if issue_key in self.issue_drafts:
                 draft = self.issue_drafts[issue_key]
@@ -1234,6 +1247,12 @@ class ExamDialog(QDialog):
         self.selection_label.setText(f"เลือก {count} รายการ")
         has_val = self.bulk_combo.currentData() is not None
         self.bulk_apply_btn.setEnabled(count > 0 and has_val)
+        has_prefill = any(
+            self._issue_key(issue) in self.selected_issue_keys
+            and self.review_service.prefilled_value(issue) is not None
+            for issue in getattr(self, "issue_rows", [])
+        )
+        self.bulk_confirm_btn.setEnabled(has_prefill)
 
     def select_all_issues(self) -> None:
         for issue in self.issue_rows:
@@ -1293,6 +1312,48 @@ class ExamDialog(QDialog):
             )
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "บันทึกไม่สำเร็จ", str(error))
+
+    def confirm_bulk_prefilled(self) -> None:
+        if not self.selected_issue_keys:
+            QMessageBox.information(
+                self, "ยังไม่ได้เลือกรายการ", "กรุณาคลิกเลือกแถวที่ต้องการยืนยันก่อน"
+            )
+            return
+        selected = [
+            issue
+            for issue in self.issue_rows
+            if self._issue_key(issue) in self.selected_issue_keys
+        ]
+        measurable = [
+            issue
+            for issue in selected
+            if self.review_service.prefilled_value(issue) is not None
+        ]
+        if not measurable:
+            QMessageBox.information(
+                self,
+                "ไม่มีค่าที่พร้อมยืนยัน",
+                "แถวที่เลือกยังไม่มีค่า prefill ที่วัดได้ชัดเจน · ใช้การแก้ไขรายแถวแทน",
+            )
+            return
+        try:
+            result = self.review_service.confirm_prefilled(self.exam.id, measurable)
+            applied = result.get("applied", [])
+            applied_keys = {self._issue_key(issue) for issue in applied}
+            self.selected_issue_keys.difference_update(applied_keys)
+            for key in applied_keys:
+                self.issue_dirty.discard(key)
+                self.issue_drafts.pop(key, None)
+            self.refresh()
+            skipped = len(result.get("skipped", []))
+            suffix = f" · คงค้าง {skipped} รายการให้ตรวจเอง" if skipped else ""
+            QMessageBox.information(
+                self,
+                "ยืนยันข้อมูลเรียบร้อย",
+                f"ยืนยันค่าที่ระบบอ่านไว้รายแถว {len(applied)} รายการ{suffix}",
+            )
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "ยืนยันไม่สำเร็จ", str(error))
 
     def open_issue_source(self, row, column):
         if column == 0:

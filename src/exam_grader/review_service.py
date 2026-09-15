@@ -68,7 +68,7 @@ class ReviewService:
             if item.get("auto_resolved"):
                 if item["classification"] == "single_mark" and len(item["selected"]) == 1:
                     value = item["selected"][0]
-                elif item["classification"] in {"blank", "multiple", "boundary_cross"}:
+                elif item["classification"] == "blank" and not item.get("blank_abnormal", False):
                     value = item["classification"]
             answers.append(value)
         return answers + [None] * (count - len(answers))
@@ -161,6 +161,8 @@ class ReviewService:
             if state["number"]:
                 continue
             observation = state["detection"].get("student_number_observation") or {}
+            if observation.get("requires_review"):
+                continue
             candidate = observation.get("candidate")
             choices = observation.get("candidates") or []
             confidence = observation.get("confidence")
@@ -187,6 +189,8 @@ class ReviewService:
             if state["number"] or sid in proposed:
                 continue
             observation = observations[sid]
+            if observation.get("requires_review"):
+                continue
             candidate = observation.get("candidate")
             choices = observation.get("candidates", [])
             if candidate and len(choices) > 1:
@@ -341,6 +345,84 @@ class ReviewService:
         self.finalize(exam_id)
         return {"applied": applied, "total": len(operations)}
 
+    @staticmethod
+    def prefilled_value(issue: dict) -> str | None:
+        """Return only a value already measured for this exact review row."""
+        value = issue.get("prefill")
+        return value if isinstance(value, str) and value else None
+
+    def confirm_prefilled(self, exam_id: str, issues: list[dict]) -> dict:
+        """Teacher-confirm measured row values without forcing one value on all rows.
+
+        This is deliberately separate from ``adopt_numbers``: selecting this action
+        is the teacher's explicit confirmation, and no roster gap or range is used to
+        invent an identity.
+        """
+        key = self.flow.confirmed_key(exam_id)
+        states = {state["source"]["id"]: state for state in self.states(exam_id)}
+        used_numbers = {
+            int(state["number"]) for state in states.values() if state.get("number")
+        }
+        maximum = None
+        with self.flow.connection() as con:
+            maximum = con.execute(
+                "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
+            ).fetchone()[0]
+
+        applied: list[dict] = []
+        skipped: list[dict] = []
+        now = datetime.now(timezone.utc).isoformat()
+        pending_numbers: set[int] = set()
+        with self.flow.connection() as con:
+            for issue in issues:
+                value = self.prefilled_value(issue)
+                source = issue.get("source")
+                if not value or not source or source.get("id") not in states:
+                    skipped.append({"issue": issue, "reason": "ไม่มีค่าที่ระบบอ่านไว้"})
+                    continue
+                sid = source["id"]
+                detection_id = issue.get("detection_id")
+                if issue.get("kind") == "answer":
+                    if value not in RESOLVED or not issue.get("question"):
+                        skipped.append({"issue": issue, "reason": "ค่าคำตอบไม่ถูกต้อง"})
+                        continue
+                    con.execute(
+                        "INSERT INTO answer_overrides VALUES (?,?,?,?,?,?,?)",
+                        (
+                            str(uuid4()),
+                            sid,
+                            key["id"],
+                            detection_id,
+                            int(issue["question"]),
+                            value,
+                            now,
+                        ),
+                    )
+                    applied.append(issue)
+                elif issue.get("kind") == "number":
+                    try:
+                        number = int(normalize_number(value))
+                    except ValueError:
+                        skipped.append({"issue": issue, "reason": "เลขที่ไม่ถูกต้อง"})
+                        continue
+                    if (
+                        number in used_numbers
+                        or number in pending_numbers
+                        or (maximum is not None and number > maximum)
+                    ):
+                        skipped.append({"issue": issue, "reason": "เลขที่ซ้ำหรือเกินช่วง"})
+                        continue
+                    con.execute(
+                        "INSERT INTO identities VALUES (?,?,?,?,?,?)",
+                        (str(uuid4()), sid, str(number), detection_id, "teacher_prefilled", now),
+                    )
+                    pending_numbers.add(number)
+                    applied.append(issue)
+                else:
+                    skipped.append({"issue": issue, "reason": "รายการนี้ไม่มี prefill ที่ยืนยันได้"})
+        self.finalize(exam_id)
+        return {"applied": applied, "skipped": skipped, "total": len(issues)}
+
     def set_attendance(self, exam_id: str, number: str, status: str) -> None:
         number = normalize_number(number)
         if status not in {"pending", "absent", "excused", "skipped"}:
@@ -423,7 +505,16 @@ class ReviewService:
                 )
                 if not candidate and choices:
                     reason += " · อาจเป็น " + " / ".join(choices)
-                issues.append({**base, "kind": "number", "status": status, "label": reason, "candidate": candidate})
+                issues.append(
+                    {
+                        **base,
+                        "kind": "number",
+                        "status": status,
+                        "label": reason,
+                        "candidate": candidate,
+                        "prefill": candidate,
+                    }
+                )
             if number and attendance.get(int(number)) in {"absent", "excused"}:
                 issues.append(
                     {
@@ -442,18 +533,37 @@ class ReviewService:
                     for index, answer in enumerate(self.answers(state, key), 1):
                         if answer is None:
                             observation = state["detection"].get("answers", [])
-                            selected = (
-                                observation[index - 1].get("selected", [])
-                                if index <= len(observation)
-                                else []
-                            )
+                            observed = observation[index - 1] if index <= len(observation) else {}
+                            selected = observed.get("selected", [])
+                            classification = observed.get("classification", "uncertain")
+                            prefill = None
+                            if classification == "single_mark" and len(selected) == 1:
+                                # A single mark blocked only by registration/geometry
+                                # review is evidence to inspect, not an auto decision.
+                                prefill = selected[0] if observed.get("auto_resolved") else None
+                            elif classification in {"multiple", "boundary_cross"}:
+                                prefill = classification
+                            elif classification == "blank" and not observed.get("blank_abnormal"):
+                                prefill = "blank"
+                            if classification == "multiple" and selected:
+                                label = f"ข้อ {index} · อ่านหลายคำตอบ ({', '.join(selected)}) · ต้องยืนยัน"
+                            elif classification == "boundary_cross":
+                                label = f"ข้อ {index} · รอยคาบเส้น · ต้องตรวจ geometry"
+                            elif classification == "blank":
+                                label = f"ข้อ {index} · อ่านเป็นว่าง · ตรวจว่าตั้งใจเว้นว่าง"
+                            else:
+                                label = f"ข้อ {index} · รอยคำตอบไม่ชัด"
                             issues.append(
                                 {
                                     **base,
                                     "kind": "answer",
                                     "question": index,
-                                    "label": f"ข้อ {index} · รอยคำตอบไม่ชัด",
-                                    "candidate": selected[0] if len(selected) == 1 else None,
+                                    "label": label,
+                                    "status": classification,
+                                    "candidate": selected[0]
+                                    if classification == "single_mark" and len(selected) == 1
+                                    else None,
+                                    "prefill": prefill,
                                 }
                             )
         # A sparse upload is not a roster. Only explicit expected ranges create gaps.
@@ -487,3 +597,309 @@ class ReviewService:
         return sorted(
             issues, key=lambda i: (int(i["number"]) if i["number"] else 10**9, i.get("question", 0))
         )
+
+    def skip_summary(
+        self,
+        exam_id: str,
+        *,
+        answer_edits: dict[str, dict[int, str]] | None = None,
+        identity_edits: dict[str, str] | None = None,
+    ) -> dict[str, int]:
+        """Count unresolved decisions for the explicit skip confirmation dialog."""
+        key = self.flow.confirmed_key(exam_id)
+        answer_edits = answer_edits or {}
+        identity_edits = identity_edits or {}
+        states = self.states(exam_id)
+        numbers: dict[str, str | None] = {}
+        for state in states:
+            sid = state["source"]["id"]
+            value = identity_edits.get(sid, state["number"])
+            try:
+                numbers[sid] = normalize_number(value) if value else None
+            except ValueError:
+                numbers[sid] = None
+        counts: dict[str, int] = {}
+        for value in numbers.values():
+            if value:
+                counts[value] = counts.get(value, 0) + 1
+
+        with self.flow.connection() as con:
+            maximum = con.execute(
+                "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
+            ).fetchone()[0]
+
+        unknown_ids: set[str] = set()
+        unclear_questions: set[tuple[str, int]] = set()
+        pending_sheets: set[str] = set()
+        for state in states:
+            sid = state["source"]["id"]
+            number = numbers[sid]
+            if (
+                number is None
+                or counts.get(number, 0) > 1
+                or (maximum is not None and int(number) > maximum)
+            ):
+                unknown_ids.add(sid)
+                pending_sheets.add(sid)
+            if state["detection"].get("failure"):
+                pending_sheets.add(sid)
+            review = state["review"]
+            reviewed_key = bool(review and review["key_id"] == key["id"])
+            answers = self.answers(state, key)
+            observations = state["detection"].get("answers", [])
+            with self.flow.connection() as con:
+                overridden = {
+                    int(row[0])
+                    for row in con.execute(
+                        "SELECT question FROM answer_overrides WHERE source_id=? AND key_id=? AND detection_id IS ?",
+                        (sid, key["id"], state["detection_id"]),
+                    )
+                }
+            for index, answer in enumerate(answers, start=1):
+                if index in answer_edits.get(sid, {}):
+                    continue
+                teacher_confirmed = (
+                    reviewed_key and review["origin"] == "teacher"
+                ) or index in overridden
+                classification = (
+                    observations[index - 1].get("classification")
+                    if index <= len(observations)
+                    else None
+                )
+                if not teacher_confirmed and (
+                    answer is None or classification in {"uncertain", "multiple"}
+                ):
+                    unclear_questions.add((sid, index))
+                    pending_sheets.add(sid)
+            if review is None or not reviewed_key:
+                pending_sheets.add(sid)
+
+        return {
+            "unconfirmed_identities": len(unknown_ids),
+            "unclear_answers": len(unclear_questions),
+            "unresolved_sheets": len(pending_sheets),
+        }
+
+    def skip_remaining(
+        self,
+        exam_id: str,
+        *,
+        answer_edits: dict[str, dict[int, str]] | None = None,
+        identity_edits: dict[str, str] | None = None,
+    ) -> dict[str, int]:
+        """Persist a fail-closed partial snapshot and stable labels for unknown identities."""
+        key = self.flow.confirmed_key(exam_id)
+        answer_edits = answer_edits or {}
+        identity_edits = identity_edits or {}
+        states = self.states(exam_id)
+        state_by_id = {state["source"]["id"]: state for state in states}
+        normalized_edits = {
+            sid: normalize_number(value) for sid, value in identity_edits.items() if value
+        }
+        if any(sid not in state_by_id for sid in (*normalized_edits, *answer_edits)):
+            raise ValueError("รายการเปลี่ยนแล้ว กรุณาเปิดตรวจทานใหม่")
+
+        answers_by_source: dict[str, list[str | None]] = {}
+        overridden_by_source: dict[str, set[int]] = {}
+        for sid, state in state_by_id.items():
+            answers_by_source[sid] = self.answers(state, key)
+            overridden_by_source[sid] = set()
+            for question, answer in answer_edits.get(sid, {}).items():
+                if not 1 <= int(question) <= len(key["answers"]) or answer not in RESOLVED:
+                    raise ValueError("คำตอบที่แก้ไขไม่ถูกต้อง")
+                answers_by_source[sid][int(question) - 1] = answer
+                overridden_by_source[sid].add(int(question))
+            with self.flow.connection() as con:
+                overridden_by_source[sid].update(
+                    int(row[0])
+                    for row in con.execute(
+                        "SELECT question FROM answer_overrides WHERE source_id=? AND key_id=? AND detection_id IS ?",
+                        (sid, key["id"], state["detection_id"]),
+                    )
+                )
+
+        now = datetime.now(timezone.utc).isoformat()
+        inserted = 0
+        unknown_count = 0
+        with self.flow.connection() as con:
+            current_key = self.flow._key(con, exam_id)
+            if current_key["id"] != key["id"]:
+                raise ValueError("เฉลยเปลี่ยนแล้ว กรุณาเปิดตรวจทานใหม่")
+            active_sources = {
+                row["id"]
+                for row in con.execute(
+                    "SELECT id FROM sources WHERE exam_id=? AND purpose='student' AND archived_at IS NULL",
+                    (exam_id,),
+                )
+            }
+            if active_sources != set(state_by_id):
+                raise ValueError("รายการภาพเปลี่ยนแล้ว กรุณาโหลดรายการใหม่")
+            for sid, state in state_by_id.items():
+                latest = con.execute(
+                    "SELECT id FROM detections WHERE source_id=? ORDER BY rowid DESC LIMIT 1",
+                    (sid,),
+                ).fetchone()
+                if (latest["id"] if latest else None) != state["detection_id"]:
+                    raise ValueError("ผลอ่านเปลี่ยนแล้ว กรุณาโหลดรายการใหม่")
+
+            for sid, value in normalized_edits.items():
+                con.execute(
+                    "INSERT INTO identities VALUES (?,?,?,?,?,?)",
+                    (str(uuid4()), sid, value, state_by_id[sid]["detection_id"], "teacher", now),
+                )
+            for sid, questions in answer_edits.items():
+                for question, answer in questions.items():
+                    con.execute(
+                        "INSERT INTO answer_overrides VALUES (?,?,?,?,?,?,?)",
+                        (
+                            str(uuid4()),
+                            sid,
+                            key["id"],
+                            state_by_id[sid]["detection_id"],
+                            int(question),
+                            answer,
+                            now,
+                        ),
+                    )
+
+            maximum = con.execute(
+                "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
+            ).fetchone()[0]
+            attendance = {
+                int(row["student_number"]): row["status"]
+                for row in con.execute(
+                    "SELECT student_number,status FROM attendance WHERE exam_id=?", (exam_id,)
+                )
+            }
+            number_for_source: dict[str, str | None] = {}
+            for sid, state in state_by_id.items():
+                number = normalized_edits.get(sid, state["number"])
+                try:
+                    number_for_source[sid] = normalize_number(number) if number else None
+                except ValueError:
+                    number_for_source[sid] = None
+            number_counts: dict[str, int] = {}
+            for number in number_for_source.values():
+                if number:
+                    number_counts[number] = number_counts.get(number, 0) + 1
+
+            prior_rows = list(
+                con.execute(
+                    "SELECT source_id,student_number,identity_confirmed FROM partial_reviews"
+                )
+            )
+            used_unknown_ordinals = [
+                int(row["student_number"].rsplit("#", 1)[1])
+                for row in prior_rows
+                if not row["identity_confirmed"]
+                and row["student_number"].startswith("ไม่ทราบเลขที่ #")
+                and row["student_number"].rsplit("#", 1)[1].isdigit()
+            ]
+            next_unknown = max(used_unknown_ordinals, default=0) + 1
+
+            for sid, state in state_by_id.items():
+                source_issues = []
+                identity_value = number_for_source[sid]
+                identity_valid = bool(
+                    identity_value
+                    and number_counts.get(identity_value, 0) == 1
+                    and (maximum is None or int(identity_value) <= maximum)
+                )
+                identity_conflict = bool(
+                    identity_value and number_counts.get(identity_value, 0) > 1
+                )
+                out_of_range = bool(identity_value and maximum and int(identity_value) > maximum)
+                current_review = state["review"]
+                reviewed_key = bool(current_review and current_review["key_id"] == key["id"])
+                is_teacher_review = bool(reviewed_key and current_review["origin"] == "teacher")
+                answers = list(answers_by_source[sid])
+                observations = state["detection"].get("answers", [])
+                provenance = []
+                needs_attention = not reviewed_key
+                if state["detection"].get("failure"):
+                    source_issues.append("alignment_needs_review")
+                    needs_attention = True
+
+                for index, machine_answer in enumerate(answers, start=1):
+                    observation = observations[index - 1] if index <= len(observations) else {}
+                    classification = observation.get("classification")
+                    teacher_confirmed = is_teacher_review or index in overridden_by_source[sid]
+                    if machine_answer is None:
+                        answers[index - 1] = "unresolved"
+                        provenance.append({"question": index, "origin": "review_skipped"})
+                        source_issues.append(f"Q{index} unresolved")
+                        needs_attention = True
+                    else:
+                        origin = "teacher_confirmed" if teacher_confirmed else "machine_decision"
+                        provenance.append({"question": index, "origin": origin})
+                        if classification == "multiple" and not teacher_confirmed:
+                            source_issues.append(f"Q{index} ambiguous")
+                            needs_attention = True
+
+                if not identity_valid:
+                    needs_attention = True
+                    if identity_conflict:
+                        source_issues.append("identity_conflict")
+                    elif out_of_range:
+                        source_issues.append("identity_out_of_range")
+                    else:
+                        source_issues.append("identity_unknown")
+                elif identity_value and attendance.get(int(identity_value)) in {
+                    "absent",
+                    "excused",
+                }:
+                    source_issues.append("attendance_conflict")
+                    needs_attention = True
+
+                if not needs_attention:
+                    continue
+                source_issues.insert(0, "review_skipped")
+                if identity_valid and identity_value is not None:
+                    student_number = identity_value
+                    identity_confirmed = True
+                    identity_origin = "teacher_confirmed"
+                    latest_identity = con.execute(
+                        "SELECT origin FROM identities WHERE source_id=? ORDER BY rowid DESC LIMIT 1",
+                        (sid,),
+                    ).fetchone()
+                    if latest_identity:
+                        identity_origin = latest_identity["origin"]
+                else:
+                    previous_partial = con.execute(
+                        "SELECT student_number,identity_confirmed FROM partial_reviews WHERE source_id=? ORDER BY rowid DESC LIMIT 1",
+                        (sid,),
+                    ).fetchone()
+                    if (
+                        previous_partial
+                        and not previous_partial["identity_confirmed"]
+                        and previous_partial["student_number"].startswith("ไม่ทราบเลขที่ #")
+                    ):
+                        student_number = previous_partial["student_number"]
+                    else:
+                        student_number = f"ไม่ทราบเลขที่ #{next_unknown}"
+                        next_unknown += 1
+                    identity_confirmed = False
+                    identity_origin = "unknown"
+                    unknown_count += 1
+
+                con.execute(
+                    "INSERT INTO partial_reviews "
+                    "(id,source_id,key_id,detection_id,student_number,identity_confirmed,identity_origin,answers,answer_provenance,review_issues,created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        str(uuid4()),
+                        sid,
+                        key["id"],
+                        state["detection_id"],
+                        student_number,
+                        int(identity_confirmed),
+                        identity_origin,
+                        json.dumps(answers),
+                        json.dumps(provenance),
+                        json.dumps(list(dict.fromkeys(source_issues)), ensure_ascii=False),
+                        now,
+                    ),
+                )
+                inserted += 1
+
+        return {"partial_sheets": inserted, "unknown_identities": unknown_count}

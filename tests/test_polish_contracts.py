@@ -38,11 +38,11 @@ def test_archived_student_is_excluded_and_same_sha_reimport_restores(tmp_path):
     assert flow.snapshot(exam.id)["results"][0]["student_number"] == "1"
 
 
-def test_boundary_cross_is_a_resolved_zero_credit_student_state():
+def test_boundary_cross_is_review_required_before_zero_credit_state():
     detection = {
         "pipeline_version": OMR_PIPELINE_VERSION,
         "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
         "answers": [{"classification": "boundary_cross", "selected": [], "auto_resolved": True}],
     }
-    assert ReviewService.machine_answers(detection, 1) == ["boundary_cross"]
+    assert ReviewService.machine_answers(detection, 1) == [None]
     assert score_answer("boundary_cross", "A") == 0

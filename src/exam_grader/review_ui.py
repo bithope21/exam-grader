@@ -441,6 +441,13 @@ class ReviewDialog(QDialog):
             )
             if value is None or (isinstance(value, str) and not value.strip()):
                 unresolved.append(i)
+        ambiguous_questions = [
+            index
+            for index, observation in enumerate(
+                (detection or {}).get("answers", [])[: self.count.value()]
+            )
+            if observation.get("classification") in {"multiple", "boundary_cross"}
+        ]
         if self.key_mode:
             multi_prefilled = sum(
                 1
@@ -474,6 +481,22 @@ class ReviewDialog(QDialog):
         controls.addWidget(self.table, 1)
         self.confirmed = QCheckBox("ยืนยันข้อมูลและการแก้ไขนี้")
         controls.addWidget(self.confirmed)
+        answers_ready = not unresolved and not ambiguous_questions
+        identity_ready = self.key_mode or bool(ReviewService(database).state(source)["number"])
+        if answers_ready and identity_ready:
+            self.confirmed.setChecked(True)
+            if self.key_mode:
+                notice.setText(
+                    f"ระบบอ่านเฉลยครบ {self.count.value()} ข้อแล้ว · พร้อมบันทึกการยืนยัน"
+                )
+            else:
+                notice.setText(
+                    f"ระบบอ่านคำตอบครบ {self.count.value()} ข้อแล้ว · เลขที่ยืนยันแล้ว · พร้อมบันทึก"
+                )
+        elif answers_ready and not self.key_mode:
+            notice.setText(
+                f"ระบบอ่านคำตอบครบ {self.count.value()} ข้อแล้ว · กรุณายืนยันเลขที่ก่อนบันทึก"
+            )
         splitter.addWidget(controls_widget)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
