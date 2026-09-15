@@ -586,3 +586,20 @@ production-calibrated digit accuracy, and auto-accept remain intentionally defer
 - The 297-cell provisional safety replay `/private/tmp/vol8-accuracy-boundary-final/report.json` remains 288/297 exact, 9 uncertain, 0 wrong, and 0 unsafe on ambiguous labels; IMG_1024 Q27 remains machine-uncertain there. The teacher export separately labels that row E. These are separate sources and denominators; OMR code was not changed.
 - Relevant focused suite: 60 passed (Vol.8 normalization/registration/hardening, imaging, and Vol.5/6/7 regressions). Changed-file Ruff and `git diff --check` passed. No build, release, commit, or publish.
 - Next: investigate low-contrast physical edges on IMG_1025/1026/1029/1030 without weakening the review gate. Keep uncertain cases review-required and do not build until the automatic-crop acceptance criteria pass.
+
+## 2026-09-15 — Current usable local program checkpoint
+
+- Checkpoint commit: `b69ce93624ea3088cc2fbb12ff9aa579c360e265` on `fix/vol8-current-usable-checkpoint`; branch pushed to `origin`.
+- Included only the reviewed crop/registration, physical-boundary diagnostics, manual-crop fallback, current OMR fail-safe, related UAT scripts/tests, and continuity docs. Unrelated dirty source/tests and untracked Vol.8/Vol.9 fixtures remain untouched.
+- Fresh macOS arm64 `dist/ExamGrader.app` is 234 MB. Strict deep codesign, packaged self-check, and offscreen UI smoke passed. Focused checks: 8 passed; Vol.8 registration sanity: 10/10, residual max 1.954 px, confidence min 0.8572.
+- Acceptance remains open: teacher replay 291/295 confirmed singles with four manual-corner flags; provisional 297-cell guard 288/297 exact, 9 uncertain, 0 wrong/unsafe; Q27 remains review-required.
+- Next session should wait for a new explicit Product Owner scope and preserve the checkpoint/dirty-file boundaries above.
+
+## 2026-09-15 — Review auto-accept, per-row bulk confirm, and student-number v6
+
+- Review UX now auto-accepts only a current, unambiguous `single_mark` or normal blank. `multiple`, `boundary_cross`, abnormal blank, incomplete geometry, and uncertain reads remain review-required. A clear ReviewDialog opens ready to save; student identity still requires explicit teacher confirmation.
+- Added `ยืนยันข้อมูลที่ระบบอ่านไว้` to the review toolbar. It confirms each selected row's own prefill atomically; it does not apply one answer to every row. The existing manual per-row editor and uniform bulk override remain available.
+- Student-number pipeline is now `student-number-adaptive-roi-v6`: expanded registration-tolerant ROI, green/reference/line suppression, connected-component grouping and touching-digit split, digit-only Tesseract 0–9 variants, measured multi-preprocess voting, review-only shape hints, and fail-closed segmentation. Roster/range is validation only; numbers remain `requires_review`.
+- Real corpus candidate visibility, using the same ground-truth labels and counting primary/OCR/review-hint union (not confirmed accuracy), improved from Vol.8 **5/10 → 8/10** and Vol.9 **8/12 → 11/12**. Primary auto-candidate remained **2/10** and **4/12** respectively. No identity was auto-confirmed.
+- Focused suite: **92 passed**. Changed-file Ruff and `git diff --check`: passed. Packaged macOS arm64 verification: strict deep codesign, disposable-data `--self-check`, offscreen `--smoke-settings`, and offscreen `--smoke-ui`: passed.
+- Product Owner trial app: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`. This is not a release; teacher identity UAT remains required, and `IMG_1024.jpg Q27` remains `uncertain / review-required`.

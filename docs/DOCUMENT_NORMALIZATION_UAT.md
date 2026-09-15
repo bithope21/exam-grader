@@ -92,3 +92,20 @@ This checkpoint resumes only physical-page boundary/crop, perspective normalizat
 - Focused cross-layout and crop suite: 60 passed, including Vol.5/6/7 and Vol.8 normalization/registration/hardening tests. Targeted Ruff and `git diff --check` passed. No app build was made because crop acceptance remains open.
 
 Next work should address the four manual-corner flags with stronger physical-edge evidence while retaining the existing confidence/review gate. Do not raise confidence solely because the answer grid fits, do not tune OMR, and keep IMG_1024 Q27 uncertain under the provisional visual-label guard.
+
+## 2026-09-15 — Checkpoint and Product Owner trial build
+
+- The current usable crop/registration + OMR fail-safe slice is checkpointed at `b69ce93624ea3088cc2fbb12ff9aa579c360e265` on `fix/vol8-current-usable-checkpoint`, pushed to `origin`.
+- Fresh app: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app` (macOS arm64, 234 MB). `codesign --verify --deep --strict`, packaged `--self-check`, and offscreen `--smoke-ui` passed. Focused Vol.8 checks passed 8/8; registration replay passed 10/10 with residual max 1.954 px and confidence min 0.8572.
+- This build is a local Product Owner trial artifact, not a release. The acceptance gaps remain unchanged: four manual-corner flags in teacher replay, provisional guard 288/297 exact with 9 uncertain, and `IMG_1024 Q27` review-required.
+- Unrelated dirty source/tests and untracked Vol.8/Vol.9 fixtures were preserved outside the checkpoint. Do not treat the checkpoint as absorbing those files.
+
+## 2026-09-15 — Follow-on review and student-number UAT slice
+
+This follow-on slice is intentionally separate from the physical-boundary acceptance evidence above. It does not reopen crop/registration or tune OMR.
+
+- Review now auto-accepts only unambiguous current single marks/normal blanks. Multiple marks, boundary-crossing geometry, abnormal blanks, uncertain geometry, and student identity remain review-required. The new bulk action confirms each selected row's measured prefill independently; the existing manual and uniform-bulk edits remain available.
+- Student-number v6 uses an expanded ROI, form/reference/line suppression, connected-component candidate grouping, touching-stroke splitting, digit-only 0–9 recognition across multiple preprocess variants, measured voting, and review-only shape suggestions. Roster/range is validation only. The local backend is Tesseract; no MNIST accuracy claim and no local ONNX model was introduced.
+- On the real Vol.8/Vol.9 fixture labels, candidate visibility union improved Vol.8 **5/10 → 8/10** and Vol.9 **8/12 → 11/12**; primary candidates remained **2/10** and **4/12**. These are candidate-recall observations, not accepted identity accuracy; all identities remain teacher-confirmation-required.
+- Focused verification: **92 passed**; changed-file Ruff and `git diff --check` passed. Fresh `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app` passed strict deep codesign, disposable-data `--self-check`, offscreen settings smoke, and offscreen UI smoke. No release/tag/publish was performed.
+- Remaining UAT uncertainty: Product Owner must test the new review/bulk flow on real sheets; identity labels still need teacher confirmation; immutable originals/provenance and fail-closed uncertainty remain required. Keep `IMG_1024.jpg Q27` uncertain/review-required.

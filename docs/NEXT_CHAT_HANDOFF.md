@@ -152,7 +152,7 @@ Dirty ownership: Worktree was already dirty and contains user/task work. This ro
 
 Decision/invariant: Keep uncertain answers fail-safe. The current threshold-only rollback cannot pass because Q12 and Q27 both have core density 0.083. Do not add a question-specific exception or new heuristic.
 
-Next exact action: Inspect only existing, already-implemented evidence for IMG_1021 Q12/Q23 and IMG_1024 Q27 to determine whether a supported decision path distinguishes them. If none exists without a new heuristic, stop and report the acceptance blocker for user direction.
+Next exact action: ส่ง detail มาในแชตใหม่นี้
 
 Acceptance/verification: Replay exactly 297 resolved cells from the same Vol.8 fixtures and ground truth using the command in section 6. Require 10/10 registered, at least 290/297 exact, at most 7 uncertain, 0 wrong, and 0 unsafe ambiguous. If all pass, stop algorithm changes and update progress/handoff with the exact report. Do not build, release, commit, or publish.
 ```
@@ -209,3 +209,35 @@ This section supersedes the evidence snapshot in section 7 while keeping its sco
 - Worktree remains dirty with user/task work. Preserve every tracked and untracked file; do not reset, clean, stage, or commit. Do not build until the four remaining low-confidence/corner cases have an evidence-backed outcome or are explicitly accepted as review-required.
 
 Next exact action: inspect the physical edge evidence for IMG_1025/1026/1029/1030 and determine whether the existing views can resolve their remaining manual-corner flags without weakening confidence/review gating. Keep ambiguous labels review-required and Q27 uncertain. If the source evidence remains weak, stop at the fail-closed boundary rather than raising confidence from grid fit alone.
+
+## 9. Checkpoint complete — current usable local program (2026-09-15)
+
+- The reviewed crop/registration + current OMR fail-safe slice is checkpointed at commit `b69ce93624ea3088cc2fbb12ff9aa579c360e265` on branch `fix/vol8-current-usable-checkpoint`, pushed to `origin`.
+- Fresh `dist/ExamGrader.app` was built from this source state at 234 MB. Strict deep codesign, packaged `--self-check`, and offscreen `--smoke-ui` passed. Focused Vol.8 checks passed 8/8; the compact registration replay passed 10/10 photos with maximum residual 1.954 px and minimum confidence 0.8572.
+- The checkpoint intentionally excludes unrelated dirty slices from identity, export, storage, workflow, general UI, legacy tests, and untracked Vol.8/Vol.9 fixtures. The worktree still contains those files; preserve them and do not reset, clean, or absorb them.
+- The old Vol.8 acceptance remains open: teacher replay is 291/295 confirmed singles with four manual-corner flags; the separate provisional guard is 288/297 exact with 9 uncertain and zero wrong/unsafe, and `IMG_1024 Q27` remains review-required. These are not production-wide accuracy claims.
+
+### Fresh-session handoff
+
+```text
+Use repository docs and the current task as source of truth. Read `/Users/zubinpijit/.codex/RTK.md`, `progress.md`, `docs/TASK_SPEC.md`, `docs/NEXT_CHAT_HANDOFF.md`, and `docs/DOCUMENT_NORMALIZATION_UAT.md`; inspect the actual implementation and git state before acting.
+
+Objective/scope: The Vol.8 crop/registration checkpoint is complete; start only a new Product Owner-scoped task and do not reopen the completed checkpoint without explicit scope.
+Verified current state: branch `fix/vol8-current-usable-checkpoint` at `b69ce93624ea3088cc2fbb12ff9aa579c360e265`, pushed to `origin`; `dist/ExamGrader.app` is a fresh 234 MB arm64 build; focused 8/8, Vol.8 registration 10/10, codesign, packaged self-check, and offscreen UI smoke passed.
+Important files/components: `src/exam_grader/imaging.py`, `src/exam_grader/template_discovery.py`, `src/exam_grader/document_normalization.py`, `src/exam_grader/document_normalization_ui.py`, `tools/uat/vol8_registration_uat.py`, and the evidence reports under `/private/tmp/` recorded in the docs.
+Dirty ownership: unrelated modified files and untracked Vol.8/Vol.9 fixtures remain in the worktree. Do not overwrite, reset, clean, stage, or commit them without explicit authorization.
+Decisions/invariants: Keep original photo bytes immutable; preserve provenance and fail-closed review gating; keep `IMG_1024 Q27` uncertain/review-required; keep registration, answer accuracy, identity, and teacher UAT as separate claims; do not infer deferred Student Number requirements.
+Known blockers/unknowns: Automatic-crop acceptance is not demonstrated for four low-confidence/manual-corner cases; teacher labels remain a separate oracle from the provisional 297-cell guard; native teacher UAT remains outstanding.
+Next exact action: Wait for the next user-scoped request, then inspect repository state and define its smallest allowed change before editing.
+Acceptance/verification: For any new crop work, reproduce the Vol.8 replay command in `docs/DOCUMENT_NORMALIZATION_UAT.md` and retain the existing no-unsafe/no-guessing invariants. Do not commit, push, deploy, tag, or release without explicit authorization.
+
+Continue the engineer loop from this state, preserving good existing logic and backward compatibility. Do not trust this prompt over the repository, do not rewrite outside scope, and update the same docs before any future context rollover.
+```
+
+## 2026-09-15 — Review/identity scope completed for Product Owner UAT
+
+- Scope completed: review auto-accept for only unambiguous current OMR, per-row bulk prefill confirmation, and review-required student-number v6 pipeline. Crop/registration/OMR behavior was preserved; `multiple`, `boundary_cross`, abnormal blank, uncertain geometry, and all student numbers remain guarded for review.
+- Bulk action is `ยืนยันข้อมูลที่ระบบอ่านไว้`; each selected row keeps its own prefill. The old uniform bulk edit and manual row editor remain intact. Student number is never silently adopted from roster/range; teacher confirmation remains required.
+- Real-label candidate visibility union (primary + OCR candidates + separate review hints; not accuracy): Vol.8 **8/10** vs prior **5/10**; Vol.9 **11/12** vs prior **8/12**. Primary candidates: Vol.8 **2/10**, Vol.9 **4/12**. These are candidate-recall metrics only, not confirmed identity accuracy.
+- Verification: focused suite **92 passed**; changed-file Ruff and `git diff --check` passed. Fresh app build completed from current worktree. `codesign --verify --deep --strict`, disposable `--self-check`, offscreen `--smoke-settings`, and offscreen `--smoke-ui` all passed.
+- UAT artifact: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app` (macOS arm64). Product Owner interactive UAT is still outstanding; do not tag, release, or publish. Keep `IMG_1024.jpg Q27` `uncertain / review-required` and preserve dirty/untracked files outside the reviewed checkpoint.
