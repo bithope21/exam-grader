@@ -6,7 +6,7 @@ from typing import cast
 
 import cv2
 import numpy as np
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QThread, QUrl, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
@@ -487,6 +487,10 @@ class ExamDialog(QDialog):
         self.issue_dirty = set()
         self.selected_issue_keys: set[tuple] = set()
         self.refresh()
+        # Run the freshness check once after the initial widgets are visible.
+        # Scheduling it from every refresh can accumulate zero-delay events
+        # while other dialogs/tests are being torn down.
+        QTimer.singleShot(0, self._ensure_current_pipeline)
 
     def _show_photo_guidance(self):
         button = self.photo_guidance_button
@@ -845,7 +849,6 @@ class ExamDialog(QDialog):
                     str(row["student_number"]),
                 )
         self.attendance_restore.setVisible(self.attendance_restore.count() > 1)
-
     def restore_attendance(self, index):
         number = self.attendance_restore.itemData(index)
         if number:
@@ -941,6 +944,47 @@ class ExamDialog(QDialog):
         ]
         self.start_import(paths, "student")
 
+    def _ensure_current_pipeline(self) -> None:
+        """Re-read persisted images when their detection predates this app.
+
+        Source images are immutable, so reprocessing is safe and keeps an opened
+        exam from presenting stale algorithm output. Current detections that are
+        merely review-required are left alone; uncertainty must remain visible to
+        the teacher instead of being retried until the UI opens.
+        """
+        if self.worker and self.worker.isRunning():
+            return
+        stale_by_purpose: dict[str, list[Path]] = {"key": [], "student": []}
+        for source in self.importer.list_sources(self.exam.id):
+            if source["purpose"] not in stale_by_purpose:
+                continue
+            detection = self.flow.latest_detection(source["id"])
+            if not detection or detection.get("pipeline_version") == OMR_PIPELINE_VERSION:
+                continue
+            stale_by_purpose[source["purpose"]].append(
+                self.application.exams.path.parent / source["relative_path"]
+            )
+
+        if stale_by_purpose["key"]:
+            try:
+                self.flow.confirmed_key(self.exam.id)
+            except ValueError:
+                # A key that has not been teacher-confirmed still needs the
+                # current pipeline before it can be reviewed.
+                self.start_import(stale_by_purpose["key"], "key")
+                return
+            # A teacher-confirmed key is durable evidence. Keep it while student
+            # sheets are refreshed; re-reading it would reopen a solved key.
+        if not stale_by_purpose["student"]:
+            return
+        try:
+            self.flow.confirmed_key(self.exam.id)
+        except ValueError:
+            # Student detection will be refreshed automatically after the key is
+            # confirmed; never bypass the existing key gate.
+            return
+        self.start_import(stale_by_purpose["student"], "student")
+
     def populate_issues(self):
         self._capture_issue_drafts()
         self.issue_rows = self.review_service.issues(self.exam.id)
@@ -1003,10 +1047,10 @@ class ExamDialog(QDialog):
                     if t_def is None:
                         t_def = load_exam_template_def(self.application.exams.path, self.exam.id)
                         self.template_def = t_def
+                    detection = self.flow.latest_detection(sid)
+                    if not detection:
+                        raise ValueError("ยังไม่มีผลอ่าน")
                     if sid not in previews:
-                        detection = self.flow.latest_detection(sid)
-                        if not detection:
-                            raise ValueError("ยังไม่มีผลอ่าน")
                         previews[sid] = cv2.warpPerspective(
                             decode(self.importer.verified_bytes(issue["source"])),
                             np.asarray(detection["registration"]["matrix"], dtype=np.float64),
@@ -1035,10 +1079,38 @@ class ExamDialog(QDialog):
                         )
                         if block:
                             row_idx = q_num - block.question_start
-                            x1 = max(0, block.col_boundaries[0] - 10)
-                            x2 = min(t_def.canonical_width, block.col_boundaries[-1] + 10)
-                            y1 = max(0, block.row_boundaries[row_idx] - 4)
-                            y2 = min(t_def.canonical_height, block.row_boundaries[row_idx + 1] + 4)
+                            answer_observation = next(
+                                (
+                                    item
+                                    for item in detection.get("answers", [])
+                                    if item.get("question") == q_num
+                                ),
+                                {},
+                            )
+                            roi_rects = answer_observation.get("roi_rects") or {}
+                            if roi_rects:
+                                x1 = max(0, min(int(rect[0]) for rect in roi_rects.values()) - 8)
+                                y1 = max(0, min(int(rect[1]) for rect in roi_rects.values()) - 4)
+                                x2 = min(
+                                    t_def.canonical_width,
+                                    max(int(rect[0]) + int(rect[2]) for rect in roi_rects.values()) + 8,
+                                )
+                                y2 = min(
+                                    t_def.canonical_height,
+                                    max(int(rect[1]) + int(rect[3]) for rect in roi_rects.values()) + 4,
+                                )
+                            else:
+                                offsets = detection.get("registration", {}).get(
+                                    "omr_block_offsets", {}
+                                )
+                                dx, dy = offsets.get(str(block.block_index), [0, 0])
+                                x1 = max(0, block.col_boundaries[0] + int(dx) - 10)
+                                x2 = min(t_def.canonical_width, block.col_boundaries[-1] + int(dx) + 10)
+                                y1 = max(0, block.row_boundaries[row_idx] + int(dy) - 4)
+                                y2 = min(
+                                    t_def.canonical_height,
+                                    block.row_boundaries[row_idx + 1] + int(dy) + 4,
+                                )
                         else:
                             x1, y1, x2, y2 = 0, 0, 100, 50
                     crop = np.ascontiguousarray(previews[sid][y1:y2, x1:x2])
@@ -1437,6 +1509,9 @@ class ExamDialog(QDialog):
 
     def import_done(self, failures):
         self.refresh()
+        # The worker emits completed before QThread.finished. Defer the stale
+        # check one event-loop turn so a key refresh can be followed by students.
+        QTimer.singleShot(0, self._ensure_current_pipeline)
         if failures:
             QMessageBox.warning(self, "บางภาพนำเข้าไม่ได้", "\n".join(failures))
         if isinstance(self.worker, BatchWorker) and self.worker.purpose == "key" and not failures:

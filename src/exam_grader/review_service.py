@@ -39,12 +39,18 @@ class ReviewService:
                 (source["id"],),
             ).fetchone()
         review = self.flow.latest_review(source["id"])
+        detection_id = detection["id"] if detection else None
+        # A teacher-confirmed identity is an explicit durable decision and may
+        # survive a re-read of the same immutable source. Answer reviews are
+        # different: their machine evidence must still match this detection.
+        if review and review.get("detection_id") != detection_id:
+            review = None
         number = identity["student_number"] if identity else None
         if review and (not identity or review["created_at"] > identity["created_at"]):
             number = review["student_number"]
         return {
             "source": source,
-            "detection_id": detection["id"] if detection else None,
+            "detection_id": detection_id,
             "detection": json.loads(detection["payload"]) if detection else {},
             "number": number,
             "review": review,
@@ -549,6 +555,11 @@ class ReviewService:
                                 label = f"ข้อ {index} · อ่านหลายคำตอบ ({', '.join(selected)}) · ต้องยืนยัน"
                             elif classification == "boundary_cross":
                                 label = f"ข้อ {index} · รอยคาบเส้น · ต้องตรวจ geometry"
+                            elif classification == "single_mark" and selected:
+                                label = (
+                                    f"ข้อ {index} · ระบบอ่านได้ {selected[0]} "
+                                    "แต่ geometry ต้องยืนยัน"
+                                )
                             elif classification == "blank":
                                 label = f"ข้อ {index} · อ่านเป็นว่าง · ตรวจว่าตั้งใจเว้นว่าง"
                             else:

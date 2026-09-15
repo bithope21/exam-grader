@@ -1,5 +1,39 @@
 # Document Normalization / Auto-Crop — UAT Checkpoint
 
+## 2026-09-15 follow-up — Vol.9 stale detection and review-crop correction
+
+This follow-up addresses the Product Owner report that Vol.9 IMG_1071, IMG_1078,
+and IMG_1080 still showed old review behavior and that the answer preview could
+include the printed green question-number strip. It does not reopen the proven
+OMR/crop threshold work.
+
+- Fixture metadata was confirmed as pipeline
+  `omr-illumination-v9-document-normalization-v1`, while current source is
+  `omr-illumination-v10-document-normalization-v2`. Opening an exam now detects
+  that mismatch and reprocesses from the immutable source image. Existing
+  teacher-confirmed keys/identities are preserved; stale answer reviews are
+  invalidated by detection id rather than silently reused.
+- The answer preview now crops from the current detection's exact `roi_rects`.
+  This removes the adjacent green printed question-number strip from the UI
+  evidence. It does not alter the answer classifier or make uncertain answers
+  automatic.
+- Direct v10 replay using the canonical reference from each raw fixture image:
+  IMG_1071 produced `147` with one candidate; IMG_1078 produced `12 / 42`
+  (margin 8.43); IMG_1080 produced `46 / 44` (margin 10.75). All remain
+  review-required as required by the human-confirmation identity contract.
+- OMR/geometry observations were preserved for comparison: 1071 had 30 single
+  and 30 blank; 1078 had 18 single, 30 blank, 1 uncertain, and 11 multiple;
+  1080 had 29 single and 31 blank. These are diagnostic current-pipeline
+  observations, not a ground-truth accuracy score.
+- Focused checks passed: UI/automation/workflow 37, normalization/Home 30,
+  Vol.8 hardening 7, and Vol.8 registration 7. The packaged current app passed
+  deep codesign, self-check, settings smoke, and offscreen UI smoke.
+
+Product Owner must still perform native macOS UAT on the fresh package,
+including opening a Vol.9 exam, confirming that the old v9 result is refreshed,
+opening IMG_1078/1071/1080 review rows, and confirming that ambiguous identity
+and answer geometry remain review-required. No release/tag/publish claim is made.
+
 Date: 2026-09-14  
 Status: current production-hardening task is **not accepted**. The package checks described in the historical checkpoint below belong to the earlier normalization pass; no app was rebuilt after this task because its acceptance criteria did not pass.
 

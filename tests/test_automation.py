@@ -100,6 +100,20 @@ def test_legacy_detections_not_promoted():
     assert ReviewService.machine_answers(legacy, 3) == [None] * 3
 
 
+def test_reprocessed_detection_does_not_reuse_old_answer_review(tmp_path):
+    flow, exam, source, service = setup_auto(tmp_path)
+    service.adopt_numbers(exam.id)
+    key = flow.current_key(exam.id)
+    flow.review(source["id"], "1", ["A", "B", "C"], key["id"])
+    previous_detection = service.state(source)["detection_id"]
+
+    flow.save_detection(source["id"], observation(answers=("C", "C", "C")))
+
+    state = service.state(source)
+    assert state["detection_id"] != previous_detection
+    assert state["review"] is None
+
+
 def test_inline_answer_is_bound_to_current_detection_and_key(tmp_path):
     flow, exam, source, service = setup_auto(tmp_path)
     uncertain = observation()

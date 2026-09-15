@@ -1,5 +1,56 @@
 # Exam Grader progress
 
+## Current checkpoint — 2026-09-15 Vol.9 freshness, review preview, and settings controls
+
+This checkpoint is built from the current working tree on branch
+`fix/vol8-current-usable-checkpoint`. It does not replace the earlier release
+history or the existing dirty changes in storage/export/workflow files.
+
+- When an exam opens, persisted detections whose `pipeline_version` is older
+  than the current `omr-illumination-v10-document-normalization-v2` are
+  reprocessed from the immutable source path. A teacher-confirmed key remains
+  durable; unresolved old student detections are refreshed only after a key is
+  confirmed. Current detections are not retried merely because they are
+  review-required.
+- Review thumbnails now use the answer observation's exact `roi_rects` (with a
+  small visual margin), falling back to the registered block offset only when
+  old detections do not contain those rectangles. This prevents the green
+  printed question-number strip from becoming part of the answer crop without
+  changing OMR decisions.
+- A review saved against an older detection is not silently reused after a
+  reread. Teacher-confirmed identity decisions remain explicit and durable.
+- The Home settings control is a full-surface `QToolButton` with
+  `InstantPopup`; template management remains reachable from the create-exam
+  dialog and the settings/template dialog controls remain safely disabled only
+  where the selected built-in template is read-only.
+
+### Vol.9 current-pipeline comparison (real fixture, not an accuracy claim)
+
+The stored fixture detections were `v9`; the values below are a direct current
+`v10` rerun using the canonical reference generated from each immutable raw
+key image. Student identity is intentionally still teacher-confirmed.
+
+| Sheet | Stored v9 identity | Current v10 candidates | Current OMR state | Current geometry |
+|---|---|---|---|---|
+| IMG_1071 | `113` | `147` (single candidate, review-required) | 30 single, 30 blank | norm .7732, residual 3.233 px, coverage .8295, alignment .7328 |
+| IMG_1078 | `12` | `12 / 42`, margin 8.43 (review-required) | 18 single, 30 blank, 1 uncertain, 11 multiple | norm .8296, residual 2.385 px, coverage .8864, alignment .7971 |
+| IMG_1080 | `1` | `46 / 44`, margin 10.75 (review-required) | 29 single, 31 blank | norm .7652, residual 3.394 px, coverage .8068, alignment .7159 |
+
+These candidates are evidence for human review, not automatic identity
+correction. The 1078 green-strip symptom is a preview geometry defect; the
+identity ambiguity remains a separate deliberate review gate.
+
+### Verification and package
+
+- Focused UI/workflow/automation: **37 passed**.
+- Document-normalization and Home guidance: **30 passed**.
+- Vol.8 hardening: **7 passed**; Vol.8 registration: **7 passed**.
+- Changed-file Ruff and `git diff --check`: passed.
+- `dist/ExamGrader.app` rebuilt from the current working tree; deep codesign,
+  packaged self-check, settings smoke, and offscreen UI smoke passed.
+- Product Owner native UAT is still required before any release/tag/publish
+  claim. The app is ready for that test, not yet UAT-accepted production.
+
 ## Git checkpoint — 2026-09-10
 
 Local Git is initialized on `main`; no remote is configured and nothing has

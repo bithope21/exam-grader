@@ -1,5 +1,36 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+## Current handoff — 2026-09-15 Vol.9 current-pipeline fix
+
+The current working tree contains the follow-up needed for Product Owner UAT;
+this section supersedes stale branch/HEAD/package claims in the historical
+sections below.
+
+- Branch: `fix/vol8-current-usable-checkpoint`; base HEAD remains `31cd0c1`.
+- The app now detects persisted `v9` detections when an exam opens and asks the
+  current worker to reread immutable sources with the current `v10` pipeline.
+  It does not retry current detections just because they are uncertain, and it
+  never replaces an explicit teacher-confirmed identity.
+- Review answer previews use exact stored answer `roi_rects`, so the green
+  question-number strip seen on Vol.9 IMG_1078/1071/1080 is excluded from the
+  answer crop. This is preview geometry only; OMR thresholds and established
+  answer logic were not rewritten.
+- Main settings uses a full-surface `InstantPopup` tool button. The create-exam
+  template manager and template-dialog action controls have click-path test
+  coverage; built-in edit/delete remain intentionally disabled because those
+  templates are read-only.
+- Current v10 replay: IMG_1071 `147` (one candidate, review-required), IMG_1078
+  `12 / 42` (margin 8.43, review-required), IMG_1080 `46 / 44` (margin 10.75,
+  review-required). These are not identity accuracy claims; teacher confirmation
+  remains mandatory.
+- Verification: focused groups 37 + 30 + 7 + 7 passed; changed-file Ruff and
+  diff-check passed. The Vol.3 broad benchmark still has its recorded unrelated
+  baseline mismatch (expected 7 uncertain, current 10); do not call the entire
+  repository suite clean from this checkpoint.
+- Fresh package: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+  Codesign, self-check, settings smoke, and offscreen UI smoke passed. No
+  release/tag/publish was performed; Product Owner native UAT is the next gate.
+
 > **Date Updated:** 2026-09-14  
 > **Workspace:** `/Users/zubinpijit/private/exam-grader` (Branch: `main`)  
 > **Current Baseline:** Previous baseline 148 passed, 3 skipped (`uv run pytest tests/`); latest scoped change passed 32 targeted tests.
