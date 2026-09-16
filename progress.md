@@ -53,9 +53,27 @@ crop/registration, grading, review, UI, or release behavior.
   `pdf-page-01-cell-75-digit-0`; no ambiguous record was silently labeled.
 - Validator produced `/private/tmp/exam-grader-number-handwriting-training-ready.json`
   with 198 accepted samples and verified source hashes/crops.
-- This is label-ready only. It remains `seed_only`, `writer_group=unknown`,
-  `training_allowed=false`, and requires a writer/sheet-grouped split before
-  any model training or calibration claim.
+- This is label-ready for the authorized internal seed split. It remains
+  `seed_only`, `writer_group=unknown`, and cannot support a generalization
+  claim.
+
+## Current task handoff — 2026-09-16 seed model integration
+
+- Product Owner authorized internal seed training despite unknown writer groups.
+  The regenerated manifest is
+  `/private/tmp/exam-grader-number-handwriting-training-ready-v2.json` with
+  `training_allowed=true`, `training_scope=internal_seed_split_only`, and
+  `generalization_claim_allowed=false`.
+- KNN beat centroid on the deterministic internal validation split (`39/39`
+  versus `37/39`); the final KNN artifact is bundled at
+  `src/exam_grader/resources/student_number_digit_model.npz`.
+- Independent saved-registration Vol.8/Vol.9 benchmark improved primary exact
+  from `5/22` (`22.7%`) to `7/22` (`31.8%`). Review remained `22/22` and wrong
+  auto-accept remained `0`. The model is integrated as review-only; no
+  auto-accept is enabled.
+- Benchmark report: `/private/tmp/exam-grader-identity-seed-model-benchmark-v3.json`.
+- Fresh arm64 app: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+  Packaged self-check and native UI smoke passed.
 
 ## Current task handoff — 2026-09-16 compact UI checkpoint → student-number recognition
 

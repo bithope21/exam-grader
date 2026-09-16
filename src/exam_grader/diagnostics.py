@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import openpyxl
 
+from exam_grader.digit_model import DigitModel, bundled_digit_model_path
 from exam_grader.identity import IDENTITY_PIPELINE_VERSION, find_tesseract
 from exam_grader.imaging import decode, reference_image, template
 
@@ -31,6 +32,10 @@ def runtime_health() -> dict:
         ok, data = cv2.imencode(extension, np.full((16, 16, 3), 255, np.uint8))
         if not ok or decode(data.tobytes()).shape != (16, 16, 3):
             raise RuntimeError(f"ตัวอ่านภาพ {extension} ไม่พร้อม")
+    model_path = bundled_digit_model_path()
+    if model_path is None:
+        raise RuntimeError("bundled student-number digit model is missing")
+    model = DigitModel.load(model_path)
     return {
         "opencv": cv2.__version__,
         "numpy": np.__version__,
@@ -39,5 +44,10 @@ def runtime_health() -> dict:
         "reference": "hash_verified",
         "answers": "experimental_teacher_review_required",
         "student_number": IDENTITY_PIPELINE_VERSION,
+        "student_number_digit_model": {
+            "version": model.version,
+            "kind": model.kind,
+            "calibration": model.calibration.get("status"),
+        },
         "numeric_backend_available": find_tesseract() is not None,
     }

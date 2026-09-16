@@ -79,8 +79,28 @@ rtk proxy env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python \
 The validator rejects duplicate ids, missing crops, labels outside `0`-`9`,
 unresolved `bad_bbox`, missing annotation provenance, and any training-ready
 manifest containing `excluded` or `needs_review`. The exported manifest is
-label-ready only: it remains `seed_only` and `training_allowed=false` until a
-writer/sheet-grouped split is created.
+label-ready for the explicitly authorized internal seed split, but remains
+`seed_only` with `generalization_claim_allowed=false`; Vol.8/Vol.9 must remain
+independent held-out evidence.
+
+## Seed model and held-out comparison
+
+Train the small KNN/centroid comparison from the accepted seed crops:
+
+```sh
+rtk proxy env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=. .venv/bin/python \
+  tools/benchmark/train_digit_model.py \
+  --manifest /private/tmp/exam-grader-number-handwriting-training-ready-v2.json \
+  --output-dir /private/tmp/exam-grader-digit-model-v2
+```
+
+The selected artifact is bundled into the runtime as a review-only candidate.
+Compare it to the legacy path with `--no-digit-model`; both runs must use the
+same saved-registration held-out corpus. The current comparison improved exact
+whole-number accuracy from `5/22` (`22.7%`) to `7/22` (`31.8%`), while review
+remained `22/22` and wrong auto-accept remained `0`. This is provisional
+evidence only; confidence is a conservative review score, not a probability,
+and auto-accept remains off.
 
 ## Teacher-confirmed real benchmark corpus
 
@@ -115,9 +135,9 @@ bootstrap intervals. Scores are not probabilities. Auto-accept remains off.
 
 ## Promotion gate
 
-Do not train on corrections or promote a model from this seed alone. A future
-recognizer needs writer/sheet-grouped train/calibration/held-out splits, an
-independent label audit, hard-pair error slices, model/config/hash provenance,
-and a Product Owner-approved acceptable auto-accept error and minimum coverage.
-If those gates are not met, the correct output remains a review-required
-candidate, not a forced identity.
+The current Product Owner authorization permits internal seed training from the
+198 accepted records, but this seed alone cannot support a generalization claim.
+Any future recognizer still needs independent held-out evidence, hard-pair error
+slices, model/config/hash provenance, and a Product Owner-approved acceptable
+auto-accept error and minimum coverage. Until those gates are met, the runtime
+output remains a review-required candidate, not a forced identity.

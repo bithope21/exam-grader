@@ -169,7 +169,8 @@ def test_training_ready_export_contains_only_accepted_records(tmp_path: Path):
     result = build(path, output)
 
     assert result["training_ready"] is True
-    assert result["split_policy"]["training_allowed"] is False
+    assert result["split_policy"]["training_allowed"] is True
+    assert result["split_policy"]["generalization_claim_allowed"] is False
     assert len(result["records"]) == 1
     assert result["records"][0]["label"] == "3"
     assert (tmp_path / "training_ready-crops" / "sample-1.png").is_file()

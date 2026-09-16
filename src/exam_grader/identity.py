@@ -1,7 +1,8 @@
 """Review-required student-number observation adapter.
 
-This module deliberately has no silent fallback to a guessed number.  Tesseract,
-when installed, is only a benchmark candidate and its result remains uncalibrated.
+The bundled seed digit model and Tesseract are candidates only. This module
+deliberately keeps teacher confirmation mandatory and never auto-accepts an
+identity from either backend.
 """
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import itertools
 import math
 import os
 import re
@@ -265,6 +267,48 @@ def find_tesseract() -> str | None:
             if Path(location).is_file():
                 return location
     return None
+
+
+@lru_cache(maxsize=4)
+def _load_digit_model(path: str):
+    from exam_grader.digit_model import DigitModel
+
+    return DigitModel.load(Path(path))
+
+
+def _digit_model_observation(model: Any, gray: np.ndarray, boxes: list[list[int]]) -> dict[str, Any] | None:
+    if not 2 <= len(boxes) <= 6:
+        return None
+    positions: list[dict[str, Any]] = []
+    for x, y, width, height in boxes:
+        prediction = model.predict(gray[y : y + height, x : x + width])
+        if not prediction.get("candidate"):
+            return None
+        positions.append({"box": [x, y, width, height], **prediction})
+    combinations: list[tuple[str, float]] = []
+    choices = [position.get("candidates", [])[:3] for position in positions]
+    for candidate_digits in itertools.product(*choices):
+        scores = []
+        for position, digit in zip(positions, candidate_digits):
+            score = position.get("scores", {}).get(digit)
+            if not isinstance(score, (int, float)):
+                scores = []
+                break
+            scores.append(float(score))
+        if scores:
+            combinations.append(("".join(candidate_digits), min(scores)))
+    ranked = sorted(combinations, key=lambda item: (-item[1], item[0]))
+    if not ranked:
+        return None
+    candidate, confidence = ranked[0]
+    runner_up = ranked[1][1] if len(ranked) > 1 else 0.0
+    return {
+        "candidate": candidate,
+        "candidates": [item[0] for item in ranked[:12]],
+        "confidence": round(confidence, 4),
+        "confidence_margin": round(confidence - runner_up, 4),
+        "digit_observations": positions,
+    }
 
 
 @lru_cache(maxsize=4)
@@ -694,6 +738,8 @@ def observe(
     template_def: TemplateDefinition | None = None,
     app_data_dir: Path | None = None,
     image: np.ndarray | None = None,
+    digit_model_path: Path | None = None,
+    use_bundled_digit_model: bool = True,
 ) -> dict:
     base: dict = {
         "pipeline_version": IDENTITY_PIPELINE_VERSION,
@@ -773,6 +819,58 @@ def observe(
         "recognizer_runs": [],
         "top_padding": top_padding,
     }
+    effective_digit_model_path = digit_model_path
+    if effective_digit_model_path is None and use_bundled_digit_model:
+        from exam_grader.digit_model import bundled_digit_model_path
+
+        effective_digit_model_path = bundled_digit_model_path()
+    if effective_digit_model_path is not None:
+        model = _load_digit_model(str(effective_digit_model_path.resolve()))
+        model_observation = _digit_model_observation(model, gray, boxes)
+        diagnostics["digit_model"] = {
+            "path": str(effective_digit_model_path.resolve()),
+            "version": model.version,
+            "kind": model.kind,
+        }
+        diagnostics["model"] = model.version
+        if model_observation is not None:
+            model_digit_observations = []
+            for position in model_observation["digit_observations"]:
+                model_digit_observations.append(
+                    {
+                        "box": position["box"],
+                        "candidate": position["candidate"],
+                        "shape_suggestion": None,
+                        "runs": [
+                            {
+                                "variant": "digit-model",
+                                "candidate": candidate,
+                                "raw_score": score,
+                            }
+                            for candidate, score in position["scores"].items()
+                        ],
+                    }
+                )
+            diagnostics["digit_model_observations"] = model_observation["digit_observations"]
+            diagnostics["digit_observations"] = model_digit_observations
+            diagnostics["segmented_candidate"] = (
+                model_observation["candidate"],
+                model_observation["confidence"],
+            )
+            diagnostics["segmented_alternatives"] = []
+            diagnostics["confidence_semantics"] = (
+                "seed-validation calibrated review score; not probability of correctness"
+            )
+            return {
+                **base,
+                "pipeline_version": model.version,
+                "candidate": model_observation["candidate"],
+                "candidates": model_observation["candidates"],
+                "confidence": model_observation["confidence"],
+                "confidence_margin": model_observation["confidence_margin"],
+                "diagnostics": diagnostics,
+                "review_reason": "seed digit model candidate; teacher confirmation required",
+            }
     if diagnostics_dir is not None:
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         (diagnostics_dir / "number_roi_original.png").write_bytes(encoded)

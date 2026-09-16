@@ -72,7 +72,12 @@ def _validate_manifest(manifest: dict[str, Any]) -> None:
             raise ValueError(f"unknown corpus in {record_id}")
 
 
-def evaluate(manifest: dict[str, Any]) -> dict[str, Any]:
+def evaluate(
+    manifest: dict[str, Any],
+    digit_model_path: Path | None = None,
+    *,
+    use_bundled_digit_model: bool = True,
+) -> dict[str, Any]:
     _validate_manifest(manifest)
     records = []
     for record in manifest["records"]:
@@ -89,6 +94,8 @@ def evaluate(manifest: dict[str, Any]) -> dict[str, Any]:
             record["registration_matrix"],
             template_def=template,
             image=image,
+            digit_model_path=digit_model_path,
+            use_bundled_digit_model=use_bundled_digit_model,
         )
         seconds = time.perf_counter() - started
         candidate = observation.get("candidate")
@@ -185,9 +192,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--digit-model", type=Path)
+    parser.add_argument(
+        "--no-digit-model",
+        action="store_true",
+        help="benchmark the legacy OCR path without the bundled digit model",
+    )
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
-    report = evaluate(manifest)
+    report = evaluate(
+        manifest,
+        args.digit_model,
+        use_bundled_digit_model=not args.no_digit_model,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

@@ -50,10 +50,23 @@ unchanged.
   remaining`, and `0 bad_bbox`; its audit log contains `372` events.
 - The validated label-ready output is
   `/private/tmp/exam-grader-number-handwriting-training-ready.json` with 198
-  records. It is still `seed_only` and explicitly has
-  `training_allowed=false` because writer identity is unknown.
-- Do not train or calibrate from this manifest until additional writer/sheet
-  groups are available and a leakage-safe split is recorded.
+  records. It is `seed_only` and explicitly allows only internal seed training;
+  `generalization_claim_allowed=false` because writer identity is unknown.
+- The seed model has now been benchmarked against the independent Vol.8/Vol.9
+  holdout; runtime integration is review-only and its confidence cap is a
+  conservative seed-validation score, not a generalization probability.
+
+### Seed model integration checkpoint
+
+- Seed training is authorized for this cycle with
+  `training_scope=internal_seed_split_only` and
+  `generalization_claim_allowed=false`.
+- KNN was selected over centroid on internal validation (`39/39` versus
+  `37/39`). The independent Vol.8/Vol.9 result is `7/22` exact (`31.8%`),
+  versus legacy `5/22` (`22.7%`); review `22/22`, wrong auto-accept `0`.
+- The model is bundled as review-only in
+  `src/exam_grader/resources/student_number_digit_model.npz`; auto-accept is
+  still disabled. Fresh app: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
 
 ### Scope boundary for the next chat
 
