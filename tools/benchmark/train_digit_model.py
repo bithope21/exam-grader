@@ -17,6 +17,51 @@ import numpy as np
 from exam_grader.digit_model import DIGIT_MODEL_VERSION, DigitModel, feature_matrix
 from tools.benchmark.identity_labeled_benchmark import _bootstrap_ci
 
+HARD_PAIR_LABELS = frozenset({1, 3, 4, 6, 7, 8, 9})
+
+
+def augment_hard_pair_images(
+    images: list[np.ndarray],
+    labels: np.ndarray,
+    *,
+    copies_per_sample: int = 1,
+    seed: int = 1729,
+) -> tuple[list[np.ndarray], np.ndarray]:
+    """Add deterministic mild image variants only for observed hard-pair digits."""
+    if len(images) != len(labels):
+        raise ValueError("image and label counts must match")
+    if copies_per_sample < 0:
+        raise ValueError("copies_per_sample must be non-negative")
+    rng = np.random.default_rng(seed)
+    expanded_images: list[np.ndarray] = []
+    expanded_labels: list[int] = []
+    for image, label in zip(images, labels):
+        expanded_images.append(image)
+        expanded_labels.append(int(label))
+        if int(label) not in HARD_PAIR_LABELS:
+            continue
+        height, width = image.shape[:2]
+        center = (width / 2.0, height / 2.0)
+        for _ in range(copies_per_sample):
+            angle = float(rng.uniform(-4.0, 4.0))
+            scale = float(rng.uniform(0.96, 1.04))
+            tx = float(rng.uniform(-1.5, 1.5))
+            ty = float(rng.uniform(-1.5, 1.5))
+            affine = cv2.getRotationMatrix2D(center, angle, scale)
+            affine[:, 2] += (tx, ty)
+            variant = cv2.warpAffine(
+                image,
+                affine,
+                (width, height),
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=(255, 255, 255),
+            )
+            if bool(rng.integers(0, 2)):
+                variant = cv2.GaussianBlur(variant, (3, 3), 0)
+            expanded_images.append(variant)
+            expanded_labels.append(int(label))
+    return expanded_images, np.asarray(expanded_labels, dtype=np.int64)
+
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -55,7 +100,12 @@ def _evaluate(model: DigitModel, features: np.ndarray, labels: np.ndarray, indic
     }
 
 
-def train(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
+def train(
+    manifest_path: Path,
+    output_dir: Path,
+    *,
+    hard_pair_augmentation_copies: int = 0,
+) -> dict[str, Any]:
     manifest_path = manifest_path.resolve()
     output_dir = output_dir.resolve()
     report_path = output_dir / "training_report.json"
@@ -95,18 +145,36 @@ def train(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
         images.append(image)
         labels.append(int(label))
         record_ids.append(record_id)
-    label_array = np.asarray(labels, dtype=np.int64)
-    features = feature_matrix(images)
     train_indices, validation_indices = stratified_split(labels)
     if not train_indices or not validation_indices:
         raise ValueError("internal split produced an empty partition")
 
+    label_array = np.asarray(labels, dtype=np.int64)
+    validation_features = feature_matrix(
+        [images[index] for index in validation_indices]
+    )
+    validation_labels = label_array[validation_indices]
+    train_images, train_labels = augment_hard_pair_images(
+        [images[index] for index in train_indices],
+        label_array[train_indices],
+        copies_per_sample=hard_pair_augmentation_copies,
+    )
+    train_features = feature_matrix(train_images)
+
     candidates: dict[str, dict[str, Any]] = {}
     for kind in ("knn", "centroid"):
-        model = DigitModel.from_training(kind, features[train_indices], label_array[train_indices])
-        candidates[kind] = _evaluate(model, features, label_array, validation_indices)
-    majority_label = Counter(label_array[train_indices].tolist()).most_common(1)[0][0]
-    naive = [int(label_array[index]) == majority_label for index in validation_indices]
+        model = DigitModel.from_training(kind, train_features, train_labels)
+        exact: list[bool] = []
+        for feature, label in zip(validation_features, validation_labels):
+            exact.append(model.predict(feature)["candidate"] == str(int(label)))
+        candidates[kind] = {
+            "records": len(exact),
+            "exact": sum(exact),
+            "exact_rate": round(sum(exact) / len(exact), 6) if exact else None,
+            "bootstrap_95_ci": _bootstrap_ci(exact),
+        }
+    majority_label = Counter(train_labels.tolist()).most_common(1)[0][0]
+    naive = [int(label) == majority_label for label in validation_labels]
     candidates["naive_majority"] = {
         "records": len(naive),
         "exact": sum(naive),
@@ -126,8 +194,17 @@ def train(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
         "generalization_claim_allowed": False,
         "auto_accept_enabled": False,
     }
+    calibration["hard_pair_augmentation_copies"] = hard_pair_augmentation_copies
+    final_images, final_labels = augment_hard_pair_images(
+        images,
+        label_array,
+        copies_per_sample=hard_pair_augmentation_copies,
+    )
     final_model = DigitModel.from_training(
-        selected_kind, features, label_array, calibration=calibration
+        selected_kind,
+        feature_matrix(final_images),
+        final_labels,
+        calibration=calibration,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     model_path = output_dir / "student_number_digit_model.npz"
@@ -161,6 +238,11 @@ def train(manifest_path: Path, output_dir: Path) -> dict[str, Any]:
             "missingness": dict(missingness),
             "label_counts": dict(sorted(Counter(labels).items())),
             "excluded_records_used": 0,
+            "augmentation": {
+                "kind": "hard_pair_affine_blur",
+                "labels": sorted(HARD_PAIR_LABELS),
+                "copies_per_sample": hard_pair_augmentation_copies,
+            },
         },
         "internal_split": {
             "train": len(train_indices),
@@ -187,8 +269,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--hard-pair-augmentation-copies",
+        type=int,
+        default=0,
+        help="deterministic variants per training sample for the observed hard-pair digits",
+    )
     args = parser.parse_args()
-    report = train(args.manifest, args.output_dir)
+    report = train(
+        args.manifest,
+        args.output_dir,
+        hard_pair_augmentation_copies=args.hard_pair_augmentation_copies,
+    )
     print(
         json.dumps(
             {

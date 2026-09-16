@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from exam_grader.digit_model import DigitModel, digit_feature, feature_matrix
+from tools.benchmark.train_digit_model import augment_hard_pair_images
 
 
 def _digit(value: int) -> np.ndarray:
@@ -50,3 +51,20 @@ def test_centroid_model_returns_ranked_digit_candidates():
 
     assert result["candidate"] == "3"
     assert result["candidates"][:2] == ["3", "2"]
+
+
+def test_hard_pair_augmentation_is_deterministic_and_label_scoped():
+    images = [_digit(4), _digit(2), _digit(9)]
+    labels = np.array([4, 2, 9], dtype=np.int64)
+
+    augmented_images, augmented_labels = augment_hard_pair_images(
+        images, labels, copies_per_sample=2, seed=1729
+    )
+
+    again_images, again_labels = augment_hard_pair_images(
+        images, labels, copies_per_sample=2, seed=1729
+    )
+    assert len(augmented_images) == 7
+    assert augmented_labels.tolist() == [4, 4, 4, 2, 9, 9, 9]
+    assert augmented_labels.tolist() == again_labels.tolist()
+    assert all(np.array_equal(left, right) for left, right in zip(augmented_images, again_images))

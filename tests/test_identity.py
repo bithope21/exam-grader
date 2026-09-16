@@ -4,7 +4,9 @@ import cv2
 import numpy as np
 import pytest
 
+import exam_grader.identity as identity_module
 from exam_grader.identity import (
+    _digit_model_observation,
     _direct_segmented_alternatives,
     _rank_identity_candidates,
     _shape_segmented_suggestion,
@@ -144,6 +146,66 @@ def test_incomplete_or_zero_segmented_identity_is_not_promoted():
     assert _supported_segmented_number(
         [{"candidate": "1", "runs": [{"candidate": "1", "raw_score": 90.0}]}]
     ) is None
+
+
+def test_digit_model_observation_supports_a_single_digit_box():
+    class FakeModel:
+        def predict(self, image):
+            assert image.shape == (24, 12)
+            return {
+                "candidate": "9",
+                "candidates": ["9", "4"],
+                "scores": {"9": 80.0, "4": 20.0},
+            }
+
+    result = _digit_model_observation(
+        FakeModel(), np.full((40, 30), 255, dtype=np.uint8), [[2, 3, 12, 24]]
+    )
+
+    assert result is not None
+    assert result["candidate"] == "9"
+    assert result["candidates"] == ["9", "4"]
+
+
+def test_model_path_fuses_legacy_candidates(monkeypatch):
+    data = cv2.imencode(".png", reference_image())[1].tobytes()
+    crop = np.full((40, 30, 3), 255, dtype=np.uint8)
+    processed = np.full((40, 30), 255, dtype=np.uint8)
+    processed[3:27, 2:14] = 0
+    gray = np.full((40, 30), 220, dtype=np.uint8)
+
+    class FakeModel:
+        version = "student-number-digit-knn-v1"
+        kind = "knn"
+
+        def predict(self, image):
+            return {
+                "candidate": "9",
+                "candidates": ["9", "4"],
+                "scores": {"9": 80.0, "4": 20.0},
+            }
+
+    monkeypatch.setattr(identity_module, "_load_digit_model", lambda _path: FakeModel())
+    monkeypatch.setattr(identity_module, "number_roi", lambda *args, **kwargs: crop)
+    monkeypatch.setattr(
+        identity_module,
+        "preprocess",
+        lambda *_args, **_kwargs: (processed, [[2, 3, 12, 24]], gray),
+    )
+    monkeypatch.setattr(identity_module, "find_tesseract", lambda: "/fake/tesseract")
+    monkeypatch.setattr(identity_module, "backend_provenance", lambda _path: {})
+    monkeypatch.setattr(
+        identity_module,
+        "_ocr",
+        lambda *_args, **_kwargs: {"candidate": "4", "raw_score": 80.0},
+    )
+
+    result = observe(data, digit_model_path=Path("/tmp/fake-model.npz"))
+
+    assert result["pipeline_version"] == "student-number-digit-knn-v1"
+    assert "9" in result["candidates"]
+    assert "4" in result["candidates"]
+    assert result["requires_review"] is True
     assert _supported_segmented_number(
         [
             {"candidate": "0", "runs": [{"candidate": "0", "raw_score": 90.0}]},

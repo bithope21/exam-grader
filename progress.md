@@ -1,43 +1,52 @@
 # Exam Grader progress
 
-## Current task handoff — 2026-09-16 student-number error attribution
+## Current task result — 2026-09-16 student-number root-cause fix
 
-The seed digit recognizer checkpoint is complete and pushed separately from
-the user's untracked real Vol.8/Vol.9 fixtures. The next bounded task is to
-explain the remaining `15/22` wrong whole-number predictions before any final
-tuning. Do not assume whether the cause is digit crop/candidate selection or
-digit classification; inspect each error using immutable provenance first.
+The verified recognizer bottleneck was addressed without changing document
+crop/registration, OMR, UI/UX, grading, export, or business logic. The bundled
+model remains review-only and all held-out records remain teacher-confirmation
+required.
 
 ### Verified state
 
-- Implementation checkpoint: `ad30b6f feat: integrate seed digit recognizer`.
+- Implementation changes: single-digit model support, model/legacy candidate
+  fusion, deterministic hard-pair augmentation support, and focused tests.
 - Annotation is complete: `198 labeled`, `2 excluded`, `0 remaining`,
   `0 bad_bbox`; the accepted seed manifest has
   `training_allowed=true` only for `internal_seed_split_only` and
   `generalization_claim_allowed=false`.
-- Independent saved-registration Vol.8/Vol.9 benchmark is
-  `/private/tmp/exam-grader-identity-seed-model-benchmark-v3.json`:
-  seed exact `7/22` (`31.8%`) versus legacy `5/22` (`22.7%`), review
-  `22/22`, wrong auto-accept `0`. The seed model path handled `14/22` rows;
-  `8/22` used the legacy fallback because their segmentation was not model
-  eligible. Candidate visibility is `14/22`, so manual-confirm reduction is
-  not yet demonstrated.
+- Final held-out report is
+  `/private/tmp/exam-grader-identity-final-hardpairs-v1.json`: exact `13/22`
+  (`59.1%`), candidate visible `18/22` (`81.8%`), review `22/22`, auto-accept
+  `0`, wrong auto-accept `0`. Vol.8 is `6/10` exact and Vol.9 is `7/12`.
+- Before/after against the seed-model checkpoint: exact `7/22` -> `13/22`
+  and visibility `14/22` -> `18/22`; review and wrong auto-accept stayed safe.
+- The selected artifact uses one deterministic augmentation copy for labels
+  `{1,3,4,6,7,8,9}`. Copies `2` and `3` were rejected because held-out exact
+  fell to `8/22`.
 - Runtime model is bundled review-only at
   `src/exam_grader/resources/student_number_digit_model.npz`; auto-accept is
   disabled and the confidence cap is not a generalization probability.
-- Focused/relevant tests: `33 passed`; Ruff and `git diff --check` passed.
-  Fresh `dist/ExamGrader.app` passed packaged self-check, native UI smoke, and
-  strict deep codesign.
+- Focused tests: `20 passed`; Ruff and `git diff --check` passed.
+- Threshold-20 preprocessing ablation was rejected: it improved IMG_1080 but
+  reduced overall exact to `10/22`, and IMG_1071 remained unresolved. The
+  production preprocessing path was not changed. Both remain review-required.
+- Final model artifact SHA-256:
+  `0a892c5f4a8b1eff4eb306b3a925f1a4f022b2151391c48216d99ced261159c7`.
 
 ### Next exact action
 
-Inspect the 15 wrong records and produce a provenance-backed attribution table:
-(A) crop/segmentation/candidate is wrong or incomplete, or (B) the digit crop
-is correct but the recognizer classified it incorrectly. Keep the benchmark
-held out, do not hard-code Vol.8/9 fixtures, and do not change crop,
-registration, OMR, scoring, review, UI, or business logic during attribution.
-Only after the split of causes is evidenced should a separate bounded tuning
-plan be proposed.
+Checkpoint commit is the current HEAD of `fix/vol8-current-usable-checkpoint`.
+Fresh `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`
+was built from it and passed packaged `--self-check`, offscreen
+`--smoke-settings`, offscreen `--smoke-ui`, and strict deep codesign. This is
+package/source evidence only; Product Owner native UAT is still required.
+
+The remaining bottleneck is preprocessing/segmentation for `IMG_1071` and
+`IMG_1080`; threshold-20 ablation was rejected because overall exact fell to
+`10/22`, so production preprocessing remains unchanged. Do not claim
+production readiness or human-review reduction because review remains
+`22/22`.
 
 ### Protected invariants and ownership
 

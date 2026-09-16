@@ -277,7 +277,7 @@ def _load_digit_model(path: str):
 
 
 def _digit_model_observation(model: Any, gray: np.ndarray, boxes: list[list[int]]) -> dict[str, Any] | None:
-    if not 2 <= len(boxes) <= 6:
+    if not 1 <= len(boxes) <= 6:
         return None
     positions: list[dict[str, Any]] = []
     for x, y, width, height in boxes:
@@ -305,6 +305,9 @@ def _digit_model_observation(model: Any, gray: np.ndarray, boxes: list[list[int]
     return {
         "candidate": candidate,
         "candidates": [item[0] for item in ranked[:12]],
+        "candidate_scores": {
+            item[0]: round(item[1], 4) for item in ranked[:12]
+        },
         "confidence": round(confidence, 4),
         "confidence_margin": round(confidence - runner_up, 4),
         "digit_observations": positions,
@@ -824,6 +827,7 @@ def observe(
         from exam_grader.digit_model import bundled_digit_model_path
 
         effective_digit_model_path = bundled_digit_model_path()
+    model_observation = None
     if effective_digit_model_path is not None:
         model = _load_digit_model(str(effective_digit_model_path.resolve()))
         model_observation = _digit_model_observation(model, gray, boxes)
@@ -861,6 +865,41 @@ def observe(
             diagnostics["confidence_semantics"] = (
                 "seed-validation calibrated review score; not probability of correctness"
             )
+            diagnostics["model_candidate_scores"] = model_observation["candidate_scores"]
+    if diagnostics_dir is not None:
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        (diagnostics_dir / "number_roi_original.png").write_bytes(encoded)
+        cv2.imwrite(str(diagnostics_dir / "number_roi_processed.png"), processed)
+        boxed = crop.copy()
+        for x, y, w, h in boxes:
+            cv2.rectangle(boxed, (x, y), (x + w, y + h), (0, 0, 220), 1)
+        cv2.imwrite(str(diagnostics_dir / "segmented_digits.png"), boxed)
+    model_runs = []
+    model_candidate = None
+    model_candidates: list[tuple[str, float]] = []
+    if model_observation is not None:
+        model_candidate = (
+            model_observation["candidate"],
+            model_observation["confidence"],
+        )
+        model_candidates = [
+            (candidate, score)
+            for candidate, score in model_observation["candidate_scores"].items()
+        ]
+        model_runs = [
+            {"variant": "digit-model-whole", "candidate": candidate, "raw_score": score}
+            for candidate, score in model_candidates
+        ]
+    executable = find_tesseract()
+    if executable is None or not boxes or len(boxes) > 6:
+        if model_observation is not None:
+            diagnostics["recognizer_runs"] = model_runs
+            diagnostics["candidate_scores"] = {
+                candidate: score for candidate, score in model_candidates
+            }
+            diagnostics["candidate_votes"] = {
+                candidate: 1 for candidate, _score in model_candidates
+            }
             return {
                 **base,
                 "pipeline_version": model.version,
@@ -871,16 +910,6 @@ def observe(
                 "diagnostics": diagnostics,
                 "review_reason": "seed digit model candidate; teacher confirmation required",
             }
-    if diagnostics_dir is not None:
-        diagnostics_dir.mkdir(parents=True, exist_ok=True)
-        (diagnostics_dir / "number_roi_original.png").write_bytes(encoded)
-        cv2.imwrite(str(diagnostics_dir / "number_roi_processed.png"), processed)
-        boxed = crop.copy()
-        for x, y, w, h in boxes:
-            cv2.rectangle(boxed, (x, y), (x + w, y + h), (0, 0, 220), 1)
-        cv2.imwrite(str(diagnostics_dir / "segmented_digits.png"), boxed)
-    executable = find_tesseract()
-    if executable is None or not boxes or len(boxes) > 6:
         reason = (
             "numeric recognizer unavailable"
             if executable is None
@@ -909,7 +938,7 @@ def observe(
     ys, xs = np.where(processed == 0)
     ink_glyph = processed[ys.min() : ys.max() + 1, xs.min() : xs.max() + 1]
     variants.append(("ink-word", ink_glyph, 100, 13))
-    runs = []
+    runs = list(model_runs)
     with tempfile.TemporaryDirectory(prefix="exam-grader-number-") as directory:
         for name, pixels, height, psm in variants:
             resized = cv2.resize(
@@ -1001,14 +1030,16 @@ def observe(
         diagnostics["segmented_candidate"] = _supported_segmented_number(segmented)
         diagnostics["segmented_alternatives"] = _direct_segmented_alternatives(segmented)
         diagnostics["shape_segmented_suggestion"] = _shape_segmented_suggestion(segmented)
-    segmented_candidate = diagnostics.get("segmented_candidate")
+    segmented_candidate = model_candidate or diagnostics.get("segmented_candidate")
     if not (
         isinstance(segmented_candidate, tuple)
         and len(segmented_candidate) == 2
         and isinstance(segmented_candidate[0], str)
     ):
         segmented_candidate = None
-    segmented_alternatives = diagnostics.get("segmented_alternatives")
+    segmented_alternatives = list(model_candidates) + list(
+        diagnostics.get("segmented_alternatives") or []
+    )
     if not isinstance(segmented_alternatives, list):
         segmented_alternatives = []
     candidates, scores, candidate_votes = _rank_identity_candidates_with_voting(
@@ -1103,6 +1134,9 @@ def observe(
 
     return {
         **base,
+        "pipeline_version": (
+            model.version if model_observation is not None else IDENTITY_PIPELINE_VERSION
+        ),
         "candidate": top_candidate,
         "candidates": candidates,
         "review_suggestions": review_suggestions,
@@ -1110,8 +1144,12 @@ def observe(
         "confidence_margin": round(score_margin, 2),
         "diagnostics": diagnostics,
         "review_reason": (
-            "conflicting OCR candidates; teacher confirmation required"
+            "conflicting OCR/model candidates; teacher confirmation required"
             if len(candidates) > 1 and score_margin < 20.0
-            else base["review_reason"]
+            else (
+                "seed digit model candidate; teacher confirmation required"
+                if model_observation is not None
+                else base["review_reason"]
+            )
         ),
     }
