@@ -65,6 +65,11 @@ def source_crop_path(manifest: dict[str, Any], manifest_root: Path, record: dict
     return _source_root(manifest, manifest_root) / record.get("source_crop_path", "")
 
 
+def active_bbox(record: dict[str, Any]) -> list[int] | None:
+    """Return the bbox currently shown/used, without changing the proposal."""
+    return record.get("bbox_annotated_px") or record.get("bbox_proposed_px")
+
+
 def _source_root(manifest: dict[str, Any], manifest_root: Path) -> Path:
     source_manifest = manifest.get("source_manifest", {}).get("path")
     if source_manifest:

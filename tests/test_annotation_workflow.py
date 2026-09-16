@@ -7,6 +7,7 @@ import pytest
 
 from tools.benchmark.annotation_workflow import (
     accept_label,
+    active_bbox,
     atomic_save,
     counts,
     load_manifest,
@@ -85,6 +86,19 @@ def test_explicit_actions_save_resume_and_audit(tmp_path: Path):
     assert len(resumed["audit_log"]) == 1
     assert resumed["records"][0]["label"] == "7"
     assert resumed["records"][0]["bbox_accepted_px"] == [0, 0, 10, 16]
+
+
+def test_active_bbox_switches_to_corrected_box_without_mutating_proposal(tmp_path: Path):
+    path, _ = _manifest(tmp_path)
+    manifest = load_manifest(path)
+    record = manifest["records"][0]
+    original = list(record["bbox_proposed_px"])
+
+    assert active_bbox(record) == original
+    set_bbox(manifest, "sample-1", [1, 1, 9, 15], "po")
+
+    assert active_bbox(record) == [1, 1, 9, 15]
+    assert record["bbox_proposed_px"] == original
 
 
 def test_bbox_correction_required_before_label(tmp_path: Path):

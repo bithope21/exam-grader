@@ -13,6 +13,7 @@ from PIL import Image, ImageDraw, ImageTk
 
 from tools.benchmark.annotation_workflow import (
     accept_label,
+    active_bbox,
     atomic_save,
     counts,
     exclude_record,
@@ -66,11 +67,13 @@ class AnnotationApp:
 
         side = tk.Frame(content, width=270)
         side.pack(side="right", fill="y", padx=(16, 0))
-        tk.Label(side, text="Selected proposal", font=("TkDefaultFont", 12, "bold")).pack(
+        tk.Label(side, text="Current bbox preview", font=("TkDefaultFont", 12, "bold")).pack(
             pady=(8, 4)
         )
         self.digit_preview = tk.Label(side, background="white", width=220, height=220)
         self.digit_preview.pack(pady=4)
+        self.preview_status = tk.StringVar()
+        tk.Label(side, textvariable=self.preview_status, justify="left").pack(anchor="w")
         tk.Label(
             side,
             text="ลากบนภาพด้านซ้ายเพื่อแก้ bbox\nB = bad_bbox · U = reset\n0–9 = label · X = exclude\n←/→ = ก่อนหน้า/ถัดไป · Esc = ออก",
@@ -143,7 +146,7 @@ class AnnotationApp:
         display_size = (round(width * self.display_scale), round(height * self.display_scale))
         rendered = self.source_image.resize(display_size, Image.Resampling.NEAREST)
         draw = ImageDraw.Draw(rendered)
-        bbox = record.get("bbox_annotated_px") or record.get("bbox_proposed_px")
+        bbox = active_bbox(record)
         if bbox:
             color = "red" if record.get("bad_bbox") else (
                 "#16803c" if record.get("bbox_status") == "corrected" else "#2455c3"
@@ -161,11 +164,17 @@ class AnnotationApp:
         self.canvas.create_image(offset_x, offset_y, image=self.photo, anchor="nw")
 
     def _show_digit_preview(self, record: dict[str, Any]) -> None:
-        path = self.manifest_path.parent / record["proposed_digit_path"]
+        path = source_crop_path(self.manifest, self.manifest_path.parent, record)
         image = Image.open(path).convert("RGB")
+        bbox = active_bbox(record)
+        if bbox is None:
+            raise ValueError(f"missing active bbox: {record['annotation_id']}")
+        image = image.crop(tuple(bbox))
         image.thumbnail((230, 230), Image.Resampling.NEAREST)
         self.digit_photo = ImageTk.PhotoImage(image)
         self.digit_preview.configure(image=self.digit_photo, text="")
+        bbox_kind = "corrected" if record.get("bbox_annotated_px") else "proposal"
+        self.preview_status.set(f"preview bbox: {bbox_kind}\n{bbox}")
 
     def _key(self, event: tk.Event[Any]) -> None:
         if event.char in string.digits:
