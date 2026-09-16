@@ -1,5 +1,84 @@
 # Exam Grader progress
 
+## Current task handoff — 2026-09-16 compact UI checkpoint → student-number recognition
+
+The latest bounded macOS UI polish is committed on the fix branch. This
+checkpoint prepares a fresh chat for the next user-scoped student-number task;
+it does not define or reopen that task's implementation details.
+
+### Verified current state
+
+- Repo: `/Users/zubinpijit/private/exam-grader`
+- Branch: `fix/vol8-current-usable-checkpoint`
+- Latest commit: `3ad21da fix: compact macOS UI controls`
+- The commit contains only UI source, focused UI tests, PyInstaller resource
+  metadata, and bundled chevron assets. It does not include the existing
+  untracked Vol.8/Vol.9 fixtures.
+- Focused UI/theme tests: `24 passed`; Home guidance test: `1 passed`.
+- Changed-file Ruff, `git diff --check`, light/dark visual QA, packaged
+  self-check, UI/settings smoke, and strict deep codesign passed.
+- Current trial bundle: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+  This is source/package evidence, not native Product Owner UAT or a release
+  claim.
+
+### Protected scope and ownership
+
+- The next chat is for student-number recognition only after the Product Owner
+  provides the exact scope. Do not infer a new algorithm, threshold, accuracy
+  target, or fixture adjudication from this checkpoint.
+- `DETAIL: [รอ Product Owner บอกใน chat ใหม่]`
+- Preserve immutable originals, provenance, fail-closed uncertainty, mandatory
+  teacher confirmation, existing OMR/crop/geometry/review/scoring/storage/
+  export behavior, and backward compatibility.
+- Existing untracked `tests/fixtures/real/vol.8/` and
+  `tests/fixtures/real/vol.9/` belong to the user/previous work. Do not reset,
+  clean, overwrite, or absorb them.
+
+### Next exact action
+
+Start a fresh chat with the prompt in the matching current section at the top
+of `docs/NEXT_CHAT_HANDOFF.md`. Read the repository docs and exact current
+identity implementation first; wait for the new `DETAIL` before changing code.
+
+## Current task handoff — 2026-09-16 UX/UI continuation
+
+This is a concise continuity checkpoint after the bounded macOS UI polish. The
+next chat may continue UX/UI work only; do not reopen or alter the business
+logic that is already verified.
+
+### Verified current state
+
+- Repo: `/Users/zubinpijit/private/exam-grader`
+- Branch and origin are aligned at `0087a49 fix: polish native exam grader controls`.
+- The latest macOS arm64 bundle is `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+- Visual inspection of the fresh bundle confirmed compact native-style settings/help controls, no large structural emoji icons, and visible combo-box/stepper arrows in `NewExamDialog`.
+- Focused UI tests: `23 passed` (`tests/test_ui.py`, `tests/test_theme_and_layout.py`) plus `1 passed` (`tests/test_vol8_home_help.py`). Geometry/Vol.2/Vol.8/document-normalization regressions: `46 passed`.
+- Ruff, `git diff --check`, strict deep codesign, packaged self-check, settings smoke, and offscreen UI smoke passed. This is source/package evidence only; Product Owner native UAT is still outstanding.
+
+### Protected scope and ownership
+
+- Continue only with minimal macOS-native UX/UI polish. Do not change OMR,
+  geometry resolution, review gates, scoring, identity persistence, storage,
+  export, crop behavior, or other business logic unless the Product Owner gives
+  a new explicit scope.
+- Preserve immutable originals, provenance, fail-closed uncertainty, teacher
+  confirmation for student numbers, existing good crop/OMR behavior, and
+  backward-compatible runtime geometry.
+- Existing `tests/fixtures/real/vol.8/` and `tests/fixtures/real/vol.9/` remain
+  user/previous-agent untracked files. Do not reset, clean, overwrite, or
+  absorb them.
+
+### Next exact action
+
+Open the latest bundle and inspect MainWindow, NewExamDialog, ExamDialog, and
+ReviewDialog at supported desktop sizes against the new screenshots. Identify
+one bounded UI-only improvement, use `$ui-ux-pro-max` only as needed, implement
+it without touching business logic, add focused UI coverage, and re-run the
+app/package smoke before any separately authorized commit or push.
+
+Paste-ready prompt: see the matching current section at the top of
+`docs/NEXT_CHAT_HANDOFF.md`.
+
 ## Current task handoff — 2026-09-15 Vol.9 runtime/UI geometry and review-gate root cause
 
 This is a read-only verification handoff for the next implementation chat. No

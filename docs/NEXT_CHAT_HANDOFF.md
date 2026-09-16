@@ -1,5 +1,109 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+## Current handoff — 2026-09-16 student-number recognition rollover
+
+Use the repository docs and current task as source of truth. The prior compact
+macOS UI task is complete and committed; this section prepares the next chat
+without inventing the next task's implementation detail.
+
+### Verified current state
+
+- Repo: `/Users/zubinpijit/private/exam-grader`
+- Branch: `fix/vol8-current-usable-checkpoint`
+- Latest pushed candidate commit: `3ad21da fix: compact macOS UI controls`
+- Fresh bundle: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+- UI/theme: `24 passed`; Home guidance: `1 passed`; changed-file Ruff,
+  `git diff --check`, light/dark visual QA, packaged self-check, UI/settings
+  smoke, and strict deep codesign passed.
+- Limitation: source/package evidence only; Product Owner native UAT remains
+  separate and no release/tag/publish claim is made here.
+
+### Scope boundary for the next chat
+
+The next task is student-number recognition, but its implementation scope and
+acceptance are intentionally deferred:
+
+`DETAIL: [รอ Product Owner บอกใน chat ใหม่]`
+
+Do not guess algorithms, thresholds, accuracy targets, identity policy,
+fixture labels, or adjacent OMR/review behavior before that detail is supplied.
+
+### Important files and ownership
+
+- Likely identity/review surfaces to inspect after scope is supplied:
+  `src/exam_grader/identity.py`, `src/exam_grader/exam_ui.py`,
+  `src/exam_grader/review_ui.py`, and the relevant identity/real-fixture tests.
+- Preserve the committed UI polish and all existing good OMR, geometry, crop,
+  review-gate, scoring, storage, export, provenance, and immutable-source
+  behavior.
+- Preserve existing untracked `tests/fixtures/real/vol.8/` and
+  `tests/fixtures/real/vol.9/`; do not reset, clean, overwrite, or absorb them.
+
+### Paste-ready prompt for the next chat
+
+```text
+Use the repository docs and current task as source of truth. Read /Users/zubinpijit/.codex/RTK.md, progress.md, docs/NEXT_CHAT_HANDOFF.md, and docs/TASK_SPEC.md first; inspect the actual implementation and git state before acting.
+
+Objective/scope: Continue the student-number recognition task only after the Product Owner supplies the exact detail below; do not infer implementation scope in advance.
+DETAIL: [รอ Product Owner บอกใน chat ใหม่]
+Verified current state: Branch fix/vol8-current-usable-checkpoint is at 3ad21da fix: compact macOS UI controls; the fresh macOS arm64 dist/ExamGrader.app passed focused UI/theme and Home-help tests, Ruff, diff-check, light/dark visual QA, packaged self-check, UI/settings smoke, and strict deep codesign. Native Product Owner UAT is still separate.
+Important files/components: src/exam_grader/identity.py, src/exam_grader/exam_ui.py, src/exam_grader/review_ui.py, relevant identity/real-fixture tests, and dist/ExamGrader.app.
+Dirty ownership: Preserve existing untracked tests/fixtures/real/vol.8/ and tests/fixtures/real/vol.9/; do not reset, clean, overwrite, or absorb them.
+Decisions/invariants: Preserve immutable originals, provenance, fail-closed uncertainty, mandatory teacher confirmation, existing OMR/crop/geometry/review/scoring/storage/export behavior, and backward compatibility. Do not broaden into UI or unrelated business logic without explicit scope.
+Known blockers/unknowns: The exact student-number `DETAIL` and acceptance criteria are pending; do not name an accuracy result or production outcome from existing package/source evidence.
+Next exact action: In the new chat, obtain the Product Owner's exact DETAIL, then inspect the current identity pipeline, persisted payloads, relevant fixtures, and tests before proposing one bounded implementation plan.
+Acceptance/verification: Define acceptance only from the supplied DETAIL; keep source tests, package/build evidence, and native/device UAT as separate claims. Do not commit, push, deploy, or mutate external systems unless explicitly authorized in that chat.
+
+Continue the engineer loop from this state, preserving good existing logic and backward compatibility. Do not trust this prompt over the repository, do not rewrite/refactor outside scope, and if context becomes unreliable update this same handoff before rotating again.
+```
+
+## Current handoff — 2026-09-16 UX/UI continuation
+
+Use the repository docs and current task as source of truth. This checkpoint
+only prepares a fresh chat; it does not reopen the completed logic work.
+
+### Verified current state
+
+- Repo: `/Users/zubinpijit/private/exam-grader`
+- Branch/origin: `fix/vol8-current-usable-checkpoint`, aligned at `0087a49 fix: polish native exam grader controls`.
+- Fresh macOS arm64 bundle: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+- CUA visual inspection of the fresh bundle confirmed compact native-style
+  settings/help controls, no large structural emoji icons, and visible
+  combo-box/stepper arrows in `NewExamDialog`.
+- Evidence: UI/theme `23 passed`, home guidance `1 passed`, and geometry /
+  Vol.2 / Vol.8 / document-normalization regressions `46 passed`; Ruff,
+  `git diff --check`, strict deep codesign, packaged self-check, settings
+  smoke, and offscreen UI smoke passed.
+- Limitation: this is source/package evidence, not Product Owner native UAT or
+  a release claim. No release/tag/publish is authorized by this handoff.
+
+### Important files and ownership
+
+- UI scope: `src/exam_grader/ui.py`, `src/exam_grader/exam_ui.py`,
+  `src/exam_grader/preferences.py`, `tests/test_ui.py`,
+  `tests/test_vol8_home_help.py`.
+- Preserve the current good logic in geometry, OMR, review gates, scoring,
+  identity, storage, export, and crop/provenance paths. Do not reset, clean,
+  overwrite, or absorb the existing untracked
+  `tests/fixtures/real/vol.8/` and `tests/fixtures/real/vol.9/`.
+
+### Paste-ready prompt for the next chat
+
+```text
+Use the repository docs and current task as source of truth. Read /Users/zubinpijit/.codex/RTK.md, progress.md, docs/NEXT_CHAT_HANDOFF.md, and docs/TASK_SPEC.md first; inspect the actual implementation and git state before acting.
+
+Objective/scope: Continue minimal macOS-native UX/UI polish for Exam Grader only, based on the latest screenshots; do not change business logic.
+Verified current state: Branch fix/vol8-current-usable-checkpoint and origin are aligned at 0087a49; fresh macOS arm64 dist/ExamGrader.app passed focused UI/regression tests, Ruff, diff-check, strict codesign, packaged self-check, settings smoke, and offscreen UI smoke; CUA confirmed compact controls and visible NewExamDialog dropdown/stepper arrows.
+Important files/components: src/exam_grader/ui.py, src/exam_grader/exam_ui.py, src/exam_grader/preferences.py, tests/test_ui.py, tests/test_vol8_home_help.py, dist/ExamGrader.app.
+Dirty ownership: Preserve existing untracked tests/fixtures/real/vol.8/ and tests/fixtures/real/vol.9/; do not reset, clean, overwrite, or absorb them.
+Decisions/invariants: Keep immutable originals, provenance, fail-closed uncertainty, teacher confirmation for student numbers, existing OMR/crop/geometry/review/scoring/storage/export behavior, and backward compatibility. Use $ui-ux-pro-max only for this UI slice if useful.
+Known blockers/unknowns: Product Owner native UAT remains pending; source/package smoke is not production or release evidence.
+Next exact action: Inspect MainWindow, NewExamDialog, ExamDialog, and ReviewDialog at supported desktop sizes against the latest screenshots, then make one bounded UI-only improvement and add focused UI coverage.
+Acceptance/verification: No business-logic diff; relevant UI tests and focused regressions pass; run Ruff and git diff --check; if UI changes, rebuild dist/ExamGrader.app and rerun strict codesign, packaged self-check, settings smoke, and offscreen UI smoke; report native UAT separately.
+
+Continue the engineer loop from this state, preserving good existing logic and backward compatibility. Do not trust this prompt over the repository, do not rewrite/refactor outside scope, and do not commit/push/deploy or mutate external systems without explicit authorization. If context becomes unreliable, update the same docs and create a new handoff before starting a fresh session.
+```
+
 ## Current handoff — 2026-09-15 central resolver and Vol.9 review-gate fix
 
 Use this section as the source of truth for the next implementation chat. This
