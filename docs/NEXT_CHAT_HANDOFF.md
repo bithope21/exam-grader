@@ -1,5 +1,66 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+## Current handoff — 2026-09-16 student-number error attribution
+
+Use the repository docs and current task as source of truth. The seed-model
+checkpoint is complete; the next chat must inspect the remaining errors before
+any final tuning.
+
+### Verified current state
+
+- Repo: `/Users/zubinpijit/private/exam-grader`
+- Branch: `fix/vol8-current-usable-checkpoint`, implementation checkpoint
+  `ad30b6f feat: integrate seed digit recognizer`.
+- Annotation: `198 labeled`, `2 excluded`, `0 remaining`, `0 bad_bbox`.
+  Training is authorized only as `internal_seed_split_only`; no generalization
+  claim is allowed.
+- Held-out report:
+  `/private/tmp/exam-grader-identity-seed-model-benchmark-v3.json`.
+  Seed exact is `7/22` (`31.8%`) versus legacy `5/22` (`22.7%`); review is
+  `22/22`; wrong auto-accept is `0`. The model handled `14/22` rows and the
+  legacy fallback handled `8/22`. Candidate visibility is `14/22`, so manual
+  confirmation has not yet been reduced.
+- Model: `src/exam_grader/resources/student_number_digit_model.npz`, bundled
+  review-only; auto-accept remains disabled. App:
+  `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+- Verification: focused/relevant tests `33 passed`, Ruff, `git diff --check`,
+  packaged self-check, native UI smoke, and strict deep codesign passed.
+
+### Unknown to resolve
+
+The remaining `15/22` wrong whole-number predictions have not yet been
+attributed. For each error, determine from actual provenance and crops whether
+the digit crop/segmentation/candidate is wrong or incomplete, or whether the
+crop is correct and the recognizer classified the digit incorrectly. The
+candidate-visibility decrease is only a hypothesis signal, not a root cause.
+
+### Protected scope and ownership
+
+Keep Vol.8/Vol.9 as real held-out evidence; do not overfit or hard-code their
+fixtures. Preserve immutable originals, source hashes, crop/proposal
+provenance, review-required uncertainty, teacher confirmation, and fail-closed
+behavior. Do not touch crop/registration, OMR, scoring, review, UI, or
+business logic while doing attribution. Preserve the user's untracked
+`tests/fixtures/real/vol.8/` and `tests/fixtures/real/vol.9/`; do not reset,
+clean, overwrite, stage, or absorb them.
+
+### Paste-ready prompt for the next chat
+
+```text
+Use the repository docs and current task as source of truth. Read /Users/zubinpijit/.codex/RTK.md, progress.md, docs/NEXT_CHAT_HANDOFF.md, docs/IDENTITY_DATASET.md, and docs/TASK_SPEC.md first; inspect the actual implementation and git state before acting.
+
+Objective/scope: Attribute the remaining 15/22 wrong student-number predictions before final tuning: separate wrong/incomplete digit crop or candidate segmentation from correct crop but wrong model classification.
+Verified current state: Branch fix/vol8-current-usable-checkpoint contains ad30b6f feat: integrate seed digit recognizer. Held-out report is /private/tmp/exam-grader-identity-seed-model-benchmark-v3.json: seed exact 7/22 vs legacy 5/22, review 22/22, wrong auto-accept 0; model path 14/22, legacy fallback 8/22. Runtime model is bundled review-only and auto-accept is disabled.
+Important files/components: src/exam_grader/identity.py, src/exam_grader/digit_model.py, src/exam_grader/resources/student_number_digit_model.npz, tools/benchmark/identity_labeled_benchmark.py, and the held-out corpus/report under /private/tmp/.
+Dirty ownership: Preserve the user's untracked tests/fixtures/real/vol.8/ and tests/fixtures/real/vol.9/; do not reset, clean, overwrite, stage, or absorb them.
+Decisions/invariants: Keep Vol.8/Vol.9 held out; no fixture hard-coding or overfitting. Preserve immutable originals, hashes, provenance, review-required uncertainty, teacher confirmation, fail-closed behavior, and existing crop/registration/OMR/scoring/review/UI/business logic.
+Known blockers/unknowns: The 15 errors are not yet attributed; candidate visibility fell to 14/22, but that is not proof of an upstream root cause.
+Next exact action: Build a 15-row evidence table from the persisted provenance/crops, labeling each error as crop/candidate/segmentation failure or model classification failure, with unclear cases remaining review-required. Do not tune or edit runtime code until this attribution is complete.
+Acceptance/verification: Every wrong row has an evidence-backed cause or explicit unknown; held-out data remains untouched; run only focused inspection/tests relevant to the attribution and report limitations separately from source/package/UAT evidence.
+
+Continue the engineer loop from this state, preserving good existing logic and backward compatibility. Do not trust this prompt over the repository, do not rewrite/refactor outside scope, and do not commit/push/deploy or mutate external systems without explicit authorization.
+```
+
 ## Current handoff — 2026-09-16 student-number recognition rollover
 
 Use the repository docs and current task as source of truth. The prior compact

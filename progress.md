@@ -1,5 +1,52 @@
 # Exam Grader progress
 
+## Current task handoff — 2026-09-16 student-number error attribution
+
+The seed digit recognizer checkpoint is complete and pushed separately from
+the user's untracked real Vol.8/Vol.9 fixtures. The next bounded task is to
+explain the remaining `15/22` wrong whole-number predictions before any final
+tuning. Do not assume whether the cause is digit crop/candidate selection or
+digit classification; inspect each error using immutable provenance first.
+
+### Verified state
+
+- Implementation checkpoint: `ad30b6f feat: integrate seed digit recognizer`.
+- Annotation is complete: `198 labeled`, `2 excluded`, `0 remaining`,
+  `0 bad_bbox`; the accepted seed manifest has
+  `training_allowed=true` only for `internal_seed_split_only` and
+  `generalization_claim_allowed=false`.
+- Independent saved-registration Vol.8/Vol.9 benchmark is
+  `/private/tmp/exam-grader-identity-seed-model-benchmark-v3.json`:
+  seed exact `7/22` (`31.8%`) versus legacy `5/22` (`22.7%`), review
+  `22/22`, wrong auto-accept `0`. The seed model path handled `14/22` rows;
+  `8/22` used the legacy fallback because their segmentation was not model
+  eligible. Candidate visibility is `14/22`, so manual-confirm reduction is
+  not yet demonstrated.
+- Runtime model is bundled review-only at
+  `src/exam_grader/resources/student_number_digit_model.npz`; auto-accept is
+  disabled and the confidence cap is not a generalization probability.
+- Focused/relevant tests: `33 passed`; Ruff and `git diff --check` passed.
+  Fresh `dist/ExamGrader.app` passed packaged self-check, native UI smoke, and
+  strict deep codesign.
+
+### Next exact action
+
+Inspect the 15 wrong records and produce a provenance-backed attribution table:
+(A) crop/segmentation/candidate is wrong or incomplete, or (B) the digit crop
+is correct but the recognizer classified it incorrectly. Keep the benchmark
+held out, do not hard-code Vol.8/9 fixtures, and do not change crop,
+registration, OMR, scoring, review, UI, or business logic during attribution.
+Only after the split of causes is evidenced should a separate bounded tuning
+plan be proposed.
+
+### Protected invariants and ownership
+
+Preserve immutable originals, source hashes, proposal/crop provenance,
+review-required uncertainty, teacher confirmation, and fail-closed behavior.
+The untracked `tests/fixtures/real/vol.8/` and
+`tests/fixtures/real/vol.9/` belong to the user/previous work; do not reset,
+clean, overwrite, stage, or absorb them.
+
 ## Current task handoff — 2026-09-16 student-number dataset Phase 1
 
 Phase 1 is implemented and verified as a read-only dataset/benchmark layer.
