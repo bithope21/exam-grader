@@ -45,6 +45,18 @@ crop/registration, grading, review, UI, or release behavior.
   explicit review reason; they cannot silently enter training.
 - Output: `/private/tmp/exam-grader-number-handwriting-annotation-v2/`.
 
+## Current task handoff — 2026-09-16 annotation completed
+
+- Product Owner annotation manifest is complete: `198 labeled`, `2 excluded`,
+  `0 remaining`, `0 bad_bbox`, with `372` audit events.
+- Excluded records are `pdf-page-01-cell-22-digit-0` and
+  `pdf-page-01-cell-75-digit-0`; no ambiguous record was silently labeled.
+- Validator produced `/private/tmp/exam-grader-number-handwriting-training-ready.json`
+  with 198 accepted samples and verified source hashes/crops.
+- This is label-ready only. It remains `seed_only`, `writer_group=unknown`,
+  `training_allowed=false`, and requires a writer/sheet-grouped split before
+  any model training or calibration claim.
+
 ## Current task handoff — 2026-09-16 compact UI checkpoint → student-number recognition
 
 The latest bounded macOS UI polish is committed on the fix branch. This

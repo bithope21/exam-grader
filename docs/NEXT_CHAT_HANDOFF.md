@@ -42,7 +42,18 @@ unchanged.
 - Visual QC identified `06`-`09` as a single-digit layout variant without a
   visible leading zero. Their 8 proposals are explicitly unlabeled and must
   be resolved by annotation rather than inferred from position.
-- Current worklist: `/private/tmp/exam-grader-number-handwriting-annotation-v2/`.
+- Current worklist: `/private/tmp/exam-grader-number-handwriting-annotation-v3/`.
+
+### Annotation completion checkpoint
+
+- The current v3 annotation manifest has `198 labeled`, `2 excluded`, `0
+  remaining`, and `0 bad_bbox`; its audit log contains `372` events.
+- The validated label-ready output is
+  `/private/tmp/exam-grader-number-handwriting-training-ready.json` with 198
+  records. It is still `seed_only` and explicitly has
+  `training_allowed=false` because writer identity is unknown.
+- Do not train or calibrate from this manifest until additional writer/sheet
+  groups are available and a leakage-safe split is recorded.
 
 ### Scope boundary for the next chat
 
