@@ -57,6 +57,7 @@ def _manifest(tmp_path: Path) -> tuple[Path, dict]:
     manifest = {
         "kind": "student_number_digit_annotation_worklist",
         "training_ready": False,
+        "source_manifest": {"path": str(tmp_path / "seed-manifest.json")},
         "records": [record],
     }
     path = tmp_path / "annotation_manifest.json"

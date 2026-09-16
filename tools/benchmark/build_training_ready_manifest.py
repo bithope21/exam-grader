@@ -10,7 +10,11 @@ from typing import Any
 
 import cv2
 
-from tools.benchmark.annotation_workflow import atomic_save, validate_annotation_manifest
+from tools.benchmark.annotation_workflow import (
+    atomic_save,
+    source_crop_path,
+    validate_annotation_manifest,
+)
 from tools.benchmark.extract_number_handwriting_dataset import sha256_file
 
 
@@ -33,7 +37,7 @@ def build(annotation_path: Path, output_path: Path) -> dict[str, Any]:
     crop_dir.mkdir(parents=True, exist_ok=False)
     records: list[dict[str, Any]] = []
     for record in accepted:
-        source_path = annotation_path.parent / record["source_crop_path"]
+        source_path = source_crop_path(manifest, annotation_path.parent, record)
         image = cv2.imread(str(source_path), cv2.IMREAD_COLOR)
         if image is None:
             raise ValueError(f"missing crop: {record['annotation_id']}")

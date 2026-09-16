@@ -21,6 +21,7 @@ from tools.benchmark.annotation_workflow import (
     next_review_index,
     reset_record,
     set_bbox,
+    source_crop_path,
 )
 
 
@@ -131,7 +132,7 @@ class AnnotationApp:
         self._show_digit_preview(record)
 
     def _show_source_and_bbox(self, record: dict[str, Any]) -> None:
-        source_path = self.manifest_path.parent / record["source_crop_path"]
+        source_path = source_crop_path(self.manifest, self.manifest_path.parent, record)
         self.source_image = Image.open(source_path).convert("RGB")
         width, height = self.source_image.size
         self.root.update_idletasks()

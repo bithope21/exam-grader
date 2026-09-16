@@ -14,7 +14,9 @@ REVIEW_STATES = {"needs_review", "accepted", "excluded"}
 
 def load_manifest(path: Path) -> dict[str, Any]:
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    validate_annotation_manifest(manifest, path.parent, check_training_ready=False)
+    validate_annotation_manifest(
+        manifest, path.parent, check_training_ready=False, source_root=_source_root(manifest, path.parent)
+    )
     manifest.setdefault("audit_log", [])
     return manifest
 
@@ -56,6 +58,18 @@ def counts(manifest: dict[str, Any]) -> dict[str, int]:
         "remaining": remaining,
         "bad_bbox": bad_bbox,
     }
+
+
+def source_crop_path(manifest: dict[str, Any], manifest_root: Path, record: dict[str, Any]) -> Path:
+    """Resolve source crops from the immutable seed manifest location."""
+    return _source_root(manifest, manifest_root) / record.get("source_crop_path", "")
+
+
+def _source_root(manifest: dict[str, Any], manifest_root: Path) -> Path:
+    source_manifest = manifest.get("source_manifest", {}).get("path")
+    if source_manifest:
+        return Path(source_manifest).resolve().parent
+    return manifest_root.resolve()
 
 
 def next_review_index(manifest: dict[str, Any], start: int = 0) -> int | None:
@@ -198,7 +212,11 @@ def _valid_bbox(value: Any) -> bool:
 
 
 def validate_annotation_manifest(
-    manifest: dict[str, Any], root: Path, *, check_training_ready: bool = True
+    manifest: dict[str, Any],
+    root: Path,
+    *,
+    check_training_ready: bool = True,
+    source_root: Path | None = None,
 ) -> None:
     if manifest.get("kind") not in {
         "student_number_digit_annotation_worklist",
@@ -214,7 +232,9 @@ def validate_annotation_manifest(
         if not annotation_id or annotation_id in identifiers:
             raise ValueError(f"duplicate sample id: {annotation_id}")
         identifiers.add(annotation_id)
-        source_path = root / record.get("source_crop_path", "")
+        source_path = (source_root or _source_root(manifest, root)) / record.get(
+            "source_crop_path", ""
+        )
         proposed_path = root / record.get("proposed_digit_path", "")
         if not source_path.is_file() or not proposed_path.is_file():
             raise ValueError(f"missing crop for sample: {annotation_id}")
