@@ -2,7 +2,9 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLineEdit, QMessageBox, QPushButton
 
 import exam_grader.imaging as imaging
@@ -11,6 +13,7 @@ from exam_grader.app import initialize
 from exam_grader.domain import ExamDetails
 from exam_grader.imaging import OMR_PIPELINE_VERSION
 from exam_grader.imports import ImportService
+from exam_grader.preferences import apply_appearance_theme
 from exam_grader.review_ui import ReviewDialog
 from exam_grader.ui import MainWindow, NewExamDialog
 from exam_grader.workflow import Workflow
@@ -40,9 +43,13 @@ def test_desktop_shell_displays_persisted_exam(tmp_path):
     row = window.exam_list.itemWidget(window.exam_list.item(0))
     assert row is not None
     assert any(
-        isinstance(child, QPushButton) and "ย้ายไปถังขยะ" in child.text()
+        isinstance(child, QPushButton)
+        and child.text() == ""
+        and child.property("kind") == "icon"
+        and child.accessibleName() == "ย้ายไปถังขยะ"
         for child in row.findChildren(QPushButton)
     )
+    assert window.exam_list.item(0).sizeHint().height() == 44
     window.close()
     dialog.close()
 
@@ -363,11 +370,11 @@ def test_settings_and_template_buttons_visibility(tmp_path):
     # 3. TemplateSettingsDialog buttons
     template_dlg = TemplateSettingsDialog(application)
     assert hasattr(template_dlg, "add_custom_btn")
-    assert "➕" in template_dlg.add_custom_btn.text()
+    assert template_dlg.add_custom_btn.text() == "สร้างแม่แบบใหม่จากภาพ…"
     assert hasattr(template_dlg, "duplicate_btn")
-    assert "📋" in template_dlg.duplicate_btn.text()
+    assert template_dlg.duplicate_btn.text() == "สร้างแม่แบบใหม่จากแม่แบบนี้…"
     assert hasattr(template_dlg, "edit_btn")
-    assert "✏️" in template_dlg.edit_btn.text()
+    assert template_dlg.edit_btn.text() == "แก้ไข/ปรับเทียบ…"
     template_dlg.close()
 
     # 4. ExamDialog results tab color button
@@ -379,20 +386,67 @@ def test_settings_and_template_buttons_visibility(tmp_path):
     window.close()
 
 
-def test_compact_help_icon_and_native_combo_arrows(tmp_path):
+def test_shared_control_style_and_stepperless_spinbox_keyboard(tmp_path):
     QApplication.instance() or QApplication([])
     application = initialize(tmp_path / "data")
     window = MainWindow(application)
     dialog = NewExamDialog(window)
 
-    assert not window.camera_help_button.icon().isNull()
+    assert window.camera_help_button.text() == "ⓘ"
+    assert window.camera_help_button.property("kind") == "icon"
     assert window.camera_help_button.size().width() == 36
     assert window.camera_help_button.size().height() == 36
-    assert "QComboBox::drop-down" not in QApplication.instance().styleSheet()
-    assert "QSpinBox::up-button" not in QApplication.instance().styleSheet()
+    apply_appearance_theme(QApplication.instance(), "light")
+    stylesheet = QApplication.instance().styleSheet()
+    assert "QComboBox::drop-down" in stylesheet
+    assert "QComboBox::down-arrow" in stylesheet
+    assert "QSpinBox::up-button" in stylesheet
+    assert "QSpinBox::down-button" in stylesheet
+    assert "min-height: 36px" in stylesheet
+    assert "QListWidget::item:selected" in stylesheet
+    dialog.question_count.ensurePolished()
+    assert 36 <= dialog.question_count.sizeHint().height() <= 40
+    assert dialog.question_count.lineEdit() is not None
+
+    dialog.question_count.setValue(10)
+    dialog.question_count.setFocus()
+    QTest.keyClick(dialog.question_count, Qt.Key.Key_Up)
+    assert dialog.question_count.value() == 11
+    QTest.keyClick(dialog.question_count, Qt.Key.Key_Down)
+    assert dialog.question_count.value() == 10
 
     dialog.close()
     window.close()
+
+
+def test_student_list_action_is_compact_and_unclipped(tmp_path):
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("สอบ", "2569", "ป.1", "1", "วิชา", 3))
+    from exam_grader.exam_ui import ExamDialog
+
+    dialog = ExamDialog(application, exam)
+    assert dialog.student_button.menu() is not None
+    assert [action.text() for action in dialog.student_button.menu().actions()] == [
+        "เลือกไฟล์…",
+        "เลือกโฟลเดอร์…",
+    ]
+    assert dialog.photo_guidance_button.text() == "ⓘ"
+    assert dialog.photo_guidance_button.property("kind") == "icon"
+    assert dialog.photo_guidance_button.size().width() == 36
+    assert dialog.photo_guidance_button.size().height() == 36
+    dialog._add_student_item("IMG_0001.jpg\nต้องตรวจทาน", {"id": "source-1"})
+
+    item = dialog.student_list.item(0)
+    row = dialog.student_list.itemWidget(item)
+    assert item.sizeHint().height() == 44
+    remove = row.findChildren(QPushButton)[0]
+    assert remove.text() == "ลบ"
+    assert remove.property("kind") == "compact"
+    assert remove.minimumHeight() == 32
+    assert remove.maximumHeight() == 32
+    assert remove.accessibleName() == "ลบกระดาษนักเรียน"
+    dialog.close()
 
 
 def test_settings_controls_open_and_stale_detection_requests_current_pipeline(tmp_path, monkeypatch):

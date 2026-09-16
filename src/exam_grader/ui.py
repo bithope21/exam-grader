@@ -281,7 +281,7 @@ class MainWindow(QMainWindow):
 
         header_layout = QHBoxLayout()
         title = QLabel("ข้อสอบของคุณ")
-        title.setStyleSheet("font-size: 24px; font-weight: bold;")
+        title.setProperty("role", "page-title")
         header_layout.addWidget(title)
         header_layout.addStretch()
 
@@ -293,12 +293,6 @@ class MainWindow(QMainWindow):
         self.settings_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self.settings_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.settings_button.setToolTip("ตั้งค่าแม่แบบกระดาษคำตอบ, สีรอยตรวจ และโฟลเดอร์ผลลัพธ์")
-        self.settings_button.setStyleSheet(
-            "QToolButton { font-size: 13px; padding: 5px 12px; font-weight: 500; "
-            "border: 1px solid #CBD5E1; border-radius: 7px; background: #FFFFFF; }"
-            "QToolButton:hover { background: #F1F5F9; border-color: #94A3B8; }"
-            "QToolButton:pressed { background: #E2E8F0; }"
-        )
 
         settings_popup = QMenu(self)
         settings_popup.addAction(
@@ -317,21 +311,13 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(self.settings_button)
 
         self.camera_help_button = QToolButton()
-        self.camera_help_button.setText("")
-        self.camera_help_button.setIcon(
-            QApplication.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxInformation)
-        )
-        self.camera_help_button.setIconSize(QSize(18, 18))
+        self.camera_help_button.setText("ⓘ")
         self.camera_help_button.setFixedSize(36, 36)
         self.camera_help_button.setAutoRaise(True)
         self.camera_help_button.setToolTip(HOME_CAMERA_GUIDANCE_TEXT)
         self.camera_help_button.setAccessibleName("คำแนะนำการถ่ายภาพกระดาษคำตอบ")
         self.camera_help_button.setAccessibleDescription(HOME_CAMERA_GUIDANCE_TEXT)
-        self.camera_help_button.setStyleSheet(
-            "QToolButton { border: 0; border-radius: 7px; padding: 0; background: transparent; }"
-            "QToolButton:hover { background: #E8ECF0; }"
-            "QToolButton:pressed { background: #D9E1EA; }"
-        )
+        self.camera_help_button.setProperty("kind", "icon")
         self.camera_help_button.clicked.connect(self._show_camera_help)
         header_layout.addWidget(self.camera_help_button)
 
@@ -430,18 +416,22 @@ class MainWindow(QMainWindow):
             item.setToolTip(text)
             self.exam_list.addItem(item)
             row = QWidget()
+            row.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(8, 4, 8, 4)
             row_layout.addStretch()
-            remove = QPushButton("ย้ายไปถังขยะ")
+            remove = QPushButton()
+            remove.setIcon(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+            remove.setIconSize(QSize(16, 16))
+            remove.setProperty("kind", "icon")
+            remove.setProperty("destructive", True)
+            remove.setAccessibleName("ย้ายไปถังขยะ")
+            remove.setAccessibleDescription("ย้ายชุดข้อสอบนี้ไปที่ถังขยะ สามารถกู้คืนได้")
             remove.setToolTip("ย้ายชุดนี้ไปที่ถังขยะ · สามารถกู้คืนหรือลบถาวรได้จากเมนูถังขยะ")
             remove.clicked.connect(lambda _checked=False, value=exam: self.archive_exam(value))
             row_layout.addWidget(remove)
             self.exam_list.setItemWidget(item, row)
-            from PySide6.QtCore import QSize
-
-            hint = row.sizeHint()
-            item.setSizeHint(QSize(hint.width(), max(hint.height(), 58)))
+            item.setSizeHint(QSize(0, 44))
 
     def archive_exam(self, exam) -> None:
         details = exam.details
@@ -493,7 +483,7 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(restore_btn)
 
         purge_btn = QPushButton("ลบถาวร…")
-        purge_btn.setStyleSheet("color: #b71c1c;")
+        purge_btn.setProperty("destructive", True)
         purge_btn.clicked.connect(lambda: self._purge_selected(listing, _populate_listing))
         btn_row.addWidget(purge_btn)
 

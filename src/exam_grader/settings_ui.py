@@ -87,7 +87,6 @@ class AnnotationColorSettingsDialog(QDialog):
         for key, label_text, default_hex in self.COLOR_KEYS:
             row = QHBoxLayout()
             lbl = QLabel(label_text)
-            lbl.setStyleSheet("font-size: 13px;")
             row.addWidget(lbl, 1)
 
             btn = QPushButton()
@@ -234,7 +233,7 @@ class TemplateSettingsDialog(QDialog):
         main_layout.setSpacing(12)
 
         header = QLabel("รูปแบบกระดาษคำตอบทั้งหมด")
-        header.setStyleSheet("font-size: 18px; font-weight: bold;")
+        header.setProperty("role", "section-title")
         main_layout.addWidget(header)
 
         desc = QLabel(
@@ -243,7 +242,7 @@ class TemplateSettingsDialog(QDialog):
             "แม่แบบเริ่มต้นจะถูกเลือกเป็นค่าตั้งต้นเวลาสร้างข้อสอบชุดใหม่"
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #64748B; font-size: 13px; padding-bottom: 4px;")
+        desc.setProperty("role", "muted")
         main_layout.addWidget(desc)
 
         # Responsive Splitter: Left (List navigation) vs Right (Main details & actions)
@@ -272,11 +271,11 @@ class TemplateSettingsDialog(QDialog):
         # Left action buttons
         btn_row = QVBoxLayout()
         btn_row.setSpacing(6)
-        self.set_default_btn = QPushButton("⭐ ตั้งเป็นค่าเริ่มต้น")
+        self.set_default_btn = QPushButton("ตั้งเป็นค่าเริ่มต้น")
         self.set_default_btn.clicked.connect(self._set_as_default)
         btn_row.addWidget(self.set_default_btn)
 
-        self.add_custom_btn = QPushButton("➕ สร้างแม่แบบใหม่จากภาพ…")
+        self.add_custom_btn = QPushButton("สร้างแม่แบบใหม่จากภาพ…")
         self.add_custom_btn.setToolTip(
             "นำเข้าภาพกระดาษคำตอบเปล่าเพื่อวิเคราะห์หรือปรับเทียบ (Calibration) เป็นแม่แบบใหม่"
         )
@@ -293,12 +292,12 @@ class TemplateSettingsDialog(QDialog):
         self.right_layout.setSpacing(10)
 
         self.detail_title = QLabel("รายละเอียดแม่แบบ")
-        self.detail_title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.detail_title.setProperty("role", "section-title")
         self.right_layout.addWidget(self.detail_title)
 
         self.detail_info = QLabel("เลือกรูปแบบกระดาษคำตอบทางด้านซ้ายเพื่อดูรายละเอียด")
         self.detail_info.setWordWrap(True)
-        self.detail_info.setStyleSheet("font-size: 13px; padding: 4px 0px;")
+        self.detail_info.setProperty("role", "body")
         self.right_layout.addWidget(self.detail_info)
 
         # Preview Container
@@ -308,9 +307,7 @@ class TemplateSettingsDialog(QDialog):
         self.preview_image_lbl = QLabel()
         self.preview_image_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_image_lbl.setFixedHeight(230)
-        self.preview_image_lbl.setStyleSheet(
-            "border: 1px solid #CBD5E1; border-radius: 8px; background-color: transparent;"
-        )
+        self.preview_image_lbl.setProperty("role", "preview")
         preview_layout.addWidget(self.preview_image_lbl)
         self.right_layout.addWidget(preview_container)
 
@@ -319,22 +316,22 @@ class TemplateSettingsDialog(QDialog):
         actions_layout = QHBoxLayout(actions_group)
         actions_layout.setSpacing(8)
 
-        self.duplicate_btn = QPushButton("📋 สร้างแม่แบบใหม่จากแม่แบบนี้…")
+        self.duplicate_btn = QPushButton("สร้างแม่แบบใหม่จากแม่แบบนี้…")
         self.duplicate_btn.setToolTip("สร้างแม่แบบกำหนดเองใหม่โดยใช้แม่แบบนี้เป็นฐาน")
         self.duplicate_btn.clicked.connect(self._duplicate_template)
         actions_layout.addWidget(self.duplicate_btn)
 
-        self.test_omr_btn = QPushButton("🔍 ทดสอบตรวจภาพ…")
+        self.test_omr_btn = QPushButton("ทดสอบตรวจภาพ…")
         self.test_omr_btn.setToolTip("ทดสอบตรวจจับและอ่านรอยกากับภาพกระดาษคำตอบจริง")
         self.test_omr_btn.clicked.connect(self._test_sheet_omr)
         actions_layout.addWidget(self.test_omr_btn)
 
-        self.edit_btn = QPushButton("✏️ แก้ไข/ปรับเทียบ…")
+        self.edit_btn = QPushButton("แก้ไข/ปรับเทียบ…")
         self.edit_btn.setToolTip("เปิดหน้าต่างปรับเทียบเพื่อแก้ไขพิกัดแม่แบบนี้")
         self.edit_btn.clicked.connect(self._edit_template)
         actions_layout.addWidget(self.edit_btn)
 
-        self.delete_btn = QPushButton("🗑️ ลบแม่แบบ…")
+        self.delete_btn = QPushButton("ลบแม่แบบ…")
         self.delete_btn.setProperty("destructive", True)
         self.delete_btn.clicked.connect(self._delete_template)
         actions_layout.addWidget(self.delete_btn)

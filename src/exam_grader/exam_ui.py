@@ -300,7 +300,7 @@ class ExamDialog(QDialog):
 
         student_page = QVBoxLayout()
         student_actions = QHBoxLayout()
-        self.student_button = QPushButton("＋ เพิ่มกระดาษคำตอบ")
+        self.student_button = QPushButton("เพิ่มกระดาษคำตอบ")
         student_menu = QMenu(self.student_button)
         student_menu.addAction("เลือกไฟล์…", self.pick_student_files)
         student_menu.addAction("เลือกโฟลเดอร์…", self.pick_folder)
@@ -308,6 +308,8 @@ class ExamDialog(QDialog):
         student_actions.addWidget(self.student_button)
         self.photo_guidance_button = QToolButton()
         self.photo_guidance_button.setText("ⓘ")
+        self.photo_guidance_button.setProperty("kind", "icon")
+        self.photo_guidance_button.setFixedSize(36, 36)
         self.photo_guidance_button.setAccessibleName("คำแนะนำการถ่ายภาพ")
         self.photo_guidance_button.setToolTip(PHOTO_GUIDANCE_TEXT)
         self.photo_guidance_button.setAutoRaise(True)
@@ -357,7 +359,7 @@ class ExamDialog(QDialog):
         self.clear_selection_btn = QPushButton("ล้างการเลือก")
         self.clear_selection_btn.clicked.connect(self.clear_issue_selection)
         self.selection_label = QLabel("เลือก 0 รายการ")
-        self.selection_label.setStyleSheet("color: #64748b; font-weight: 500;")
+        self.selection_label.setProperty("role", "muted")
 
         self.bulk_confirm_btn = QPushButton("ยืนยันข้อมูลที่ระบบอ่านไว้")
         self.bulk_confirm_btn.setToolTip(
@@ -608,16 +610,19 @@ class ExamDialog(QDialog):
         item.setToolTip(text)
         self.student_list.addItem(item)
         row = QWidget()
+        row.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(8, 4, 8, 4)
         row_layout.addStretch()
         remove = QPushButton("ลบ")
+        remove.setProperty("kind", "compact")
+        remove.setFixedHeight(32)
+        remove.setAccessibleName("ลบกระดาษนักเรียน")
         remove.setToolTip("เก็บกระดาษนี้แบบกู้คืนได้")
         remove.clicked.connect(lambda _checked=False, value=source: self.archive_student(value))
         row_layout.addWidget(remove)
         self.student_list.setItemWidget(item, row)
-        hint = row.sizeHint()
-        item.setSizeHint(QSize(hint.width(), max(hint.height(), 52)))
+        item.setSizeHint(QSize(0, 44))
 
     def _add_failure_item(self, text: str, failure: dict) -> None:
         from PySide6.QtCore import QSize
@@ -627,16 +632,19 @@ class ExamDialog(QDialog):
         item.setToolTip(text)
         self.student_list.addItem(item)
         row = QWidget()
+        row.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(8, 4, 8, 4)
         row_layout.addStretch()
         remove = QPushButton("ลบ")
+        remove.setProperty("kind", "compact")
+        remove.setFixedHeight(32)
+        remove.setAccessibleName("ลบรายการนำเข้า")
         remove.setToolTip("ลบรายการที่ล้มเหลวนี้ออก")
         remove.clicked.connect(lambda _checked=False, val=failure: self.dismiss_failure(val))
         row_layout.addWidget(remove)
         self.student_list.setItemWidget(item, row)
-        hint = row.sizeHint()
-        item.setSizeHint(QSize(hint.width(), max(hint.height(), 52)))
+        item.setSizeHint(QSize(0, 44))
 
     def dismiss_failure(self, failure: dict) -> None:
         try:

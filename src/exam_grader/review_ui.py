@@ -79,10 +79,7 @@ class FitImage(QWidget):
         self.label.setMinimumSize(1, 1)
         self.label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        from exam_grader.preferences import is_dark_mode
-
-        dark = is_dark_mode(QApplication.instance())
-        self.label.setStyleSheet("background: #0F172A;" if dark else "background: #F1F5F9;")
+        self.label.setProperty("role", "preview-background")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.label)
@@ -292,7 +289,7 @@ class ReviewDialog(QDialog):
             )
             warn_lbl.setWordWrap(True)
             w_layout.addWidget(warn_lbl, stretch=1)
-            change_t_btn = QPushButton("🔄 เปลี่ยนแม่แบบของข้อสอบ…")
+            change_t_btn = QPushButton("เปลี่ยนแม่แบบของข้อสอบ…")
             change_t_btn.clicked.connect(self._change_exam_template_and_reanalyze)
             w_layout.addWidget(change_t_btn)
             layout.addWidget(warning_box)
@@ -525,7 +522,7 @@ class ReviewDialog(QDialog):
         layout.addLayout(body, 1)
         buttons = QDialogButtonBox()
         if not self.key_mode:
-            delete_btn = QPushButton("🗑️ ลบกระดาษนี้…")
+            delete_btn = QPushButton("ลบกระดาษนี้…")
             delete_btn.setProperty("destructive", True)
             delete_btn.clicked.connect(self._archive_this_sheet)
             buttons.addButton(delete_btn, QDialogButtonBox.ButtonRole.ActionRole)
