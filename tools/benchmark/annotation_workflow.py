@@ -118,6 +118,7 @@ def accept_label(manifest: dict[str, Any], annotation_id: str, digit: int, annot
     previous = record.get("label_status")
     record["label"] = str(digit)
     record["label_status"] = "accepted"
+    record["bbox_accepted_px"] = list(bbox)
     annotation = _annotation_fields(record)
     annotation.update(
         {
@@ -163,6 +164,7 @@ def set_bbox(
     record["label"] = None
     record["label_status"] = "needs_review"
     record["bbox_annotated_px"] = [int(value) for value in bbox]
+    record["bbox_accepted_px"] = None
     record["bbox_status"] = "corrected"
     record["bad_bbox"] = False
     _event(manifest, record, annotator_id, "correct_bbox", bbox=record["bbox_annotated_px"])
@@ -172,6 +174,7 @@ def reset_record(manifest: dict[str, Any], annotation_id: str, annotator_id: str
     record = _record(manifest, annotation_id)
     record["label"] = None
     record["label_status"] = "needs_review"
+    record["bbox_accepted_px"] = None
     record["bad_bbox"] = False
     if record.get("bbox_annotated_px"):
         record["bbox_status"] = "corrected"
@@ -224,9 +227,9 @@ def validate_annotation_manifest(
                 raise ValueError(f"label outside 0-9: {annotation_id}")
             if record.get("bad_bbox") or record.get("bbox_status") == "bad_bbox":
                 raise ValueError(f"bad bbox is unresolved: {annotation_id}")
-            bbox = record.get("bbox_annotated_px") or record.get("bbox_proposed_px")
+            bbox = record.get("bbox_accepted_px")
             if not _valid_bbox(bbox):
-                raise ValueError(f"invalid bbox: {annotation_id}")
+                raise ValueError(f"missing or invalid accepted bbox: {annotation_id}")
             annotation = record.get("annotation", {})
             for field in ("annotator_id", "annotated_at", "decision_reason"):
                 if not annotation.get(field):

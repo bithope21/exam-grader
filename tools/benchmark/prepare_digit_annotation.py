@@ -159,6 +159,7 @@ def prepare(seed_manifest_path: Path, output: Path) -> dict[str, Any]:
                     "label_status": "needs_review",
                     "bbox_proposed_px": box,
                     "bbox_annotated_px": None,
+                    "bbox_accepted_px": None,
                     "bbox_status": "proposal",
                     "bad_bbox": False,
                     "proposal_method": "fixed_midline_proposal_v1",

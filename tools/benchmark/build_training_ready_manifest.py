@@ -39,7 +39,7 @@ def build(annotation_path: Path, output_path: Path) -> dict[str, Any]:
             raise ValueError(f"missing crop: {record['annotation_id']}")
         if sha256_file(source_path) != record.get("source_crop_sha256"):
             raise ValueError(f"source crop hash changed: {record['annotation_id']}")
-        bbox = record.get("bbox_annotated_px") or record.get("bbox_proposed_px")
+        bbox = record.get("bbox_accepted_px")
         if not _inside_bbox(bbox, image.shape[1], image.shape[0]):
             raise ValueError(f"bbox exceeds source crop: {record['annotation_id']}")
         x1, y1, x2, y2 = bbox

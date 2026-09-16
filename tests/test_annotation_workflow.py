@@ -42,6 +42,7 @@ def _manifest(tmp_path: Path) -> tuple[Path, dict]:
         "label_status": "needs_review",
         "bbox_proposed_px": [0, 0, 10, 16],
         "bbox_annotated_px": None,
+        "bbox_accepted_px": None,
         "bbox_status": "proposal",
         "bad_bbox": False,
         "source_crop_path": source.name,
@@ -82,6 +83,7 @@ def test_explicit_actions_save_resume_and_audit(tmp_path: Path):
     }
     assert len(resumed["audit_log"]) == 1
     assert resumed["records"][0]["label"] == "7"
+    assert resumed["records"][0]["bbox_accepted_px"] == [0, 0, 10, 16]
 
 
 def test_bbox_correction_required_before_label(tmp_path: Path):
@@ -95,6 +97,7 @@ def test_bbox_correction_required_before_label(tmp_path: Path):
     set_bbox(manifest, "sample-1", [1, 1, 10, 15], "po")
     accept_label(manifest, "sample-1", 7, "po")
     assert manifest["records"][0]["bbox_status"] == "corrected"
+    assert manifest["records"][0]["bbox_accepted_px"] == [1, 1, 10, 15]
 
 
 def test_validation_blocks_unresolved_bad_bbox_and_nonaccepted_ready_state(tmp_path: Path):
@@ -139,6 +142,7 @@ def test_training_ready_export_contains_only_accepted_records(tmp_path: Path):
     path, manifest = _manifest(tmp_path)
     manifest["records"][0]["label"] = "3"
     manifest["records"][0]["label_status"] = "accepted"
+    manifest["records"][0]["bbox_accepted_px"] = [0, 0, 10, 16]
     manifest["records"][0]["annotation"] = {
         "annotator_id": "po",
         "annotated_at": "now",

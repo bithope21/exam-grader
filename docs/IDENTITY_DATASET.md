@@ -43,7 +43,8 @@ This creates 200 fixed-midline digit proposals and a sequence contact sheet.
 They are deliberately marked `needs_review`; the midpoint is only a proposal
 and must not be treated as a trusted digit bounding box. Each eventual accepted
 annotation must record the annotator, timestamp, corrected bounding box, label,
-and decision reason. Empty/low-ink or border-touch anomalies stay in the queue
+and decision reason. The accepted bbox is recorded separately from the original
+proposal, whether it was visually confirmed or corrected. Empty/low-ink or border-touch anomalies stay in the queue
 for explicit review rather than being silently dropped. The worklist remains
 `training_ready=false` until the annotation audit and writer/sheet split are
 completed. The seed visibly contains a layout variant for `06`-`09` where the
