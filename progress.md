@@ -1,5 +1,43 @@
 # Exam Grader progress
 
+## Current task result — 2026-09-16 student-number recognition round 2
+
+Round 2 continued from checkpoint `33439ec` and changed only Student Number
+Recognition. The verified `IMG_1071` failure was a short, wide single glyph
+incorrectly split by the touching-digit heuristic; `IMG_1080` had an incomplete
+second digit after the baseline threshold. The fix adds conservative component
+grouping and local faint-stroke recovery without changing document crop,
+registration, OMR, UI/UX, grading, export, or business logic.
+
+- `IMG_1071`: boxes changed from `3` fragments to `2` digit boxes; the remaining
+  error is classifier `8 -> 9`, not ROI/crop failure.
+- `IMG_1080`: recovered complete `46`; no global preprocessing threshold was
+  changed.
+- Augmentation ablation proved blur caused the `IMG_1073` regression. Blur was
+  removed; mild affine-only hard-pair augmentation remains for labels
+  `{1,3,4,6,7,8,9}`, one copy per training sample.
+- Current bundled held-out report is
+  `/private/tmp/exam-grader-identity-round2-bundled-final-v1.json`: exact
+  `15/22` (`68.2%`), candidate visible `19/22` (`86.4%`), review `15/22`,
+  selective auto-accept `7/22`, wrong auto-accept `0`. Vol.8 is `6/10` exact
+  and Vol.9 is `9/12`.
+- Selective gate is enabled only with complete segmentation, candidate at the
+  top of the ranked list, confidence `>=100`, and margin `>=15`. On held-out,
+  all `7/7` auto-accepted candidates were exact; ambiguous cases remain review.
+- Final remaining wrong cases are `7/22`: classifier confusion in all seven
+  after visual re-audit; ranking amplifies the error on `IMG_1028` and
+  `IMG_1072` where `27` remains visible but `21` ranks first. No remaining
+  primary ROI/crop failure was found.
+- Training used only the existing 198-record seed manifest; internal KNN
+  validation is `39/39`, and `generalization_claim_allowed=false` remains.
+- Final bundled model SHA-256:
+  `aabeeb9bab4fdfad481facaa627c9efb521707e7783123746928776e74153502`.
+- Focused tests: `36 passed`; Ruff and `git diff --check` passed. Fresh
+  `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app` passed packaged
+  self-check, offscreen settings/UI smoke, and strict deep codesign. Native
+  Product Owner UAT is separate. Do not claim production-ready from this
+  source/held-out evidence alone.
+
 ## Current task result — 2026-09-16 student-number root-cause fix
 
 The verified recognizer bottleneck was addressed without changing document

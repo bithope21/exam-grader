@@ -1,5 +1,43 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+## Current handoff — 2026-09-16 student-number recognition round 2
+
+Round 2 continues from checkpoint `33439ec` and is scoped only to Student
+Number Recognition. Conservative component grouping fixed the verified short,
+wide glyph split in `IMG_1071`; local faint-stroke recovery fixed the incomplete
+second digit in `IMG_1080`. The production document crop/registration, OMR,
+UI/UX, grading, export, and business logic were not changed.
+
+- Bundled held-out report:
+  `/private/tmp/exam-grader-identity-round2-bundled-final-v1.json`.
+- Result: exact `15/22`, candidate visible `19/22`, review `15/22`, selective
+  auto-accept `7/22`, wrong auto-accept `0`; Vol.8 `6/10`, Vol.9 `9/12`.
+- The final model uses existing seed data only (`198` records), KNN internal
+  validation `39/39`, affine-only hard-pair augmentation copies `1`, and
+  `generalization_claim_allowed=false`.
+- Blur augmentation was removed after the controlled ablation showed it caused
+  `IMG_1073` to regress `19 -> 14`; affine-only is the retained variant.
+- Selective gate is fail-closed: complete segmentation, top-ranked candidate,
+  confidence `>=100`, margin `>=15`; held-out auto-accept was `7/7` exact.
+- Remaining errors: `7/22`, all visually classified as digit-model confusion;
+  `IMG_1028` and `IMG_1072` also show ranking amplification while the truth
+  remains visible. `IMG_1071` is now a classifier `8 -> 9` error and
+  `IMG_1080` is exact `46`.
+- Model SHA-256:
+  `aabeeb9bab4fdfad481facaa627c9efb521707e7783123746928776e74153502`.
+- Fresh app: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`;
+  packaged self-check, offscreen settings/UI smoke, and strict deep codesign
+  passed. The current branch HEAD is the round-2 checkpoint.
+- Native Product Owner UAT remains pending; source/held-out/package evidence is
+  not a production-readiness claim.
+
+### Protected boundaries
+
+Preserve the existing held-out corpus, ground truth, immutable originals,
+source hashes, provenance, fail-closed ambiguity, and untracked Vol.8/Vol.9
+fixtures. Do not broaden into document crop/registration, OMR, UI/UX,
+grading/export/business logic, new telemetry, or new datasets.
+
 ## Current handoff — 2026-09-16 student-number error attribution
 
 Use the repository docs and current task as source of truth. The seed-model

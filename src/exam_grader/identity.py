@@ -314,6 +314,39 @@ def _digit_model_observation(model: Any, gray: np.ndarray, boxes: list[list[int]
     }
 
 
+def _selective_auto_accept_allowed(
+    model: Any | None,
+    candidate: str | None,
+    candidates: list[str],
+    confidence: float | None,
+    confidence_margin: float | None,
+    *,
+    segmentation_complete: bool,
+) -> bool:
+    """Apply an explicitly calibrated, fail-closed identity acceptance gate."""
+    calibration = getattr(model, "calibration", {}) if model is not None else {}
+    if not calibration.get("auto_accept_enabled") or not segmentation_complete:
+        return False
+    if not candidate or not candidates or candidates[0] != candidate:
+        return False
+    minimum_confidence = calibration.get("auto_accept_min_confidence")
+    minimum_margin = calibration.get("auto_accept_min_margin")
+    if not isinstance(minimum_confidence, (int, float)) or not isinstance(
+        minimum_margin, (int, float)
+    ):
+        return False
+    if not isinstance(confidence, (int, float)) or not isinstance(
+        confidence_margin, (int, float)
+    ):
+        return False
+    return (
+        math.isfinite(float(confidence))
+        and math.isfinite(float(confidence_margin))
+        and float(confidence) >= float(minimum_confidence)
+        and float(confidence_margin) >= float(minimum_margin)
+    )
+
+
 @lru_cache(maxsize=4)
 def backend_provenance(executable: str) -> dict:
     result = {"executable": executable, "language": "eng"}
@@ -438,6 +471,91 @@ HOMOGLYPH_MAP = {
 }
 
 
+def _clean_component_mask(
+    mask: np.ndarray,
+    *,
+    crop_shape: tuple[int, ...],
+    scale: float,
+) -> np.ndarray:
+    """Keep handwriting-like components while removing form rules and labels."""
+    _, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
+    ink = np.zeros_like(mask)
+    for index, (x, y, w, h, area) in enumerate(stats[1:], 1):
+        if (
+            h >= 22 * scale
+            and area >= 25 * scale * scale
+            and w >= 3 * scale
+            and w < crop_shape[1] * 0.85
+        ):
+            # Safety Net 1: Suppress bottom dotted guide lines
+            if y + h >= crop_shape[0] - 4 * scale and h < 18 * scale:
+                continue
+            # Safety Net 2: Suppress left-margin Thai label components (e.g. 'เลขที่')
+            is_thai_left = (
+                x < crop_shape[1] * 0.45
+                and (
+                    (y > crop_shape[0] * 0.40 and h < 55 * scale)
+                    or (x <= 4 * scale and w < 0.15 * crop_shape[1])
+                )
+            )
+            if is_thai_left:
+                continue
+            ink[labels == index] = 255
+
+    # Printed horizontal/vertical rules are not digit strokes. Remove only
+    # components whose geometry is overwhelmingly line-like; handwriting stays
+    # available for the following grouping stage.
+    line_clean = np.zeros_like(ink)
+    _, line_labels, line_stats, _ = cv2.connectedComponentsWithStats(ink)
+    for index, (x, y, w, h, area) in enumerate(line_stats[1:], 1):
+        if (w >= crop_shape[1] * 0.65 and h <= max(6, round(8 * scale))) or (
+            h >= crop_shape[0] * 0.70 and w <= max(6, round(8 * scale))
+        ):
+            continue
+        line_clean[line_labels == index] = 255
+    return line_clean
+
+
+def _group_digit_boxes(ink: np.ndarray, *, scale: float) -> list[list[int]]:
+    """Group x-overlapping ink and conservatively split genuinely touching digits."""
+    occupied = np.flatnonzero(ink.any(axis=0))
+    boxes: list[list[int]] = []
+    if occupied.size:
+        groups = np.split(
+            occupied,
+            np.where(np.diff(occupied) > max(2, round(3 * scale)))[0] + 1,
+        )
+        for group in groups:
+            x1, x2 = int(group[0]), int(group[-1]) + 1
+            ys = np.flatnonzero(ink[:, x1:x2].any(axis=1))
+            boxes.append([x1, int(ys[0]), x2 - x1, int(ys[-1] - ys[0] + 1)])
+
+    # A short, wide glyph is more likely a broken single digit (notably an 8)
+    # than a pair of touching digits. Require the component to span most of the
+    # search height before attempting a vertical split.
+    final_boxes: list[list[int]] = []
+    minimum_split_height = max(25 * scale, ink.shape[0] * 0.45)
+    for box in boxes:
+        bx, by, bw, bh = box
+        if bw >= 0.45 * bh and bh >= minimum_split_height:
+            box_ink = ink[by : by + bh, bx : bx + bw]
+            proj = (box_ink == 255).sum(axis=0)
+            start_x = int(bw * 0.25)
+            end_x = int(bw * 0.75)
+            if end_x > start_x:
+                mid = proj[start_x:end_x]
+                v_idx = start_x + int(np.argmin(mid))
+                left_peak = proj[:v_idx].max() if v_idx > 0 else 0
+                right_peak = proj[v_idx:].max() if v_idx < bw else 0
+                min_peak = min(left_peak, right_peak)
+                if min_peak > 0 and proj[v_idx] <= 0.20 * min_peak and proj[v_idx] <= 8 * scale:
+                    final_boxes.append([bx, by, v_idx, bh])
+                    final_boxes.append([bx + v_idx, by, bw - v_idx, bh])
+                    continue
+        final_boxes.append(box)
+    return final_boxes
+
+
 def preprocess(
     crop: np.ndarray,
     reference_crop: np.ndarray | None = None,
@@ -451,6 +569,8 @@ def preprocess(
     scale = crop.shape[0] / 136.0
     darkness = cv2.GaussianBlur(gray, (0, 0), max(2, round(9 * scale))) - gray
     mask = (darkness > 30).astype(np.uint8) * 255
+    green_print = np.zeros_like(mask)
+    ref_mask_dilated = np.zeros_like(mask)
 
     # Remove the colored printed form before connected-component grouping. The
     # test is intentionally conservative: dark neutral handwriting has low
@@ -478,73 +598,42 @@ def preprocess(
         ref_mask_dilated = cv2.dilate(ref_mask, kernel)
         mask = cv2.bitwise_and(mask, cv2.bitwise_not(ref_mask_dilated)).astype(np.uint8)
 
-    _, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
-    ink = np.zeros_like(mask)
-    for index, (x, y, w, h, area) in enumerate(stats[1:], 1):
-        if (
-            h >= 22 * scale
-            and area >= 25 * scale * scale
-            and w >= 3 * scale
-            and w < crop.shape[1] * 0.85
-        ):
-            # Safety Net 1: Suppress bottom dotted guide lines
-            if y + h >= crop.shape[0] - 4 * scale and h < 18 * scale:
-                continue
-            # Safety Net 2: Suppress left-margin Thai label components (e.g. 'เลขที่')
-            is_thai_left = (
-                x < crop.shape[1] * 0.45
-                and (
-                    (y > crop.shape[0] * 0.40 and h < 55 * scale)
-                    or (x <= 4 * scale and w < 0.15 * crop.shape[1])
-                )
+    ink = _clean_component_mask(mask, crop_shape=crop.shape, scale=scale)
+    boxes = _group_digit_boxes(ink, scale=scale)
+
+    # Recover faint lower strokes only when the baseline geometry itself signals
+    # an incomplete digit. This keeps the proven threshold-30 path unchanged for
+    # complete handwriting while avoiding a global low-threshold regression.
+    heights = [box[3] for box in boxes]
+    needs_recovery = bool(
+        len(heights) >= 2 and min(heights) < 0.55 * max(heights)
+    )
+    if needs_recovery:
+        recovery_mask = (darkness > 20).astype(np.uint8) * 255
+        recovery_mask = cv2.bitwise_and(
+            recovery_mask, cv2.bitwise_not(green_print)
+        ).astype(np.uint8)
+        if reference_crop is not None and reference_crop.size > 0:
+            recovery_mask = cv2.bitwise_and(
+                recovery_mask, cv2.bitwise_not(ref_mask_dilated)
+            ).astype(np.uint8)
+        recovered_ink = _clean_component_mask(
+            recovery_mask, crop_shape=crop.shape, scale=scale
+        )
+        recovered_boxes = _group_digit_boxes(recovered_ink, scale=scale)
+        recovered_heights = [box[3] for box in recovered_boxes]
+        recovery_improves_geometry = bool(
+            recovered_boxes
+            and len(recovered_boxes) <= len(boxes)
+            and (
+                len(recovered_boxes) < len(boxes)
+                or min(recovered_heights) >= 0.75 * max(recovered_heights)
             )
-            if is_thai_left:
-                continue
-            ink[labels == index] = 255
+        )
+        if recovery_improves_geometry:
+            ink, boxes = recovered_ink, recovered_boxes
 
-    # Printed horizontal/vertical rules are not digit strokes. Remove only
-    # components whose geometry is overwhelmingly line-like; handwriting stays
-    # available for the following grouping stage.
-    line_clean = np.zeros_like(ink)
-    _, line_labels, line_stats, _ = cv2.connectedComponentsWithStats(ink)
-    for index, (x, y, w, h, area) in enumerate(line_stats[1:], 1):
-        if (w >= crop.shape[1] * 0.65 and h <= max(6, round(8 * scale))) or (
-            h >= crop.shape[0] * 0.70 and w <= max(6, round(8 * scale))
-        ):
-            continue
-        line_clean[line_labels == index] = 255
-    ink = line_clean
-    occupied = np.flatnonzero(ink.any(axis=0))
-    boxes = []
-    if occupied.size:
-        groups = np.split(occupied, np.where(np.diff(occupied) > max(2, round(3 * scale)))[0] + 1)
-        for group in groups:
-            x1, x2 = int(group[0]), int(group[-1]) + 1
-            ys = np.flatnonzero(ink[:, x1:x2].any(axis=1))
-            boxes.append([x1, int(ys[0]), x2 - x1, int(ys[-1] - ys[0] + 1)])
-
-    # Safety Net 3: Split touching digits (e.g. '49' where tail touches stem)
-    final_boxes = []
-    for b in boxes:
-        bx, by, bw, bh = b
-        if bw >= 0.45 * bh and bh >= 25 * scale:
-            box_ink = ink[by : by + bh, bx : bx + bw]
-            proj = (box_ink == 255).sum(axis=0)
-            start_x = int(bw * 0.25)
-            end_x = int(bw * 0.75)
-            if end_x > start_x:
-                mid = proj[start_x:end_x]
-                v_idx = start_x + int(np.argmin(mid))
-                left_peak = proj[:v_idx].max() if v_idx > 0 else 0
-                right_peak = proj[v_idx:].max() if v_idx < bw else 0
-                min_peak = min(left_peak, right_peak)
-                if min_peak > 0 and proj[v_idx] <= 0.20 * min_peak and proj[v_idx] <= 8 * scale:
-                    final_boxes.append([bx, by, v_idx, bh])
-                    final_boxes.append([bx + v_idx, by, bw - v_idx, bh])
-                    continue
-        final_boxes.append(b)
-
-    return 255 - ink, final_boxes, gray.astype(np.uint8)
+    return 255 - ink, boxes, gray.astype(np.uint8)
 
 
 def _filter_boxes_to_number_field(
@@ -827,6 +916,7 @@ def observe(
         from exam_grader.digit_model import bundled_digit_model_path
 
         effective_digit_model_path = bundled_digit_model_path()
+    model = None
     model_observation = None
     if effective_digit_model_path is not None:
         model = _load_digit_model(str(effective_digit_model_path.resolve()))
@@ -1131,6 +1221,15 @@ def observe(
     runner_up_score = scores.get(candidates[1], 0.0) if len(candidates) > 1 else 0.0
     score_margin = (top_score - runner_up_score) if (top_score is not None and len(candidates) > 1) else (100.0 if top_candidate else 0.0)
     diagnostics["confidence_margin"] = round(score_margin, 2)
+    selective_auto_accept = _selective_auto_accept_allowed(
+        model,
+        top_candidate,
+        candidates,
+        round(top_score, 2) if top_score is not None else None,
+        round(score_margin, 2),
+        segmentation_complete=not segmentation_incomplete,
+    )
+    diagnostics["selective_auto_accept"] = selective_auto_accept
 
     return {
         **base,
@@ -1140,16 +1239,21 @@ def observe(
         "candidate": top_candidate,
         "candidates": candidates,
         "review_suggestions": review_suggestions,
+        "requires_review": not selective_auto_accept,
         "confidence": round(top_score, 2) if top_score is not None else None,
         "confidence_margin": round(score_margin, 2),
         "diagnostics": diagnostics,
         "review_reason": (
-            "conflicting OCR/model candidates; teacher confirmation required"
-            if len(candidates) > 1 and score_margin < 20.0
+            "selective confidence gate passed; no review required"
+            if selective_auto_accept
             else (
-                "seed digit model candidate; teacher confirmation required"
-                if model_observation is not None
-                else base["review_reason"]
+                "conflicting OCR/model candidates; teacher confirmation required"
+                if len(candidates) > 1 and score_margin < 20.0
+                else (
+                    "seed digit model candidate; teacher confirmation required"
+                    if model_observation is not None
+                    else base["review_reason"]
+                )
             )
         ),
     }

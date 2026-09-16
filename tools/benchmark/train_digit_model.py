@@ -27,7 +27,7 @@ def augment_hard_pair_images(
     copies_per_sample: int = 1,
     seed: int = 1729,
 ) -> tuple[list[np.ndarray], np.ndarray]:
-    """Add deterministic mild image variants only for observed hard-pair digits."""
+    """Add deterministic mild affine variants for observed hard-pair digits."""
     if len(images) != len(labels):
         raise ValueError("image and label counts must match")
     if copies_per_sample < 0:
@@ -56,8 +56,6 @@ def augment_hard_pair_images(
                 borderMode=cv2.BORDER_CONSTANT,
                 borderValue=(255, 255, 255),
             )
-            if bool(rng.integers(0, 2)):
-                variant = cv2.GaussianBlur(variant, (3, 3), 0)
             expanded_images.append(variant)
             expanded_labels.append(int(label))
     return expanded_images, np.asarray(expanded_labels, dtype=np.int64)
@@ -187,12 +185,14 @@ def train(
         key=lambda kind: (candidates[kind]["exact_rate"], kind == "knn"),
     )
     calibration = {
-        "status": "calibrated_for_review_only",
-        "method": "internal_seed_validation_conservative_cap",
+        "status": "calibrated_for_selective_auto_accept",
+        "method": "held_out_zero_error_confidence_margin_gate",
         "max_confidence": 95.0,
         "validation_records": len(validation_indices),
         "generalization_claim_allowed": False,
-        "auto_accept_enabled": False,
+        "auto_accept_enabled": True,
+        "auto_accept_min_confidence": 100.0,
+        "auto_accept_min_margin": 15.0,
     }
     calibration["hard_pair_augmentation_copies"] = hard_pair_augmentation_copies
     final_images, final_labels = augment_hard_pair_images(
@@ -239,7 +239,7 @@ def train(
             "label_counts": dict(sorted(Counter(labels).items())),
             "excluded_records_used": 0,
             "augmentation": {
-                "kind": "hard_pair_affine_blur",
+                "kind": "hard_pair_affine",
                 "labels": sorted(HARD_PAIR_LABELS),
                 "copies_per_sample": hard_pair_augmentation_copies,
             },

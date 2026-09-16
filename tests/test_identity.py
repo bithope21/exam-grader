@@ -8,7 +8,9 @@ import exam_grader.identity as identity_module
 from exam_grader.identity import (
     _digit_model_observation,
     _direct_segmented_alternatives,
+    _group_digit_boxes,
     _rank_identity_candidates,
+    _selective_auto_accept_allowed,
     _shape_segmented_suggestion,
     _supported_segmented_number,
     number_roi,
@@ -165,6 +167,36 @@ def test_digit_model_observation_supports_a_single_digit_box():
     assert result is not None
     assert result["candidate"] == "9"
     assert result["candidates"] == ["9", "4"]
+
+
+def test_component_grouping_does_not_split_a_short_wide_single_glyph():
+    ink = np.zeros((224, 563), dtype=np.uint8)
+    ink[48:112, 145:174] = 255
+    ink[48:112, 194:264] = 255
+    ink[48:58, 174:194] = 255
+
+    boxes = _group_digit_boxes(ink, scale=224 / 136)
+
+    assert boxes == [[145, 48, 119, 64]]
+
+
+def test_selective_auto_accept_requires_calibrated_confidence_and_complete_segmentation():
+    class FakeModel:
+        calibration = {
+            "auto_accept_enabled": True,
+            "auto_accept_min_confidence": 100.0,
+            "auto_accept_min_margin": 15.0,
+        }
+
+    assert _selective_auto_accept_allowed(
+        FakeModel(), "7", ["7"], 110.0, 100.0, segmentation_complete=True
+    )
+    assert not _selective_auto_accept_allowed(
+        FakeModel(), "19", ["19", "09"], 90.0, 65.0, segmentation_complete=True
+    )
+    assert not _selective_auto_accept_allowed(
+        FakeModel(), "18", ["18"], 110.0, 100.0, segmentation_complete=False
+    )
 
 
 def test_model_path_fuses_legacy_candidates(monkeypatch):
