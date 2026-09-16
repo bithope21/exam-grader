@@ -3,8 +3,9 @@
 ## Current handoff — 2026-09-16 student-number recognition rollover
 
 Use the repository docs and current task as source of truth. The prior compact
-macOS UI task is complete and committed; this section prepares the next chat
-without inventing the next task's implementation detail.
+macOS UI task is complete and committed. Student-number recognition Phase 1
+is now complete as a dataset/benchmark layer; runtime behavior remains
+unchanged.
 
 ### Verified current state
 
@@ -18,10 +19,36 @@ without inventing the next task's implementation detail.
 - Limitation: source/package evidence only; Product Owner native UAT remains
   separate and no release/tag/publish claim is made here.
 
+### Phase 1 result
+
+- Extracted 100 visually seeded page-1 sequence crops (`00`–`99`) from
+  `/Users/zubinpijit/Downloads/number handwriting.pdf` and kept pages 2–11 in
+  an unlabeled review queue. The export is not training-ready.
+- Built a 22-record held-out corpus from teacher-confirmed Vol.8/Vol.9
+  results with source hashes and saved registration provenance. Writer groups
+  are unknown; no training split is claimed.
+- Current baseline: exact `5/22` (`22.7%`), candidate/review visibility
+  `18/22` (`81.8%`), review-required `22/22`, auto-accept `0`, wrong
+  auto-accept `0`. Vol.8: `2/10` exact and `8/10` visible; Vol.9: `3/12`
+  exact and `10/12` visible.
+- Reproducible commands and promotion gates are documented in
+  `docs/IDENTITY_DATASET.md`. External reports are under `/private/tmp/`.
+
+### Visual QC checkpoint
+
+- `tools/benchmark/prepare_digit_annotation.py` now produces a review-only
+  worklist of 200 spatial digit proposals plus a contact sheet. All records
+  remain `needs_review`; no training data is asserted.
+- Visual QC identified `06`-`09` as a single-digit layout variant without a
+  visible leading zero. Their 8 proposals are explicitly unlabeled and must
+  be resolved by annotation rather than inferred from position.
+- Current worklist: `/private/tmp/exam-grader-number-handwriting-annotation-v2/`.
+
 ### Scope boundary for the next chat
 
-The next task is student-number recognition, but its implementation scope and
-acceptance are intentionally deferred:
+The next task is visual QC/annotation and leakage-safe writer-grouped dataset
+preparation. Do not change runtime recognition, crop/registration, OMR,
+grading, review, UI, or release behavior as part of that preparation.
 
 `DETAIL: [รอ Product Owner บอกใน chat ใหม่]`
 

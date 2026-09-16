@@ -1,5 +1,50 @@
 # Exam Grader progress
 
+## Current task handoff — 2026-09-16 student-number dataset Phase 1
+
+Phase 1 is implemented and verified as a read-only dataset/benchmark layer.
+The PDF seed, teacher-confirmed real-sheet corpus, and current recognizer
+baseline are now reproducible without changing runtime recognition, OMR,
+crop/registration, grading, review, UI, or release behavior.
+
+### Evidence
+
+- PDF source: `/Users/zubinpijit/Downloads/number handwriting.pdf`; SHA-256
+  `20e2ffe4aa0244aba648e40ce995891dab99c6ef0912f845aa396e1e7201f244`.
+- Extracted 100 page-1 sequence crops (`00`–`99`) plus a 10-page review queue.
+  The arithmetic pages remain unlabeled; `training_ready=false`.
+- Built a 22-record held-out corpus from teacher-confirmed Vol.8/Vol.9
+  results. Writer identity is unknown, so no training split is claimed.
+- Baseline: primary exact `5/22` (`22.7%`, bootstrap 95% CI `9.1–40.9%`);
+  truth visible in candidate/review suggestions `18/22` (`81.8%`, CI
+  `63.6–95.5%`); review required `22/22`; auto-accept `0`; wrong auto-accept
+  `0`.
+- Per corpus: Vol.8 exact `2/10`, candidate-visible `8/10`; Vol.9 exact
+  `3/12`, candidate-visible `10/12`.
+
+### Files and next gate
+
+- Tooling: `tools/benchmark/extract_number_handwriting_dataset.py`,
+  `tools/benchmark/build_identity_corpus.py`,
+  `tools/benchmark/identity_labeled_benchmark.py`.
+- Tests/docs: `tests/test_identity_dataset_tools.py`,
+  `docs/IDENTITY_DATASET.md`.
+- The next authorized phase is visual QC/annotation of digit crops and a
+  leakage-safe writer-grouped train/validation/test manifest. Do not promote
+  a model or enable auto-accept until independent held-out evidence supports
+  it and wrong auto-accept remains zero.
+
+## Current task handoff — 2026-09-16 visual QC annotation preparation
+
+- Added `tools/benchmark/prepare_digit_annotation.py` and
+  `tests/test_digit_annotation.py`.
+- Generated an external worklist with 200 digit proposals and a 10x10 contact
+  sheet. All 200 remain `needs_review`; `training_ready=false`.
+- Visual QC found a real layout variant: `06`-`09` omit the visible leading
+  zero. All 8 affected spatial proposals have `label_proposed=null` and an
+  explicit review reason; they cannot silently enter training.
+- Output: `/private/tmp/exam-grader-number-handwriting-annotation-v2/`.
+
 ## Current task handoff — 2026-09-16 compact UI checkpoint → student-number recognition
 
 The latest bounded macOS UI polish is committed on the fix branch. This
