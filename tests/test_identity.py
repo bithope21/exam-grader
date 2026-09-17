@@ -6,6 +6,7 @@ import pytest
 
 import exam_grader.identity as identity_module
 from exam_grader.identity import (
+    _bounded_single_stroke_correction,
     _digit_model_observation,
     _direct_segmented_alternatives,
     _group_digit_boxes,
@@ -197,6 +198,44 @@ def test_selective_auto_accept_requires_calibrated_confidence_and_complete_segme
     assert not _selective_auto_accept_allowed(
         FakeModel(), "18", ["18"], 110.0, 100.0, segmentation_complete=False
     )
+
+
+def test_selective_auto_accept_requires_independent_agreement_and_clean_geometry():
+    class FakeModel:
+        calibration = {
+            "auto_accept_enabled": True,
+            "auto_accept_min_confidence": 100.0,
+            "auto_accept_min_margin": 15.0,
+        }
+
+    kwargs = {
+        "segmentation_complete": True,
+        "candidate_disagreement": False,
+        "independent_agreement": True,
+        "merged_component_suspected": False,
+    }
+    assert _selective_auto_accept_allowed(
+        FakeModel(), "7", ["7"], 110.0, 100.0, **kwargs
+    )
+    assert not _selective_auto_accept_allowed(
+        FakeModel(), "7", ["7"], 110.0, 100.0, **{**kwargs, "candidate_disagreement": True}
+    )
+    assert not _selective_auto_accept_allowed(
+        FakeModel(), "7", ["7"], 110.0, 100.0, **{**kwargs, "independent_agreement": False}
+    )
+    assert not _selective_auto_accept_allowed(
+        FakeModel(), "7", ["7"], 110.0, 100.0, **{**kwargs, "merged_component_suspected": True}
+    )
+
+
+def test_bounded_single_stroke_correction_only_handles_narrow_open_nine_pair():
+    ink = np.full((80, 20), 255, dtype=np.uint8)
+    ink[8:72, 8:12] = 0
+    assert _bounded_single_stroke_correction(ink, "9") == "1"
+
+    closed = ink.copy()
+    cv2.rectangle(closed, (4, 8), (16, 25), 0, thickness=2)
+    assert _bounded_single_stroke_correction(closed, "9") is None
 
 
 def test_model_path_fuses_legacy_candidates(monkeypatch):

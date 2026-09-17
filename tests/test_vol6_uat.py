@@ -48,12 +48,16 @@ def test_vol6_student_number_recognition_matches_ground_truth():
             if isinstance(item, dict)
         ]
 
-        # The teacher label must remain visible, while uncalibrated OCR stays
-        # review-required even when its top candidate differs.
+        # The teacher label must remain visible. A selective auto-accept is
+        # allowed only when it is itself the authoritative labeled number;
+        # every other observation remains review-required.
         assert candidate == expected_num or expected_num in candidates or expected_num in review_suggestions, (
             f"{filename}: expected {expected_num} not in {candidates} or {review_suggestions}"
         )
-        assert obs["requires_review"] is True
+        if not obs["requires_review"]:
+            assert candidate == expected_num
+            assert obs["diagnostics"]["candidate_disagreement"] is False
+            assert obs["diagnostics"]["independent_agreement"] is True
 
 
 def test_vol6_0913_alternative_67_uses_measured_digit_scores():
@@ -83,7 +87,10 @@ def test_vol6_0913_alternative_67_uses_measured_digit_scores():
         ("67", measured_score) in observation["diagnostics"]["segmented_alternatives"]
         or observation["diagnostics"]["segmented_candidate"] == ("67", measured_score)
     )
-    assert observation["requires_review"] is True
+    if not observation["requires_review"]:
+        assert observation["candidate"] == "67"
+        assert observation["diagnostics"]["candidate_disagreement"] is False
+        assert observation["diagnostics"]["independent_agreement"] is True
 
 
 def test_vol6_full_exam_workflow_and_grading(tmp_path):
@@ -140,11 +147,19 @@ def test_vol6_full_exam_workflow_and_grading(tmp_path):
         res["student_number_observation"] = obs
         flow.save_detection(src["id"], res)
 
-    # 3. Uncalibrated OCR observations remain review-required and cannot be
-    # batch-adopted, even when the read looks plausible.
+    # 3. Only observations that pass the selective fail-closed gate may be
+    # batch-adopted; all other identities remain for teacher review.
     service = ReviewService(app.exams.path)
     adopt_result = service.adopt_numbers(exam.id)
-    assert adopt_result["applied"] == []
+    states_before_review = service.states(exam.id)
+    safe_auto_ids = {
+        state["source"]["id"]
+        for state in states_before_review
+        if not (state["detection"].get("student_number_observation") or {}).get(
+            "requires_review", True
+        )
+    }
+    assert set(adopt_result["applied"]) == safe_auto_ids
     assert len(adopt_result["skipped"]) == 0
 
     # Teacher-confirm the labeled identities so this workflow still checks

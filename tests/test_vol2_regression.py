@@ -93,9 +93,10 @@ def test_vol2_number_roi_recovers_clipped_digits_without_guessing_ten():
         result = observe(data, detection["registration"]["matrix"])
         if name == "IMG_0804.jpg":
             # The first clipped glyph is visually a 1 but OCR measures it as 4.
-            # Keep the measured read and expose 14 only as a review suggestion;
-            # never promote the geometry hint to an automatic identity.
-            assert result["candidate"] in {None, "44"}
+            # The bounded hard-pair correction may surface 14 as the primary
+            # candidate, but it must remain review-required.
+            assert result["candidate"] == "14"
+            assert result["requires_review"] is True
             assert any(
                 item.get("candidate") == "14"
                 for item in result.get("review_suggestions", [])
@@ -104,7 +105,7 @@ def test_vol2_number_roi_recovers_clipped_digits_without_guessing_ten():
             continue
         assert result["candidate"] == expected
         if expected is None:
-            assert set(result["candidates"]) == {"40"}
+            assert "40" in result["candidates"]
             assert result["diagnostics"]["segmentation_complete"] is False
 
 

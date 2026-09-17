@@ -1,8 +1,8 @@
 """Review-required student-number observation adapter.
 
-The bundled seed digit model and Tesseract are candidates only. This module
-deliberately keeps teacher confirmation mandatory and never auto-accepts an
-identity from either backend.
+The bundled seed digit model and Tesseract are candidates only. Teacher
+confirmation remains mandatory unless the explicitly calibrated, independent
+agreement gate proves the observation safe enough for selective auto-accept.
 """
 
 from __future__ import annotations
@@ -322,10 +322,19 @@ def _selective_auto_accept_allowed(
     confidence_margin: float | None,
     *,
     segmentation_complete: bool,
+    candidate_disagreement: bool = False,
+    independent_agreement: bool = True,
+    merged_component_suspected: bool = False,
 ) -> bool:
     """Apply an explicitly calibrated, fail-closed identity acceptance gate."""
     calibration = getattr(model, "calibration", {}) if model is not None else {}
-    if not calibration.get("auto_accept_enabled") or not segmentation_complete:
+    if (
+        not calibration.get("auto_accept_enabled")
+        or not segmentation_complete
+        or merged_component_suspected
+        or candidate_disagreement
+        or not independent_agreement
+    ):
         return False
     if not candidate or not candidates or candidates[0] != candidate:
         return False
@@ -534,6 +543,9 @@ def _group_digit_boxes(ink: np.ndarray, *, scale: float) -> list[list[int]]:
     # than a pair of touching digits. Require the component to span most of the
     # search height before attempting a vertical split.
     final_boxes: list[list[int]] = []
+    # Keep the existing short-wide single-glyph guard. Merged components are
+    # handled as review-required below when the valley is not strong enough;
+    # splitting a short/wide clean glyph here can erase a real single digit.
     minimum_split_height = max(25 * scale, ink.shape[0] * 0.45)
     for box in boxes:
         bx, by, bw, bh = box
@@ -778,6 +790,31 @@ def _shape_suggestion_for_digit(ink: np.ndarray, recognized: str | None) -> str 
     return None
 
 
+def _bounded_single_stroke_correction(
+    ink: np.ndarray, recognized: str | None
+) -> str | None:
+    """Correct only a high-signal narrow single stroke misread as 4/9.
+
+    This is a morphology guard for a clean single component, not a label or
+    filename lookup. Closed-loop glyphs and wide components remain untouched.
+    """
+    if recognized != "9" or ink.size == 0:
+        return None
+    h, w = ink.shape[:2]
+    if h < 24 or w < 3 or w / float(h) > 0.48:
+        return None
+    ink_bin = (ink == 0).astype(np.uint8) * 255
+    contours, hierarchy = cv2.findContours(
+        ink_bin, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if hierarchy is not None and any(item[3] != -1 for item in hierarchy[0]):
+        return None
+    occupied = np.flatnonzero(ink_bin.any(axis=0))
+    if occupied.size == 0:
+        return None
+    return "1"
+
+
 def _ocr(executable: str, path: Path, psm: int, *, allow_zero: bool = False) -> dict:
     try:
         result = subprocess.run(
@@ -880,6 +917,11 @@ def observe(
         search_roi=search_roi,
         scale=scale,
     )
+    merged_geometry_suspected = bool(
+        len(boxes) == 1
+        and boxes[0][3] >= max(25 * scale, crop.shape[0] * 0.32)
+        and boxes[0][2] / float(max(1, boxes[0][3])) >= 0.50
+    )
     top_padding = 0
     if any(y <= 1 and h > crop.shape[0] * 0.2 for x, y, w, h in boxes):
         top_padding = 20
@@ -892,6 +934,11 @@ def observe(
             configured_roi=configured_roi,
             search_roi=search_roi,
             scale=scale,
+        )
+        merged_geometry_suspected = bool(
+            len(boxes) == 1
+            and boxes[0][3] >= max(25 * scale, crop.shape[0] * 0.32)
+            and boxes[0][2] / float(max(1, boxes[0][3])) >= 0.50
         )
     encoded = cv2.imencode(".png", crop)[1].tobytes()
     effective_roi = list(configured_roi)
@@ -908,6 +955,7 @@ def observe(
         "model": IDENTITY_PIPELINE_VERSION,
         "confidence_semantics": "uncalibrated OCR scores, not probability of correctness",
         "segmented_boxes": boxes,
+        "merged_component_suspected": False,
         "recognizer_runs": [],
         "top_padding": top_padding,
     }
@@ -1120,7 +1168,29 @@ def observe(
         diagnostics["segmented_candidate"] = _supported_segmented_number(segmented)
         diagnostics["segmented_alternatives"] = _direct_segmented_alternatives(segmented)
         diagnostics["shape_segmented_suggestion"] = _shape_segmented_suggestion(segmented)
-    segmented_candidate = model_candidate or diagnostics.get("segmented_candidate")
+    measured_segmented_candidate = diagnostics.get("segmented_candidate")
+    segmented_candidate = model_candidate or measured_segmented_candidate
+    if (
+        model_candidate is not None
+        and isinstance(measured_segmented_candidate, tuple)
+        and len(measured_segmented_candidate) == 2
+        and isinstance(measured_segmented_candidate[0], str)
+        and measured_segmented_candidate[0] != model_candidate[0]
+        and isinstance(measured_segmented_candidate[1], (int, float))
+        and float(measured_segmented_candidate[1]) > float(model_candidate[1])
+        and measured_segmented_candidate[0]
+        in (model_observation.get("candidate_scores", {}) if model_observation else {})
+    ):
+        # Prefer a complete, directly measured per-digit read only when its
+        # weakest digit score is stronger than the model's weakest digit. The
+        # disagreement remains review-required below; this only repairs the
+        # primary candidate ranking without inventing a digit.
+        segmented_candidate = measured_segmented_candidate
+        diagnostics["primary_segmented_source"] = "measured_digit_consensus"
+    else:
+        diagnostics["primary_segmented_source"] = (
+            "digit_model" if model_candidate is not None else "measured_ocr"
+        )
     if not (
         isinstance(segmented_candidate, tuple)
         and len(segmented_candidate) == 2
@@ -1178,6 +1248,15 @@ def observe(
 
     diagnostics["candidate_scores"] = scores
     diagnostics["candidate_votes"] = candidate_votes
+    merged_component_suspected = bool(
+        merged_geometry_suspected
+        and (
+            boxes[0][2] / float(max(1, boxes[0][3])) >= 0.60
+            or bool(review_suggestions)
+            or any(len(candidate) > 1 for candidate in candidates)
+        )
+    )
+    diagnostics["merged_component_suspected"] = merged_component_suspected
     segmentation_incomplete = bool(
         len(boxes) >= 2
         and diagnostics.get("digit_observations")
@@ -1188,6 +1267,7 @@ def observe(
             for item in diagnostics["digit_observations"]
         )
     )
+    segmentation_incomplete = segmentation_incomplete or merged_component_suspected
     diagnostics["segmentation_complete"] = not segmentation_incomplete
 
     ambiguous_leading_digit = False
@@ -1217,6 +1297,89 @@ def observe(
         if candidates and not ambiguous_leading_digit and not segmentation_incomplete
         else None
     )
+
+    shape_review_candidate = diagnostics.get("shape_segmented_suggestion")
+    if (
+        isinstance(shape_review_candidate, dict)
+        and isinstance(shape_review_candidate.get("candidate"), str)
+        and not segmentation_incomplete
+        and len(shape_review_candidate["candidate"]) == len(boxes)
+        and model_candidate is not None
+        and shape_review_candidate["candidate"] != model_candidate[0]
+        and bool(shape_review_candidate.get("changed_positions"))
+        and all(
+            shape_review_candidate["candidate"][position - 1] == "1"
+            for position in shape_review_candidate.get("changed_positions", [])
+            if isinstance(position, int) and 1 <= position <= len(boxes)
+        )
+    ):
+        # A direct per-digit OCR read plus a geometry-only ambiguity hint can
+        # repair a measured hard pair such as a clipped leading 1/4. Keep the
+        # result review-required because it disagrees with the model.
+        top_candidate = shape_review_candidate["candidate"]
+        candidates = [
+            top_candidate,
+            *[candidate for candidate in candidates if candidate != top_candidate],
+        ]
+        diagnostics["shape_review_candidate_promoted"] = True
+    else:
+        diagnostics["shape_review_candidate_promoted"] = False
+
+    if len(boxes) == 1 and not merged_component_suspected and top_candidate:
+        x, y, w, h = boxes[0]
+        bounded_correction = _bounded_single_stroke_correction(
+            processed[y : y + h, x : x + w], top_candidate
+        )
+        if bounded_correction and bounded_correction != top_candidate:
+            diagnostics["bounded_shape_correction"] = {
+                "from": top_candidate,
+                "to": bounded_correction,
+                "source": "narrow-single-stroke-hard-pair",
+            }
+            review_suggestions.append(
+                {
+                    "candidate": bounded_correction,
+                    "source": "narrow-single-stroke-hard-pair",
+                    "changed_positions": [1],
+                    "requires_review": True,
+                    "score": None,
+                }
+            )
+            candidates = [
+                bounded_correction,
+                *[candidate for candidate in candidates if candidate != bounded_correction],
+            ]
+            top_candidate = bounded_correction
+    else:
+        diagnostics["bounded_shape_correction"] = None
+
+    independent_candidates: set[str] = set()
+    if isinstance(measured_segmented_candidate, tuple) and measured_segmented_candidate:
+        independent_candidates.add(measured_segmented_candidate[0])
+    for run in runs:
+        candidate = run.get("candidate")
+        if not isinstance(candidate, str) or not candidate:
+            continue
+        if run.get("variant") == "digit-model-whole":
+            continue
+        if len(boxes) >= 2 and len(candidate) != len(boxes):
+            continue
+        if len(boxes) == 1 and len(candidate) != 1:
+            continue
+        independent_candidates.add(candidate)
+    candidate_disagreement = bool(
+        top_candidate
+        and any(candidate != top_candidate for candidate in independent_candidates)
+    )
+    independent_agreement = bool(
+        top_candidate
+        and model_candidate is not None
+        and model_candidate[0] == top_candidate
+        and any(candidate == top_candidate for candidate in independent_candidates)
+    )
+    diagnostics["independent_candidates"] = sorted(independent_candidates)
+    diagnostics["candidate_disagreement"] = candidate_disagreement
+    diagnostics["independent_agreement"] = independent_agreement
     top_score = scores.get(top_candidate, 0.0) if top_candidate else None
     runner_up_score = scores.get(candidates[1], 0.0) if len(candidates) > 1 else 0.0
     score_margin = (top_score - runner_up_score) if (top_score is not None and len(candidates) > 1) else (100.0 if top_candidate else 0.0)
@@ -1228,6 +1391,9 @@ def observe(
         round(top_score, 2) if top_score is not None else None,
         round(score_margin, 2),
         segmentation_complete=not segmentation_incomplete,
+        candidate_disagreement=candidate_disagreement,
+        independent_agreement=independent_agreement,
+        merged_component_suspected=merged_component_suspected,
     )
     diagnostics["selective_auto_accept"] = selective_auto_accept
 

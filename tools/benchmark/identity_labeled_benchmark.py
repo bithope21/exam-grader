@@ -144,7 +144,7 @@ def evaluate(
         "metric_definitions": {
             "primary_exact": "top candidate exactly equals the independent teacher-confirmed whole number",
             "candidate_visible": "truth appears in primary candidate, OCR candidates, or review-only suggestions",
-            "auto_accept": "observation.requires_review is false; current identity contract expects zero",
+            "auto_accept": "observation.requires_review is false after the fail-closed calibrated agreement gate",
             "wrong_auto_accept": "auto-accepted candidate differs from independent teacher label",
             "confidence": "uncalibrated backend score; not a probability",
         },
@@ -159,7 +159,7 @@ def evaluate(
         "limitations": [
             "All records are held-out evaluation evidence; none is training data.",
             "Writer identity is unknown, so writer-disjoint generalization is not established.",
-            "Auto-accept remains disabled; no threshold promotion is performed by this tool.",
+            "Selective auto-accept is measured only after the fail-closed agreement gate; wrong auto-accept must remain zero.",
         ],
     }
 

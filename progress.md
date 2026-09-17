@@ -1,5 +1,30 @@
 # Exam Grader progress
 
+## Current task result — 2026-09-17 targeted identity safety fix
+
+The clean authoritative-label benchmark was used as the fixed baseline. The
+change stayed inside student-number identity recognition; document crop,
+registration, OMR, UI/UX, grading, export, business logic, ground truth, and
+fixture-specific runtime rules were not changed.
+
+- Raw labeled corpus: exact `26/32` (`81.25%`) from baseline `21/32`; candidate
+  visibility `28/32` (`87.5%`) from `27/32`; review `22/32`; selective
+  auto-accept `10/32`; wrong auto-accept `0` from `3`.
+- Unique-source view: exact `19/24` (`79.167%`) from `16/24`; candidate
+  visibility `21/24` (`87.5%`) from `20/24`; review `17/24`; selective
+  auto-accept `7/24`; wrong auto-accept `0` from `2`.
+- The gate now requires complete segmentation, no merged-component suspicion,
+  no independent candidate disagreement, and independent model/recognizer
+  agreement. Vol.7/0987, 0990, 0992 and Vol.6/0914 remain review-required.
+- Vol.8/9 held-out regression is preserved: exact `15/22`, visibility `19/22`,
+  wrong auto-accept `0`; selective auto-accept is `2/22`, both exact.
+- Focused source tests: `tests/test_identity.py` and
+  `tests/test_digit_model.py` pass (`20 passed`). Full test suite was not run.
+- Benchmark artifacts:
+  `/private/tmp/exam-grader-vol1-3-5-6-7-benchmark/targeted_fix_report.md`,
+  `/private/tmp/exam-grader-vol1-3-5-6-7-benchmark/report.json`, and
+  `/private/tmp/exam-grader-targeted-fix-heldout.json`.
+
 ## Current task result — 2026-09-16 student-number recognition round 2
 
 Round 2 continued from checkpoint `33439ec` and changed only Student Number

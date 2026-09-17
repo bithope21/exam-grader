@@ -1,5 +1,33 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+## Current handoff — 2026-09-17 targeted identity safety fix
+
+The authorized targeted fix is implemented on top of the clean Vol.1/2/3/5/6
+and labeled Vol.7 benchmark. Scope remains Student Number Recognition only.
+
+- Raw labeled benchmark: exact `26/32`, candidate visibility `28/32`, review
+  `22/32`, selective auto-accept `10/32`, wrong auto-accept `0`.
+- Unique-source aggregate: exact `19/24`, candidate visibility `21/24`, review
+  `17/24`, selective auto-accept `7/24`, wrong auto-accept `0`.
+- The fail-closed gate rejects merged/incomplete segmentation, independent
+  candidate disagreement, and missing independent agreement. Vol.7/0987,
+  0990, 0992 and Vol.6/0914 remain review-required.
+- Vol.8/9 held-out regression remains exact `15/22`, candidate visibility
+  `19/22`, wrong auto-accept `0`; selective auto-accept is `2/22`, both exact.
+- Authoritative Vol.2/3 `0807` labels remain unchanged and were excluded from
+  classifier tuning/training signal because visual evidence conflicts.
+- Evidence:
+  `/private/tmp/exam-grader-vol1-3-5-6-7-benchmark/targeted_fix_report.md`,
+  `/private/tmp/exam-grader-vol1-3-5-6-7-benchmark/report.json`,
+  `/private/tmp/exam-grader-targeted-fix-heldout.json`.
+- Focused tests currently pass: `tests/test_identity.py` +
+  `tests/test_digit_model.py` = `20 passed`; full suite intentionally not run.
+
+Next delivery gate: run the focused Vol.8/9 and identity smoke checks, inspect
+the final diff, commit the checkpoint, update this handoff with the commit and
+package evidence, then build `dist/ExamGrader.app`. Do not expand into crop,
+registration, OMR, UI/UX, grading, export, or business logic.
+
 ## Current handoff — 2026-09-16 student-number recognition round 2
 
 Round 2 continues from checkpoint `33439ec` and is scoped only to Student
