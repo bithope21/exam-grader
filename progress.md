@@ -30,6 +30,11 @@ fixture-specific runtime rules were not changed.
   packaged `--self-check`, offscreen `--smoke-settings`, and offscreen
   `--smoke-ui` passed. A non-offscreen settings smoke was not used as evidence
   because the headless session's macOS pasteboard service aborted it.
+- Release-candidate handoff: current validation worktree is detached at
+  `cbd01b0` and was pushed to
+  `origin/fix/vol8-current-usable-checkpoint`. The parent worktree remains
+  untouched with its existing untracked Vol.8/Vol.9 fixtures. Windows
+  validation is now the next gate; no merge, tag, or release has been made.
 
 ## Current task result — 2026-09-16 student-number recognition round 2
 

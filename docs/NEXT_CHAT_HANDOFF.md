@@ -28,11 +28,18 @@ and labeled Vol.7 benchmark. Scope remains Student Number Recognition only.
   `--self-check`, offscreen `--smoke-settings`, and offscreen `--smoke-ui` all
   passed. The first non-offscreen settings smoke hit the headless macOS
   pasteboard service and is not counted as package evidence.
+- Release-candidate handoff: current validation worktree is detached at
+  `cbd01b0` and was pushed to
+  `origin/fix/vol8-current-usable-checkpoint`. The parent worktree remains
+  untouched with its existing untracked Vol.8/Vol.9 fixtures. Windows
+  validation is now the next gate; no merge, tag, or release has been made.
 
-Next delivery gate: run the focused Vol.8/9 and identity smoke checks, inspect
-the final diff, commit the checkpoint, update this handoff with the commit and
-package evidence, then build `dist/ExamGrader.app`. Do not expand into crop,
-registration, OMR, UI/UX, grading, export, or business logic.
+Next delivery gate: validate this exact release-candidate branch on Windows
+with focused identity tests, the existing relevant smoke checks, a Windows
+PyInstaller build, and the Student Number Recognition workflow. If a
+Windows-specific defect is found, fix only that defect on this branch and push
+the follow-up commit. Do not expand into crop, registration, OMR, UI/UX,
+grading, export, or business logic.
 
 ## Current handoff — 2026-09-16 student-number recognition round 2
 
