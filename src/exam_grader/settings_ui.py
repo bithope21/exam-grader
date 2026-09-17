@@ -8,6 +8,7 @@ import cv2
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QColorDialog,
     QDialog,
     QFileDialog,
@@ -68,6 +69,9 @@ class AnnotationColorSettingsDialog(QDialog):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowTitle("ตั้งค่าสีรอยตรวจและสัญลักษณ์")
+        app_icon = QApplication.windowIcon()
+        if not app_icon.isNull():
+            self.setWindowIcon(app_icon)
         self.resize(560, 440)
         self.current_colors: dict[str, tuple[int, int, int, int]] = annotation_colors()
 
@@ -222,8 +226,28 @@ class TemplateSettingsDialog(QDialog):
         super().__init__(parent)
         self.application = application
         self.setWindowTitle("จัดการรูปแบบกระดาษคำตอบ")
-        self.resize(960, 620)
-        self.setMinimumSize(860, 520)
+        app_icon = QApplication.windowIcon()
+        if not app_icon.isNull():
+            self.setWindowIcon(app_icon)
+
+        screen = None
+        if parent is not None and hasattr(parent, "screen") and parent.screen() is not None:
+            screen = parent.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+
+        if screen is not None:
+            avail = screen.availableGeometry()
+            w = min(960, max(600, avail.width() - 32))
+            h = min(620, max(440, avail.height() - 48))
+            self.setMinimumSize(min(600, avail.width() - 16), min(420, avail.height() - 32))
+            self.resize(w, h)
+            x = avail.x() + max(0, (avail.width() - w) // 2)
+            y = avail.y() + max(0, (avail.height() - h) // 2)
+            self.setGeometry(x, y, w, h)
+        else:
+            self.resize(960, 620)
+            self.setMinimumSize(600, 420)
 
         self.selected_template: TemplateDefinition | None = None
         self.templates_list: list[TemplateDefinition] = []

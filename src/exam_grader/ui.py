@@ -56,6 +56,9 @@ class NewExamDialog(QDialog):
     def __init__(self, parent: QWidget | None = None, application: Application | None = None):
         super().__init__(parent)
         self.setWindowTitle("สร้างข้อสอบ")
+        app_icon = QApplication.windowIcon()
+        if not app_icon.isNull():
+            self.setWindowIcon(app_icon)
         if application is None and hasattr(parent, "application"):
             application = getattr(parent, "application")
         self.application = application
@@ -275,6 +278,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.application = application
         self.setWindowTitle("Exam Grader")
+        app_icon = QApplication.windowIcon()
+        if not app_icon.isNull():
+            self.setWindowIcon(app_icon)
         self.resize(780, 540)
         container = QWidget()
         layout = QVBoxLayout(container)

@@ -197,7 +197,28 @@ class ReviewDialog(QDialog):
         self.key_mode = source["purpose"] == "key"
         self.key = None if self.key_mode else self.flow.current_key(source["exam_id"])
         self.setWindowTitle("ตรวจเฉลย" if self.key_mode else "ตรวจทานคำตอบนักเรียน")
-        self.resize(1180, 850)
+        app_icon = QApplication.windowIcon()
+        if not app_icon.isNull():
+            self.setWindowIcon(app_icon)
+
+        screen = None
+        if parent is not None and hasattr(parent, "screen") and parent.screen() is not None:
+            screen = parent.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+
+        if screen is not None:
+            avail = screen.availableGeometry()
+            w = min(1180, max(680, avail.width() - 32))
+            h = min(780, max(460, avail.height() - 48))
+            self.setMinimumSize(min(640, avail.width() - 16), min(420, avail.height() - 32))
+            self.resize(w, h)
+            x = avail.x() + max(0, (avail.width() - w) // 2)
+            y = avail.y() + max(0, (avail.height() - h) // 2)
+            self.setGeometry(x, y, w, h)
+        else:
+            self.resize(1080, 720)
+            self.setMinimumSize(640, 420)
         self.normalization_updated = False
         layout = QVBoxLayout(self)
         notice = QLabel("แก้ไขข้อมูลได้ทุกข้อ · ระบบส่งเฉพาะข้อมูลที่ยังมีปัญหาไปแท็บตรวจทาน")
@@ -517,7 +538,9 @@ class ReviewDialog(QDialog):
         splitter.addWidget(controls_widget)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
-        splitter.setSizes([760, 420])
+        controls_w = min(420, max(360, int(self.width() * 0.35)))
+        image_w = max(280, self.width() - controls_w - 30)
+        splitter.setSizes([image_w, controls_w])
         body.addWidget(splitter)
         layout.addLayout(body, 1)
         buttons = QDialogButtonBox()

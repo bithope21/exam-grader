@@ -66,12 +66,20 @@ def main() -> int:
 
         try:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                "bithope.examgrader.1.0.1"
+                "bithope.examgrader.app"
             )
         except Exception:
             pass
 
     qt = QApplication(sys.argv[:1])
+    resources_dir = Path(__file__).resolve().parent / "resources"
+    icon_ico = resources_dir / "icon.ico"
+    icon_png = resources_dir / "icon.png"
+    icon_path = icon_ico if (sys.platform == "win32" and icon_ico.exists()) else icon_png
+    if icon_path.exists():
+        from PySide6.QtGui import QIcon
+
+        qt.setWindowIcon(QIcon(str(icon_path)))
     apply_appearance_theme(qt)
 
     if args.smoke_settings:
@@ -103,12 +111,9 @@ def main() -> int:
             "templates": templates,
         }, ensure_ascii=False))
         return 0
-    icon_path = Path(__file__).resolve().parent / "resources" / "icon.png"
-    if icon_path.exists():
-        from PySide6.QtGui import QIcon
-
-        qt.setWindowIcon(QIcon(str(icon_path)))
     window = MainWindow(application)
+    if not qt.windowIcon().isNull():
+        window.setWindowIcon(qt.windowIcon())
     window.show()
     if args.smoke_ui:
         from PySide6.QtCore import QTimer

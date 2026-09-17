@@ -16,6 +16,7 @@ from PySide6.QtGui import (
     QPolygonF,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QGraphicsEllipseItem,
     QGraphicsItem,
@@ -111,8 +112,28 @@ class ManualCropDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("ปรับกรอบกระดาษ 4 มุม")
-        self.resize(960, 760)
-        self.setMinimumSize(720, 560)
+        app_icon = QApplication.windowIcon()
+        if not app_icon.isNull():
+            self.setWindowIcon(app_icon)
+
+        screen = None
+        if parent is not None and hasattr(parent, "screen") and parent.screen() is not None:
+            screen = parent.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+
+        if screen is not None:
+            avail = screen.availableGeometry()
+            w = min(960, max(600, avail.width() - 32))
+            h = min(740, max(440, avail.height() - 48))
+            self.setMinimumSize(min(600, avail.width() - 16), min(420, avail.height() - 32))
+            self.resize(w, h)
+            x = avail.x() + max(0, (avail.width() - w) // 2)
+            y = avail.y() + max(0, (avail.height() - h) // 2)
+            self.setGeometry(x, y, w, h)
+        else:
+            self.resize(960, 720)
+            self.setMinimumSize(600, 420)
         self.image = image
         self.target_size = target_size
         self._accepted_corners: np.ndarray | None = None

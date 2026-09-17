@@ -259,7 +259,28 @@ class ExamDialog(QDialog):
         self.template_def = load_exam_template_def(application.exams.path, exam.id)
         self.student_sort_desc = False
         self.setWindowTitle(f"{exam.details.name} · Exam Grader")
-        self.resize(1100, 760)
+        app_icon = QApplication.windowIcon()
+        if not app_icon.isNull():
+            self.setWindowIcon(app_icon)
+
+        screen = None
+        if parent is not None and hasattr(parent, "screen") and parent.screen() is not None:
+            screen = parent.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+
+        if screen is not None:
+            avail = screen.availableGeometry()
+            w = min(1100, max(640, avail.width() - 32))
+            h = min(760, max(460, avail.height() - 48))
+            self.setMinimumSize(min(640, avail.width() - 16), min(440, avail.height() - 32))
+            self.resize(w, h)
+            x = avail.x() + max(0, (avail.width() - w) // 2)
+            y = avail.y() + max(0, (avail.height() - h) // 2)
+            self.setGeometry(x, y, w, h)
+        else:
+            self.resize(1100, 760)
+            self.setMinimumSize(640, 440)
         self.setAcceptDrops(True)
 
         layout = QVBoxLayout(self)

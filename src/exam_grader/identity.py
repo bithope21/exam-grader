@@ -356,16 +356,36 @@ def _selective_auto_accept_allowed(
     )
 
 
+def _subprocess_windows_flags() -> dict[str, Any]:
+    if sys.platform == "win32":
+        creationflags = 0
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            creationflags |= subprocess.CREATE_NO_WINDOW
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0
+        return {"creationflags": creationflags, "startupinfo": startupinfo}
+    return {}
+
+
 @lru_cache(maxsize=4)
 def backend_provenance(executable: str) -> dict:
     result = {"executable": executable, "language": "eng"}
     try:
         version = subprocess.run(
-            [executable, "--version"], capture_output=True, text=True, timeout=8
+            [executable, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            **_subprocess_windows_flags(),
         )
         result["version"] = version.stdout.splitlines()[0]
         languages = subprocess.run(
-            [executable, "--list-langs"], capture_output=True, text=True, timeout=8
+            [executable, "--list-langs"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            **_subprocess_windows_flags(),
         )
         match = re.search(r'"([^"]+)"', languages.stdout)
         if match:
@@ -836,6 +856,7 @@ def _ocr(executable: str, path: Path, psm: int, *, allow_zero: bool = False) -> 
             errors="replace",
             check=False,
             timeout=8,
+            **_subprocess_windows_flags(),
         )
     except subprocess.TimeoutExpired:
         return {"candidate": None, "raw_score": None, "error": "timeout"}
