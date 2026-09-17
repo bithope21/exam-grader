@@ -248,6 +248,7 @@ class ReviewService:
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
+        self.finalize(source["exam_id"])
 
     def resolve_answer(
         self, source: dict, question: int, answer: str, *, key_id: str, detection_id: str | None

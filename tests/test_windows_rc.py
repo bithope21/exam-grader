@@ -152,3 +152,114 @@ def test_dialog_sizing_on_simulated_laptop_screens(tmp_path, monkeypatch):
     assert exam_dlg2.height() <= 680
     exam_dlg2.close()
 
+
+def test_digit_model_primary_avoids_tesseract_calls(monkeypatch):
+    from exam_grader import identity
+    import subprocess
+
+    popen_calls = []
+    orig_popen = subprocess.Popen
+
+    def fake_popen(*args, **kwargs):
+        popen_calls.append(args[0] if args else kwargs.get("args"))
+        return orig_popen(*args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    # Even if find_tesseract returns a binary path, bundled model should be primary
+    monkeypatch.setattr(identity, "find_tesseract", lambda: r"C:\fake\tesseract.exe")
+
+    img_path = Path("tests/fixtures/real/vol.9/IMG_1070.jpg")
+    if not img_path.exists():
+        pytest.skip("Test image not found")
+    source_bytes = img_path.read_bytes()
+    from exam_grader.imaging import decode, analyze
+    decoded = decode(source_bytes)
+    analysis = analyze(source_bytes, decoded_image=decoded)
+    matrix = analysis.get("registration", {}).get("matrix")
+
+    obs = identity.observe(source_bytes, matrix, image=decoded)
+    # Zero Tesseract calls when bundled model succeeds
+    assert len(popen_calls) == 0, f"Expected 0 subprocess calls, got {len(popen_calls)}"
+    assert obs.get("candidate") == "13"
+    assert obs.get("confidence") == 60.0
+
+
+def test_set_number_finalizes_and_enables_snapshot(tmp_path):
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("สอบ", "2569", "ป.1", "1", "วิชา", 3))
+
+    from exam_grader.imaging import OMR_PIPELINE_VERSION
+    from exam_grader.imports import ImportService
+    from exam_grader.workflow import Workflow
+    from exam_grader.review_service import ReviewService
+
+    key_img_path = tmp_path / "key.png"
+    img = QImage(200, 300, QImage.Format.Format_RGB32)
+    img.fill(0xFFFFFFFF)
+    img.save(str(key_img_path))
+
+    importer = ImportService(application.exams.path)
+    flow = Workflow(application.exams.path)
+    service = ReviewService(application.exams.path)
+
+    key_source = importer.import_file(exam.id, key_img_path, "key")
+    flow.approve_key(exam.id, ["A", "B", "C"], key_source["id"])
+
+    stu_img_path = tmp_path / "stu.png"
+    img2 = QImage(200, 300, QImage.Format.Format_RGB32)
+    img2.fill(0xFFEEFFEE)
+    img2.save(str(stu_img_path))
+    stu_source = importer.import_file(exam.id, stu_img_path, "student")
+
+    flow.save_detection(
+        stu_source["id"],
+        {
+            "pipeline_version": OMR_PIPELINE_VERSION,
+            "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+            "answers": [
+                {"classification": "single_mark", "selected": ["A"], "auto_resolved": True},
+                {"classification": "single_mark", "selected": ["B"], "auto_resolved": True},
+                {"classification": "single_mark", "selected": ["C"], "auto_resolved": True},
+            ],
+            "student_number_observation": {"candidate": "01"},
+        },
+    )
+
+    # Initially before number confirmation, issues has kind='number'
+    issues = service.issues(exam.id)
+    assert len(issues) == 1
+    assert issues[0]["kind"] == "number"
+
+    # Teacher sets number via set_number
+    service.set_number(stu_source, "1", expected_detection=issues[0]["detection_id"])
+
+    # Issues must be resolved
+    assert len(service.issues(exam.id)) == 0
+
+    # Workflow snapshot must SUCCEED without "ยังมีภาพที่ไม่ได้ตรวจทาน หรือเฉลยเปลี่ยน" error!
+    snapshot = flow.snapshot(exam.id)
+    assert len(snapshot["results"]) == 1
+    assert str(snapshot["results"][0]["student_number"]) == "1"
+
+
+
+def test_student_item_dynamic_size_hint(tmp_path):
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("สอบ", "2569", "ป.1", "1", "วิชา", 3))
+
+    from exam_grader.exam_ui import ExamDialog
+    dlg = ExamDialog(application, exam)
+    source = {"id": "test-id", "original_name": "student_01.jpg", "purpose": "student"}
+    text = "student_01.jpg\nพร้อม · เลขที่ 1"
+    dlg._add_student_item(text, source)
+
+    item = dlg.student_list.item(0)
+    hint = item.sizeHint()
+    fm = dlg.student_list.fontMetrics()
+    expected_min = 2 * fm.lineSpacing() + 16
+    assert hint.height() >= expected_min
+    assert hint.height() >= 44
+    dlg.close()
+
+

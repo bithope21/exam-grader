@@ -1049,34 +1049,35 @@ def observe(
             {"variant": "digit-model-whole", "candidate": candidate, "raw_score": score}
             for candidate, score in model_candidates
         ]
-    executable = find_tesseract()
-    if executable is None or not boxes or len(boxes) > 6:
-        if model_observation is not None:
-            diagnostics["recognizer_runs"] = model_runs
-            diagnostics["candidate_scores"] = {
-                candidate: score for candidate, score in model_candidates
-            }
-            diagnostics["candidate_votes"] = {
-                candidate: 1 for candidate, _score in model_candidates
-            }
-            return {
-                **base,
-                "pipeline_version": model.version,
-                "candidate": model_observation["candidate"],
-                "candidates": model_observation["candidates"],
-                "confidence": model_observation["confidence"],
-                "confidence_margin": model_observation["confidence_margin"],
-                "diagnostics": diagnostics,
-                "review_reason": "seed digit model candidate; teacher confirmation required",
-            }
-        reason = (
-            "numeric recognizer unavailable"
-            if executable is None
-            else "blank or unresolved handwriting"
-        )
+    if model_observation is not None:
+        diagnostics["recognizer_runs"] = model_runs
+        diagnostics["candidate_scores"] = {
+            candidate: score for candidate, score in model_candidates
+        }
+        diagnostics["candidate_votes"] = {
+            candidate: 1 for candidate, _score in model_candidates
+        }
         return {
             **base,
-            "review_reason": reason + "; teacher confirmation required",
+            "pipeline_version": model.version,
+            "candidate": model_observation["candidate"],
+            "candidates": model_observation["candidates"],
+            "confidence": model_observation["confidence"],
+            "confidence_margin": model_observation["confidence_margin"],
+            "diagnostics": diagnostics,
+            "review_reason": "seed digit model candidate; teacher confirmation required",
+        }
+    if not boxes or len(boxes) > 6:
+        return {
+            **base,
+            "review_reason": "blank or unresolved handwriting; teacher confirmation required",
+            "diagnostics": diagnostics,
+        }
+    executable = find_tesseract()
+    if executable is None:
+        return {
+            **base,
+            "review_reason": "numeric recognizer unavailable; teacher confirmation required",
             "diagnostics": diagnostics,
         }
     diagnostics["backend"] = backend_provenance(executable)

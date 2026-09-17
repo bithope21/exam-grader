@@ -643,7 +643,10 @@ class ExamDialog(QDialog):
         remove.clicked.connect(lambda _checked=False, value=source: self.archive_student(value))
         row_layout.addWidget(remove)
         self.student_list.setItemWidget(item, row)
-        item.setSizeHint(QSize(0, 44))
+        fm = self.student_list.fontMetrics()
+        line_count = max(1, len(text.split("\n")))
+        text_height = line_count * fm.lineSpacing() + 16
+        item.setSizeHint(QSize(0, max(44, text_height)))
 
     def _add_failure_item(self, text: str, failure: dict) -> None:
         from PySide6.QtCore import QSize
@@ -665,7 +668,10 @@ class ExamDialog(QDialog):
         remove.clicked.connect(lambda _checked=False, val=failure: self.dismiss_failure(val))
         row_layout.addWidget(remove)
         self.student_list.setItemWidget(item, row)
-        item.setSizeHint(QSize(0, 44))
+        fm = self.student_list.fontMetrics()
+        line_count = max(1, len(text.split("\n")))
+        text_height = line_count * fm.lineSpacing() + 16
+        item.setSizeHint(QSize(0, max(44, text_height)))
 
     def dismiss_failure(self, failure: dict) -> None:
         try:
@@ -757,12 +763,14 @@ class ExamDialog(QDialog):
             if detection and "failure" in detection:
                 state = f"อ่านไม่ได้ · {detection['failure']}"
             number_observation = (detection or {}).get("student_number_observation", {})
-            if not review and not source.get("student_number") and number_observation.get("candidate"):
+            if not review and number_observation.get("candidate"):
                 candidates = number_observation.get("candidates") or []
                 if candidates == [number_observation["candidate"]]:
                     state += f" · ผู้ช่วยอ่านเลขที่ {number_observation['candidate']} (ต้องตรวจทาน)"
                 else:
                     state += f" · เลขที่อาจเป็น {' / '.join(candidates)} (ต้องตรวจทาน)"
+            elif not review and source.get("student_number"):
+                state += f" · เลขที่ {source['student_number']} (ต้องตรวจทาน)"
             if review and reviewed_numbers.get(int(review["student_number"]), 0) > 1:
                 state = f"เลขที่ซ้ำ · {review['student_number']} · {state}"
             self._add_student_item(f"{source['original_name']}\n{state}", source)
@@ -1257,6 +1265,7 @@ class ExamDialog(QDialog):
                 origin="teacher",
                 detection_id=issue["detection_id"],
             )
+        self.review_service.finalize(self.exam.id)
 
     def save_issue(self, issue, editor):
         try:
@@ -1308,6 +1317,7 @@ class ExamDialog(QDialog):
                 self.issue_drafts.pop(key, None)
             except (ValueError, OSError) as error:
                 errors.append(f"{issue.get('label', 'รายการ')}: {error}")
+        self.review_service.finalize(self.exam.id)
         self.refresh()
         if errors:
             QMessageBox.warning(self, "บันทึกได้บางรายการ", "\n".join(errors))
