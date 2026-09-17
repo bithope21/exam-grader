@@ -52,8 +52,160 @@ def order_quad_points(pts: np.ndarray) -> np.ndarray:
     return rect
 
 
+def _detect_color_theme(
+    image: np.ndarray,
+    regions: list[tuple[int, int, int, int]] | None = None,
+) -> tuple[str, dict[str, float | str]]:
+    """Classify the printed form from chromatic evidence in the discovered image.
+
+    Restrict the sample to detected answer-grid interiors when available so
+    unrelated background or header artwork cannot determine the OMR mask. The
+    classifier only selects the green-specific mask when green is both common
+    in the sampled form and dominant among its chromatic pixels; achromatic
+    scans and forms with other colors retain the monochrome behavior.
+    """
+    if image.ndim != 3 or image.shape[2] < 3 or image.size == 0:
+        return "monochrome", {
+            "classifier": "grid-color-evidence-v1",
+            "sample_scope": "unavailable",
+            "chromatic_coverage": 0.0,
+            "green_coverage": 0.0,
+            "green_share_of_chromatic": 0.0,
+        }
+
+    height, width = image.shape[:2]
+    sample_mask = np.zeros((height, width), dtype=bool)
+    if regions:
+        for x1, y1, x2, y2 in regions:
+            left, right = max(0, x1), min(width, x2)
+            top, bottom = max(0, y1), min(height, y2)
+            if right > left and bottom > top:
+                sample_mask[top:bottom, left:right] = True
+    has_grid_sample = bool(sample_mask.any())
+    pixels = image[sample_mask] if has_grid_sample else image.reshape(-1, image.shape[2])
+    pixels = pixels[:, :3].astype(np.float32)
+
+    blue, green, red = pixels[:, 0], pixels[:, 1], pixels[:, 2]
+    brightest = np.maximum.reduce((blue, green, red))
+    darkest = np.minimum.reduce((blue, green, red))
+    chroma = brightest - darkest
+    # Ignore near-white paper, deep shadows, and small sensor/codec deviations.
+    colored = (chroma >= 12.0) & (brightest >= 32.0) & (brightest <= 245.0)
+    green_excess = green - np.maximum(blue, red)
+    green_pixels = colored & (green_excess >= np.maximum(6.0, 0.35 * chroma))
+    chromatic_count = int(np.count_nonzero(colored))
+    green_count = int(np.count_nonzero(green_pixels))
+    chromatic_coverage = chromatic_count / max(1, len(pixels))
+    green_coverage = green_count / max(1, len(pixels))
+    green_share = green_count / max(1, chromatic_count)
+
+    # Relative coverage and dominance make this independent of input resolution
+    # and avoid treating a few colored marks or scan artifacts as a form theme.
+    theme = (
+        "green"
+        if green_coverage >= 0.03 and green_share >= 0.60
+        else "monochrome"
+    )
+    return theme, {
+        "classifier": "grid-color-evidence-v1",
+        "sample_scope": "detected_answer_grids" if has_grid_sample else "canonical_page",
+        "chromatic_coverage": round(float(chromatic_coverage), 4),
+        "green_coverage": round(float(green_coverage), 4),
+        "green_share_of_chromatic": round(float(green_share), 4),
+    }
+
+
+def _quad_edge_evidence(
+    gray: np.ndarray, edge_maps: list[np.ndarray], corners: np.ndarray
+) -> tuple[float, float, int, dict[str, list[float]]]:
+    """Measure multi-view line support and local contrast along four edges."""
+    edge_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (7, 7))
+    nearby_maps = [cv2.dilate(edge_map, edge_kernel) for edge_map in edge_maps]
+    support_samples: list[float] = []
+    contrast_samples: list[float] = []
+    support_by_edge: list[float] = []
+    contrast_by_edge: list[float] = []
+    corner_support: list[float] = []
+    per_view_support: list[list[float]] = [[] for _ in nearby_maps]
+    points = order_quad_points(np.asarray(corners, dtype=np.float32).reshape(4, 2))
+    for point in points:
+        map_x = np.asarray([[point[0]]], dtype=np.float32)
+        map_y = np.asarray([[point[1]]], dtype=np.float32)
+        corner_views = [
+            int(cv2.remap(edge_nearby, map_x, map_y, cv2.INTER_NEAREST)[0, 0] > 0)
+            for edge_nearby in nearby_maps
+        ]
+        corner_support.append(float(any(corner_views)))
+    for start, end in zip(points, np.roll(points, -1, axis=0)):
+        vector = end - start
+        length = float(np.linalg.norm(vector))
+        if length < 2.0:
+            continue
+        count = max(12, min(120, int(length / 8.0)))
+        t = np.linspace(0.06, 0.94, count, dtype=np.float32)
+        samples = start[None, :] + vector[None, :] * t[:, None]
+        normal = np.asarray([-vector[1], vector[0]], dtype=np.float32) / length
+        # The two sides are unordered: the physical edge should separate
+        # different local regions regardless of whether paper is lighter.
+        plus = samples + normal[None, :] * 3.0
+        minus = samples - normal[None, :] * 3.0
+        map_x = samples[:, 0].reshape(-1, 1)
+        map_y = samples[:, 1].reshape(-1, 1)
+        view_samples = [
+            cv2.remap(
+                edge_nearby,
+                map_x,
+                map_y,
+                cv2.INTER_NEAREST,
+                borderMode=cv2.BORDER_CONSTANT,
+            ).reshape(-1)
+            for edge_nearby in nearby_maps
+        ]
+        support = np.maximum.reduce(view_samples) if view_samples else np.zeros(count)
+        support_by_edge.append(float(np.mean(support > 0)))
+        plus_gray = cv2.remap(
+            gray,
+            plus[:, 0].reshape(-1, 1),
+            plus[:, 1].reshape(-1, 1),
+            cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        ).reshape(-1)
+        minus_gray = cv2.remap(
+            gray,
+            minus[:, 0].reshape(-1, 1),
+            minus[:, 1].reshape(-1, 1),
+            cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_REPLICATE,
+        ).reshape(-1)
+        support_samples.extend((support > 0).astype(np.float32).tolist())
+        for index, view_sample in enumerate(view_samples):
+            per_view_support[index].extend((view_sample > 0).astype(np.float32).tolist())
+        contrast = (
+            np.abs(plus_gray.astype(np.float32) - minus_gray.astype(np.float32)) / 80.0
+        ).clip(0.0, 1.0)
+        contrast_by_edge.append(float(np.mean(contrast)))
+        contrast_samples.extend(contrast.tolist())
+    supported_views = sum(
+        bool(samples) and float(np.mean(samples)) >= 0.20 for samples in per_view_support
+    )
+    return (
+        float(np.mean(support_samples)) if support_samples else 0.0,
+        float(np.mean(contrast_samples)) if contrast_samples else 0.0,
+        supported_views,
+        {
+            "support_by_edge": [round(value, 4) for value in support_by_edge],
+            "contrast_by_edge": [round(value, 4) for value in contrast_by_edge],
+            "corner_support": [round(value, 4) for value in corner_support],
+        },
+    )
+
+
 def detect_paper(
-    img: np.ndarray, target_w: int = 1200, target_h: int = 1720
+    img: np.ndarray,
+    target_w: int = 1200,
+    target_h: int = 1720,
+    *,
+    diagnostics: dict[str, Any] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
     """Detect a sheet against neutral or colored backgrounds and warp it.
 
@@ -85,6 +237,22 @@ def detect_paper(
         )
         matrix = cv2.getPerspectiveTransform(ordered_corners, dst)
         warped = cv2.warpPerspective(img, matrix, (target_w, target_h))
+        if diagnostics is not None:
+            diagnostics.update(
+                {
+                    "candidate_count": 1,
+                    "selected_candidate": "uniform-paper-margin",
+                    "candidates": [
+                        {
+                            "kind": "uniform-paper-margin",
+                            "corners": ordered_corners.tolist(),
+                            "geometry_confidence": 0.95,
+                            "proposal_score": 0.95,
+                            "area_ratio": 1.0,
+                        }
+                    ],
+                }
+            )
         return warped, matrix, 0.95, ordered_corners
 
     # Work at a bounded resolution. A union of neutral paper and green ink/paper
@@ -108,19 +276,6 @@ def detect_paper(
     d_right = np.linalg.norm(lab - right_lab[None, None, :], axis=2)
     min_border_dist = np.minimum(np.minimum(d_top, d_bot), np.minimum(d_left, d_right))
     
-    border_pixels = np.concatenate(
-        [
-            lab[:border].reshape(-1, 3),
-            lab[-border:].reshape(-1, 3),
-            lab[:, :border].reshape(-1, 3),
-            lab[:, -border:].reshape(-1, 3),
-        ],
-        axis=0,
-    )
-    background_lab = np.median(border_pixels, axis=0)
-    border_delta = np.linalg.norm(border_pixels - background_lab, axis=1)
-    separation = max(13.0, float(np.percentile(border_delta, 75)) + 7.0)
-    
     saturation = hsv[:, :, 1]
     value = hsv[:, :, 2]
     hue = hsv[:, :, 0]
@@ -133,16 +288,93 @@ def detect_paper(
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)))
     color_contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Edge-based contour extraction for physical sheets under non-uniform illumination/shadows
+    # Independent edge views recover boundaries with weak color separation,
+    # uneven illumination, blur, or partial occlusion.
     gray_small = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray_small, (5, 5), 0)
-    edges = cv2.Canny(blurred, 30, 80)
-    dilated_edges = cv2.dilate(edges, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5)))
-    edge_contours, _ = cv2.findContours(dilated_edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(gray_small)
+    raw_edges = cv2.Canny(blurred, 30, 80)
+    contrast_edges = cv2.Canny(cv2.GaussianBlur(clahe, (5, 5), 0), 24, 72)
+    illumination_normalized = normalize_illumination(clahe)
+    normalized_edges = cv2.Canny(
+        cv2.GaussianBlur(illumination_normalized, (5, 5), 0), 22, 68
+    )
+    adaptive = cv2.adaptiveThreshold(
+        clahe, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 41, 9
+    )
+    adaptive_edges = cv2.morphologyEx(
+        adaptive, cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8)
+    )
+    edge_union = cv2.bitwise_or(raw_edges, contrast_edges)
+    edge_union = cv2.bitwise_or(edge_union, normalized_edges)
+    edge_union = cv2.bitwise_or(edge_union, adaptive_edges)
+    contour_sources: list[tuple[np.ndarray, str, bool, str]] = [
+        (contour, "color-mask", True, "color-contour") for contour in color_contours
+    ]
+    edge_sources = (
+        ("edge-canny", raw_edges),
+        ("edge-clahe", contrast_edges),
+        ("edge-shadow-normalized", normalized_edges),
+        ("edge-adaptive", adaptive),
+    )
+    for source_name, source_edges in edge_sources:
+        expanded = cv2.dilate(
+            source_edges, cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        )
+        source_contours, _ = cv2.findContours(
+            expanded, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
+        )
+        contour_sources.extend(
+            (contour, source_name, False, "edge-contour")
+            for contour in sorted(source_contours, key=cv2.contourArea, reverse=True)[:20]
+        )
 
-    tagged_contours = [(c, True) for c in color_contours] + [(c, False) for c in edge_contours]
-    candidates: list[tuple[float, np.ndarray, bool]] = []
-    for contour, is_color in tagged_contours:
+        # Close small gaps in each edge view at several image-relative scales.
+        # A single kernel can connect a page edge to a nearby printed frame;
+        # retaining distinct hypotheses lets geometry and template fit decide.
+        for fraction in (0.01, 0.022, 0.032):
+            close_size = max(3, int(round(min(sh, sw) * fraction)))
+            if close_size % 2 == 0:
+                close_size += 1
+            closed = cv2.morphologyEx(
+                source_edges,
+                cv2.MORPH_CLOSE,
+                cv2.getStructuringElement(cv2.MORPH_RECT, (close_size, close_size)),
+            )
+            closed_contours, _ = cv2.findContours(
+                closed, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
+            )
+            contour_sources.extend(
+                (
+                    contour,
+                    source_name,
+                    False,
+                    f"closed-edge-contour-{close_size}px",
+                )
+                for contour in sorted(
+                    closed_contours, key=cv2.contourArea, reverse=True
+                )[:10]
+            )
+
+    # A second geometric proposal generator: use long page-like line segments,
+    # then let the same polygon/edge evidence score their convex hull. This is
+    # complementary to closed-contour extraction when one side is faint.
+    hough = cv2.HoughLinesP(
+        edge_union,
+        1,
+        np.pi / 180.0,
+        threshold=max(28, int(min(sh, sw) * 0.10)),
+        minLineLength=max(24, int(min(sh, sw) * 0.12)),
+        maxLineGap=max(8, int(min(sh, sw) * 0.035)),
+    )
+    if hough is not None and len(hough) >= 4:
+        line_points = hough[:100].reshape(-1, 2).astype(np.int32)
+        line_hull = cv2.convexHull(line_points.reshape(-1, 1, 2))
+        if cv2.contourArea(line_hull) >= 0.12 * sw * sh:
+            contour_sources.append((line_hull, "hough-line-hull", False, "hough-hull"))
+
+    candidates: list[dict[str, Any]] = []
+    for contour, source_name, is_color, proposal_method in contour_sources:
         area_ratio = cv2.contourArea(contour) / float(sw * sh)
         if not 0.12 <= area_ratio <= 0.985:
             continue
@@ -157,43 +389,184 @@ def detect_paper(
         aspect = float(max(edge_lengths) / short_edge)
         if not 0.48 <= aspect <= 2.2:
             continue
-        frame_distance = min(
-            float(points[:, 0].min()), float(points[:, 1].min()),
-            float(sw - 1 - points[:, 0].max()), float(sh - 1 - points[:, 1].max()),
-        ) / max(1.0, min(sh, sw))
-        # Prefer a large, four-sided foreground object; touching the photo edge
-        # and using a min-area rectangle each lower confidence instead of making
-        # an unsupported page claim. Color-segmented paper is much more reliable
-        # than interior edge features.
-        source_weight = 1.0 if is_color else 0.65
-        score = area_ratio * (1.0 if is_quad else 0.72) * min(1.0, 0.5 + frame_distance * 12.0) * source_weight
-        candidates.append((score, points / scale, is_quad))
+        edge_support, edge_contrast, edge_view_count, edge_evidence_details = _quad_edge_evidence(
+            gray_small,
+            [raw_edges, contrast_edges, normalized_edges, adaptive_edges],
+            points,
+        )
+        source_points = points / scale
+        frame_margin = min(
+            float(source_points[:, 0].min()),
+            float(source_points[:, 1].min()),
+            float(w - 1 - source_points[:, 0].max()),
+            float(h - 1 - source_points[:, 1].max()),
+        ) / max(1.0, min(h, w))
+        candidates.append(
+            {
+                "proposal_score": 0.0,
+                "corners": source_points,
+                "is_quad": is_quad,
+                "source": source_name,
+                "proposal_method": proposal_method,
+                "geometry_confidence": 0.0,
+                "physical_boundary_confidence": 0.0,
+                "physical_edge_support": round(edge_support, 4),
+                "edge_contrast": round(edge_contrast, 4),
+                "edge_evidence_by_side": edge_evidence_details,
+                "edge_view_count": edge_view_count,
+                "area_ratio": area_ratio,
+                "aspect_ratio": aspect,
+                "frame_margin": frame_margin,
+            }
+        )
 
     if candidates:
-        _, points, is_quad = max(candidates, key=lambda item: item[0])
+        # Cross-view agreement is independent evidence that a contour follows
+        # the sheet edge rather than one printed rectangle. Candidate outputs
+        # remain available even when this agreement is weak.
+        for candidate in candidates:
+            corners = np.asarray(candidate["corners"], dtype=np.float32)
+            peers = [
+                other
+                for other in candidates
+                if other is not candidate
+                and float(
+                    np.mean(
+                        np.linalg.norm(
+                            corners - np.asarray(other["corners"], dtype=np.float32), axis=1
+                        )
+                    )
+                )
+                <= max(h, w) * 0.018
+            ]
+            proposal_view_count = len(
+                {candidate["source"], *(peer["source"] for peer in peers)}
+            )
+            view_count = max(proposal_view_count, int(candidate["edge_view_count"]))
+            view_agreement = min(1.0, max(0, view_count - 1) / 2.0)
+            margin_quality = min(1.0, max(0.0, float(candidate["frame_margin"]) / 0.04))
+            edge_support = float(candidate["physical_edge_support"])
+            edge_contrast = float(candidate["edge_contrast"])
+            confidence = (
+                0.24 * edge_support
+                + 0.20 * edge_contrast
+                + 0.23 * view_agreement
+                + 0.18 * float(candidate["is_quad"])
+                + 0.15 * margin_quality
+            )
+            if candidate["frame_margin"] < 0.012:
+                confidence = min(confidence, 0.58)
+            if float(candidate["aspect_ratio"]) > 1.85:
+                confidence = min(confidence, 0.72)
+            area_support = min(1.0, max(0.0, float(candidate["area_ratio"])))
+            frame_penalty = 0.18 if float(candidate["frame_margin"]) < 0.012 else 0.0
+            proposal_score = (
+                0.20 * area_support
+                + 0.20 * edge_support
+                + 0.15 * edge_contrast
+                + 0.20 * view_agreement
+                + 0.10 * float(candidate["is_quad"])
+                + 0.15 * margin_quality
+                - frame_penalty
+            )
+            candidate["view_agreement"] = round(view_agreement, 4)
+            candidate["independent_view_count"] = view_count
+            candidate["proposal_score"] = round(proposal_score, 4)
+            candidate["physical_boundary_confidence"] = round(confidence, 4)
+            candidate["geometry_confidence"] = round(confidence, 4)
+        candidates.sort(key=lambda item: float(item["proposal_score"]), reverse=True)
+        # Keep distinct geometric hypotheses in diagnostics and downstream
+        # registration. Multi-scale contours of the same edge are one proposal,
+        # not independent evidence, and must not crowd out competing quads.
+        distinct_candidates: list[dict[str, Any]] = []
+        duplicate_tolerance = max(h, w) * 0.006
+        for candidate in candidates:
+            corners = np.asarray(candidate["corners"], dtype=np.float32)
+            duplicate = next(
+                (
+                    prior
+                    for prior in distinct_candidates
+                    if float(
+                        np.mean(
+                            np.linalg.norm(
+                                corners
+                                - np.asarray(prior["corners"], dtype=np.float32),
+                                axis=1,
+                            )
+                        )
+                    )
+                    <= duplicate_tolerance
+                ),
+                None,
+            )
+            if duplicate is None:
+                candidate["supporting_proposal_methods"] = [candidate["proposal_method"]]
+                distinct_candidates.append(candidate)
+            else:
+                methods = duplicate["supporting_proposal_methods"]
+                if candidate["proposal_method"] not in methods:
+                    methods.append(candidate["proposal_method"])
+        candidates = distinct_candidates
+        best = candidates[0]
+        points = best["corners"]
         ordered_corners = order_quad_points(points.astype(np.float32))
         edge_lengths = np.linalg.norm(np.roll(ordered_corners, -1, axis=0) - ordered_corners, axis=1)
         frame_margin = min(
             float(ordered_corners[:, 0].min()), float(ordered_corners[:, 1].min()),
             float(w - 1 - ordered_corners[:, 0].max()), float(h - 1 - ordered_corners[:, 1].max()),
         ) / max(1.0, min(h, w))
-        confidence = 0.92 if is_quad else 0.58
-        if frame_margin < 0.012:
-            confidence = min(confidence, 0.58)
-        if (max(edge_lengths) / max(1.0, min(edge_lengths))) > 1.85:
-            confidence = min(confidence, 0.72)
+        confidence = float(best["physical_boundary_confidence"])
         dst = np.array(
             [[0, 0], [target_w - 1, 0], [target_w - 1, target_h - 1], [0, target_h - 1]],
             dtype=np.float32,
         )
         matrix = cv2.getPerspectiveTransform(ordered_corners, dst)
         warped = cv2.warpPerspective(img, matrix, (target_w, target_h))
+        if diagnostics is not None:
+            diagnostics.update(
+                {
+                    "candidate_count": len(candidates),
+                    "selected_candidate": best["source"],
+                    "selected_geometry_confidence": round(
+                        float(best["geometry_confidence"]), 4
+                    ),
+                    "selected_physical_edge_support": best["physical_edge_support"],
+                    "selected_independent_view_count": best["independent_view_count"],
+                    "candidates": [
+                        {
+                            **{
+                                key: value
+                                for key, value in candidate.items()
+                                if key != "corners"
+                            },
+                            "corners": np.round(candidate["corners"], 2).tolist(),
+                        }
+                        for candidate in candidates[:12]
+                    ],
+                }
+            )
         return warped, matrix, confidence, ordered_corners
 
     # A full-frame scan may be a legitimate sheet, but its paper edge cannot be
     # independently verified. Keep it usable for correction while requiring review.
     matrix = np.diag([target_w / w, target_h / h, 1.0])
     warped = cv2.resize(img, (target_w, target_h))
+    if diagnostics is not None:
+        diagnostics.update(
+            {
+                "candidate_count": 1,
+                "selected_candidate": "full-frame-unverified",
+                "candidates": [
+                    {
+                        "kind": "full-frame-unverified",
+                        "corners": ordered_corners.tolist(),
+                        "geometry_confidence": 0.45,
+                        "proposal_score": 0.0,
+                        "area_ratio": 1.0,
+                    }
+                ],
+            }
+        )
     return warped, matrix, 0.45, ordered_corners
 
 
@@ -674,6 +1047,16 @@ def discover_template(
         choice_map[str(i + 1)] = canonical_choices[i]
 
     ref_sha256 = hashlib.sha256(cv2.imencode(".png", warped)[1].tobytes()).hexdigest()
+    grid_color_regions = [
+        (
+            block.col_boundaries[0],
+            block.row_boundaries[0],
+            block.col_boundaries[-1],
+            block.row_boundaries[-1],
+        )
+        for block in answer_blocks
+    ]
+    color_theme, color_theme_evidence = _detect_color_theme(warped, grid_color_regions)
 
     t_def = TemplateDefinition(
         template_id=template_id,
@@ -697,7 +1080,8 @@ def discover_template(
         # their explicit historical inset values.
         cell_inset=8,
         registration_config={
-            "color_theme": "monochrome",
+            "color_theme": color_theme,
+            "color_theme_evidence": color_theme_evidence,
             "allow_paper_quad_fallback": True,
             "paper_corners": paper_corners.tolist() if paper_corners is not None else None,
             "paper_to_canonical_matrix": matrix.tolist(),

@@ -17,8 +17,8 @@ UninstallDisplayIcon={app}\ExamGrader.exe
 Source: "..\..\dist\ExamGrader\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Exam Grader"; Filename: "{app}\ExamGrader.exe"
-Name: "{autodesktop}\Exam Grader"; Filename: "{app}\ExamGrader.exe"; Tasks: desktopicon
+Name: "{group}\Exam Grader"; Filename: "{app}\ExamGrader.exe"; AppUserModelID: "bithope.examgrader.app"
+Name: "{autodesktop}\Exam Grader"; Filename: "{app}\ExamGrader.exe"; Tasks: desktopicon; AppUserModelID: "bithope.examgrader.app"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked

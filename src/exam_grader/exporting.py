@@ -14,6 +14,8 @@ from uuid import uuid4
 import cv2
 import numpy as np
 from openpyxl import Workbook
+from PySide6.QtGui import QColor, QFont, QImage, QPainter
+from PySide6.QtWidgets import QApplication
 
 from exam_grader import __version__
 from exam_grader.imaging import cell_rect, decode, template
@@ -31,6 +33,15 @@ def checked_colors() -> dict[str, tuple[int, int, int, int]]:
 
 
 CHECKED_COLORS = checked_colors()
+_RENDER_APPLICATION: QApplication | None = None
+
+
+def _ensure_render_application() -> None:
+    global _RENDER_APPLICATION
+    if QApplication.instance() is not None:
+        return
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    _RENDER_APPLICATION = QApplication([])
 
 
 def human_readable_name(exam: dict) -> str:
@@ -55,14 +66,49 @@ def checked_filename(number: str | None, used: set[str]) -> str:
         and len(normalized) <= 6
         and int(normalized) > 0
     )
-    stem = f"เลขที่-{int(normalized):02d}" if known else "ไม่ทราบเลขที่"
-    name = f"{stem}.jpg" if known else f"{stem}_01.jpg"
-    sequence = 2
-    while name in used:
-        name = f"{stem}_{sequence:02d}.jpg"
-        sequence += 1
+    if known:
+        name = f"เลขที่-{int(normalized):02d}.jpg"
+        stem = f"เลขที่-{int(normalized):02d}"
+        sequence = 2
+        while name in used:
+            name = f"{stem}_{sequence:02d}.jpg"
+            sequence += 1
+    else:
+        match = re.search(r"#(\d+)$", number or "")
+        sequence = int(match.group(1)) if match else 1
+        name = f"ไม่ทราบเลขที่-{sequence:02d}.jpg"
+        while name in used:
+            sequence += 1
+            name = f"ไม่ทราบเลขที่-{sequence:02d}.jpg"
     used.add(name)
     return name
+
+
+def _partial_status_banner(image: np.ndarray, result: dict) -> np.ndarray:
+    if result.get("status") != "review_skipped":
+        return image
+    issues = [issue for issue in result.get("review_issues", []) if issue != "review_skipped"]
+    count = max(1, len(issues))
+    _ensure_render_application()
+    banner = QImage(image.shape[1], 42, QImage.Format.Format_RGB32)
+    banner.fill(QColor("white"))
+    painter = QPainter(banner)
+    label = f"ตรวจทานไม่ครบ · ข้าม {count} รายการ"
+    font = QFont()
+    font.setPixelSize(22)
+    font.setBold(True)
+    painter.setFont(font)
+    painter.setPen(QColor(0, 110, 220))
+    painter.drawText(14, 29, label)
+    painter.end()
+    banner = banner.convertToFormat(QImage.Format.Format_RGB888)
+    pixels = (
+        np.frombuffer(banner.bits(), np.uint8)
+        .reshape(banner.height(), banner.bytesPerLine())[:, : banner.width() * 3]
+        .reshape(banner.height(), banner.width(), 3)
+    )
+    banner_bgr = cv2.cvtColor(pixels, cv2.COLOR_RGB2BGR)
+    return np.vstack((banner_bgr, image))
 
 
 def checked_image(
@@ -175,6 +221,7 @@ def checked_image(
                 original[mask].astype(np.float32) * (1.0 - opacity)
                 + overlay[mask].astype(np.float32) * opacity
             ).astype(np.uint8)
+        original = _partial_status_banner(original, result)
         # Checked copies are review evidence; use a quality-controlled JPEG
         # so a 14 MB PNG does not dominate exports.
         ok, encoded = cv2.imencode(
@@ -230,6 +277,7 @@ def checked_image(
             text_color,
             1,
         )
+    canvas = _partial_status_banner(canvas, result)
     longest = max(canvas.shape[:2])
     if longest > 2400:
         scale = 2400 / longest
@@ -272,7 +320,7 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
         book = Workbook()
         sheet = book.active
         sheet.title = "Scores"
-        sheet.append(["No.", "Score", "Max", "Status", "Source File"])
+        sheet.append(["No.", "Score", "Max", "Status", "Source File", "Review Issues"])
         used_names: set[str] = set()
         template_def = None
         try:
@@ -296,7 +344,12 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
                 "source_sha256": result["source"]["sha256"],
                 "detection_id": result.get("detection_id"),
                 "review_id": result["review_id"],
-                "renderer_version": "checked-overlay-canonical-jpeg-v1",
+                "partial_review_id": result.get("partial_review_id"),
+                "identity_confirmed": result.get("identity_confirmed", True),
+                "identity_origin": result.get("identity_origin", "teacher_confirmed"),
+                "answer_provenance": result.get("answer_provenance", []),
+                "review_issues": result.get("review_issues", []),
+                "renderer_version": "checked-overlay-canonical-jpeg-v2-partial-review",
                 "encoding": {"format": "JPEG", "quality": 88, "max_dimension": 2400},
                 "color_legend": {
                     "correct": "green",
@@ -318,10 +371,11 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
                     result["max"],
                     result["status"],
                     result["source"]["original_name"],
+                    "; ".join(result.get("review_issues", [])),
                 ]
             )
             # Force user-controlled strings to text, even if they begin with '='.
-            for column in (1, 4, 5):
+            for column in (1, 4, 5, 6):
                 sheet.cell(sheet.max_row, column).data_type = "s"
         sheet.freeze_panes = "A2"
         for attendance in snapshot.get("attendance", []):
@@ -335,7 +389,14 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
                         None,
                     ]
                 )
-        for column_letter, width in (("A", 12), ("B", 12), ("C", 12), ("D", 24), ("E", 50)):
+        for column_letter, width in (
+            ("A", 24),
+            ("B", 12),
+            ("C", 12),
+            ("D", 24),
+            ("E", 50),
+            ("F", 50),
+        ):
             sheet.column_dimensions[column_letter].width = width
 
         info_sheet = book.create_sheet(title="Info")
@@ -359,7 +420,7 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
             "human_readable_name": human_readable_name(exam),
             "folder_policy": "human-facing-v2",
             "template": template_def.to_dict() if template_def is not None else template(),
-            "renderer_version": "checked-overlay-canonical-jpeg-v1",
+            "renderer_version": "checked-overlay-canonical-jpeg-v2-partial-review",
             "encoding": {"format": "JPEG", "quality": 88, "max_dimension": 2400},
             "color_legend": {
                 "correct": "green",

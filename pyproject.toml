@@ -19,7 +19,7 @@ exam-grader = "exam_grader.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-exam_grader = ["resources/*.json", "resources/*.png"]
+exam_grader = ["resources/*.json", "resources/*.png", "resources/*.svg", "resources/*.npz"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -55,10 +55,63 @@ def test_one_bulk_action_finalizes_clear_answers_without_teacher_claim(tmp_path)
     assert service.adopt_numbers(exam.id)["applied"] == []
 
 
+def test_bulk_adoption_never_adopts_a_review_required_student_number(tmp_path):
+    flow, exam, source, service = setup_auto(tmp_path)
+    uncertain = observation(number="07")
+    uncertain["student_number_observation"] = {
+        "candidate": "07",
+        "candidates": ["07"],
+        "confidence": 93.0,
+        "confidence_margin": 100.0,
+        "requires_review": True,
+    }
+    flow.save_detection(source["id"], uncertain)
+
+    result = service.adopt_numbers(exam.id)
+
+    assert result["applied"] == []
+    assert service.state(source)["number"] is None
+
+
+def test_bulk_adoption_cannot_resolve_review_required_number_from_roster_gaps(tmp_path):
+    flow, exam, source, service = setup_auto(tmp_path)
+    other = another_student(flow, exam, tmp_path)
+    uncertain = observation(number="07")
+    uncertain["student_number_observation"] = {
+        "candidate": "07",
+        "candidates": ["07", "17"],
+        "requires_review": True,
+    }
+    clear = observation(number="17")
+    clear["student_number_observation"]["requires_review"] = False
+    flow.save_detection(source["id"], uncertain)
+    flow.save_detection(other["id"], clear)
+
+    result = service.adopt_numbers(exam.id)
+
+    assert result["applied"] == [other["id"]]
+    assert service.state(source)["number"] is None
+    assert service.state(other)["number"] == "17"
+
+
 def test_legacy_detections_not_promoted():
     legacy = observation()
     legacy["pipeline_version"] = "draft-omr-v2"
     assert ReviewService.machine_answers(legacy, 3) == [None] * 3
+
+
+def test_reprocessed_detection_does_not_reuse_old_answer_review(tmp_path):
+    flow, exam, source, service = setup_auto(tmp_path)
+    service.adopt_numbers(exam.id)
+    key = flow.current_key(exam.id)
+    flow.review(source["id"], "1", ["A", "B", "C"], key["id"])
+    previous_detection = service.state(source)["detection_id"]
+
+    flow.save_detection(source["id"], observation(answers=("C", "C", "C")))
+
+    state = service.state(source)
+    assert state["detection_id"] != previous_detection
+    assert state["review"] is None
 
 
 def test_inline_answer_is_bound_to_current_detection_and_key(tmp_path):
@@ -226,3 +279,43 @@ def test_bulk_resolve_atomic_transaction(tmp_path):
             i.get("source", {}).get("id") == key_tuple[0] and i.get("question") == key_tuple[1]
             for i in issues_after
         ), f"Unselected issue {key_tuple} must not be overwritten"
+
+
+def test_confirm_prefilled_uses_each_row_value_and_keeps_uncertain_rows(tmp_path):
+    flow, exam, source, service = setup_auto(tmp_path)
+    detected = observation()
+    detected["answers"][0] = {
+        "classification": "multiple",
+        "selected": ["A", "C"],
+        "auto_resolved": True,
+    }
+    detected["answers"][1] = {
+        "classification": "boundary_cross",
+        "selected": [],
+        "auto_resolved": True,
+    }
+    detected["answers"][2] = {
+        "classification": "uncertain",
+        "selected": [],
+        "auto_resolved": False,
+    }
+    flow.save_detection(source["id"], detected)
+    issues = service.issues(exam.id)
+    assert [
+        issue["prefill"]
+        for issue in issues
+        if issue["kind"] == "answer" and issue.get("prefill") is not None
+    ] == [
+        "multiple",
+        "boundary_cross",
+    ]
+    result = service.confirm_prefilled(
+        exam.id,
+        [issue for issue in issues if issue.get("prefill") is not None],
+    )
+    assert len(result["applied"]) == 3  # number + two answer rows, each with its own value
+    assert not result["skipped"]
+    remaining = service.issues(exam.id)
+    assert [(issue["kind"], issue.get("question")) for issue in remaining] == [
+        ("answer", 3)
+    ]

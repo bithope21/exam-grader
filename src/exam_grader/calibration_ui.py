@@ -757,14 +757,14 @@ class CalibrationTestDialog(QDialog):
         main_layout.setSpacing(10)
 
         # Header
-        header = QLabel("🔍 ตรวจสอบความถูกต้องก่อนบันทึกแม่แบบ (Visual Quality Inspection)")
-        header.setStyleSheet("font-size: 16px; font-weight: bold;")
+        header = QLabel("ตรวจสอบความถูกต้องก่อนบันทึกแม่แบบ (Visual Quality Inspection)")
+        header.setProperty("role", "section-title")
         main_layout.addWidget(header)
 
         desc = QLabel(
             "ภาพด้านล่างแสดงการจัดตำแหน่ง (Registration), ผลการตรวจจับรอยกา (OMR) และภาพครอบตัดของช่องเลขประจำตัว/ช่องคะแนนจริง"
         )
-        desc.setStyleSheet("color: #64748B; font-size: 13px;")
+        desc.setProperty("role", "muted")
         main_layout.addWidget(desc)
 
         # Splitter: Left aligned image, Right details
@@ -778,12 +778,12 @@ class CalibrationTestDialog(QDialog):
         img_toolbar = QHBoxLayout()
         img_toolbar.addWidget(QLabel("ภาพกระดาษที่จัดตำแหน่งแล้ว:"))
         img_toolbar.addStretch()
-        btn_zoom_out = QPushButton("➖ ย่อ")
+        btn_zoom_out = QPushButton("ย่อ")
         btn_zoom_out.clicked.connect(lambda: self._zoom(-0.1))
         img_toolbar.addWidget(btn_zoom_out)
         self.zoom_lbl = QLabel(f"{int(self.scale_factor * 100)}%")
         img_toolbar.addWidget(self.zoom_lbl)
-        btn_zoom_in = QPushButton("➕ ขยาย")
+        btn_zoom_in = QPushButton("ขยาย")
         btn_zoom_in.clicked.connect(lambda: self._zoom(0.1))
         img_toolbar.addWidget(btn_zoom_in)
         left_layout.addLayout(img_toolbar)
@@ -820,7 +820,7 @@ class CalibrationTestDialog(QDialog):
             f"• Table Coverage: {cov:.1%}  ({'✅ แม่นยำสมบูรณ์' if cov >= 0.85 else '⚠️ ควรตรวจทาน'})"
         )
         lbl_cov = QLabel(cov_text)
-        lbl_cov.setStyleSheet("font-weight: bold; font-size: 13px;")
+        lbl_cov.setProperty("role", "metric")
         m_layout.addWidget(lbl_cov)
 
         stats_lbl = QLabel(
@@ -829,7 +829,7 @@ class CalibrationTestDialog(QDialog):
             f"• กาซ้ำ (Multiple): {multis} ข้อ  |  "
             f"• สงสัย (Uncertain): {uncs} ข้อ"
         )
-        stats_lbl.setStyleSheet("padding: 4px 0px;")
+        stats_lbl.setProperty("role", "body")
         m_layout.addWidget(stats_lbl)
         right_layout.addWidget(metrics_group)
 
@@ -843,9 +843,8 @@ class CalibrationTestDialog(QDialog):
         sn_box = QVBoxLayout()
         sn_box.addWidget(QLabel("ช่องเลขประจำตัว:"))
         self.sn_crop_lbl = QLabel("ไม่มีพิกัด")
-        self.sn_crop_lbl.setStyleSheet(
-            "border: 1px solid #CBD5E1; background: #F1F5F9; min-height: 70px;"
-        )
+        self.sn_crop_lbl.setProperty("role", "preview")
+        self.sn_crop_lbl.setMinimumHeight(70)
         self.sn_crop_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         if aligned is not None and template_def.student_number_roi is not None:
             x1, y1, x2, y2 = template_def.student_number_roi
@@ -867,9 +866,8 @@ class CalibrationTestDialog(QDialog):
         score_box = QVBoxLayout()
         score_box.addWidget(QLabel("ช่องคะแนนรวม:"))
         self.score_crop_lbl = QLabel("ไม่มีพิกัด")
-        self.score_crop_lbl.setStyleSheet(
-            "border: 1px solid #CBD5E1; background: #F1F5F9; min-height: 70px;"
-        )
+        self.score_crop_lbl.setProperty("role", "preview")
+        self.score_crop_lbl.setMinimumHeight(70)
         self.score_crop_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         if aligned is not None and template_def.score_roi is not None:
             x1, y1, x2, y2 = template_def.score_roi
@@ -940,14 +938,12 @@ class CalibrationTestDialog(QDialog):
         # Bottom buttons
         btn_box = QHBoxLayout()
         btn_box.addStretch()
-        btn_close = QPushButton("✏️ กลับไปปรับเทียบต่อ")
+        btn_close = QPushButton("กลับไปปรับเทียบต่อ")
         btn_close.clicked.connect(self.accept)
         btn_box.addWidget(btn_close)
 
-        btn_ok = QPushButton("✅ ผลการทดสอบถูกต้อง")
-        btn_ok.setStyleSheet(
-            "font-weight: bold; background-color: #2563EB; color: white; padding: 6px 16px;"
-        )
+        btn_ok = QPushButton("ผลการทดสอบถูกต้อง")
+        btn_ok.setProperty("accent", True)
         btn_ok.clicked.connect(self.accept)
         btn_box.addWidget(btn_ok)
 
@@ -1105,14 +1101,14 @@ class CalibrationDialog(QDialog):
 
         # Header banner
         header = QLabel("ระบบปรับเทียบและสร้างแม่แบบกระดาษคำตอบ (Template Calibration System)")
-        header.setStyleSheet("font-size: 17px; font-weight: bold;")
+        header.setProperty("role", "section-title")
         main_layout.addWidget(header)
 
         desc = QLabel(
             "ตรวจจับโครงสร้างตารางคำตอบอัตโนมัติ พร้อมเครื่องมือลาก/ปรับแก้ตำแหน่งบนภาพจริง "
             "เพื่อความแม่นยำสูงสุดก่อนนำไปใช้ตรวจข้อสอบ"
         )
-        desc.setStyleSheet("color: #64748B; font-size: 13px;")
+        desc.setProperty("role", "muted")
         desc.setWordWrap(True)
         main_layout.addWidget(desc)
 
@@ -1129,33 +1125,32 @@ class CalibrationDialog(QDialog):
         toolbar_row1 = QHBoxLayout()
         toolbar_row1.setSpacing(6)
 
-        self.load_img_btn = QPushButton("📁 เลือกภาพ…")
-        self.load_img_btn.setStyleSheet("font-weight: bold; padding: 5px 12px;")
+        self.load_img_btn = QPushButton("เลือกภาพ…")
         self.load_img_btn.setToolTip("เลือกไฟล์ภาพกระดาษคำตอบ (JPG, PNG) เพื่อใช้ในการปรับเทียบ")
         self.load_img_btn.clicked.connect(self._select_image)
         toolbar_row1.addWidget(self.load_img_btn)
 
-        self.redetect_btn = QPushButton("🔄 ตรวจหาใหม่")
+        self.redetect_btn = QPushButton("ตรวจหาใหม่")
         self.redetect_btn.setToolTip("ตรวจหาตำแหน่งและโครงสร้างตารางคำตอบจากภาพปัจจุบันใหม่อีกครั้ง")
         self.redetect_btn.setEnabled(False)
         self.redetect_btn.clicked.connect(self._redetect_current_image)
         toolbar_row1.addWidget(self.redetect_btn)
 
-        self.help_photo_btn = QPushButton("💡 คำแนะนำการถ่าย")
+        self.help_photo_btn = QPushButton("คำแนะนำ")
         self.help_photo_btn.setToolTip("ดูคำแนะนำการถ่ายภาพกระดาษคำตอบให้ได้ผลตรวจจับที่แม่นยำ")
         self.help_photo_btn.clicked.connect(self._show_photo_tips)
         toolbar_row1.addWidget(self.help_photo_btn)
 
         toolbar_row1.addStretch()
 
-        self.toggle_overlay_btn = QPushButton("👁️ เส้น Overlay")
+        self.toggle_overlay_btn = QPushButton("เส้น")
         self.toggle_overlay_btn.setCheckable(True)
         self.toggle_overlay_btn.setChecked(True)
         self.toggle_overlay_btn.setToolTip("เปิด/ปิดการแสดงเส้นโครงร่างตารางคำตอบบนภาพ")
         self.toggle_overlay_btn.clicked.connect(self._toggle_overlay)
         toolbar_row1.addWidget(self.toggle_overlay_btn)
 
-        zoom_out_btn = QPushButton("➖")
+        zoom_out_btn = QPushButton("ย่อ")
         zoom_out_btn.setToolTip("ย่อภาพ")
         zoom_out_btn.clicked.connect(lambda: self._zoom(-0.1))
         toolbar_row1.addWidget(zoom_out_btn)
@@ -1163,7 +1158,7 @@ class CalibrationDialog(QDialog):
         self.zoom_lbl = QLabel("50%")
         toolbar_row1.addWidget(self.zoom_lbl)
 
-        zoom_in_btn = QPushButton("➕")
+        zoom_in_btn = QPushButton("ขยาย")
         zoom_in_btn.setToolTip("ขยายภาพ")
         zoom_in_btn.clicked.connect(lambda: self._zoom(0.1))
         toolbar_row1.addWidget(zoom_in_btn)
@@ -1175,13 +1170,13 @@ class CalibrationDialog(QDialog):
         toolbar_row2.setSpacing(6)
 
         tool_label = QLabel("เครื่องมือ:")
-        tool_label.setStyleSheet("font-weight: bold; color: #475569;")
+        tool_label.setProperty("role", "section-label")
         toolbar_row2.addWidget(tool_label)
 
         self.tool_btn_group = QButtonGroup(self)
         self.tool_btn_group.setExclusive(True)
 
-        self.btn_tool_select = QPushButton("👆 เลือก/ย้ายกรอบ")
+        self.btn_tool_select = QPushButton("เลือก")
         self.btn_tool_select.setCheckable(True)
         self.btn_tool_select.setChecked(True)
         self.btn_tool_select.setToolTip("คลิกลากเพื่อย้ายหรือปรับขนาดกรอบคำตอบ/ช่องคะแนน/ช่องเลขประจำตัว")
@@ -1191,7 +1186,7 @@ class CalibrationDialog(QDialog):
         toolbar_row2.addWidget(self.btn_tool_select)
         self.tool_btn_group.addButton(self.btn_tool_select)
 
-        self.btn_tool_lines = QPushButton("✏️ ปรับเส้นตาราง")
+        self.btn_tool_lines = QPushButton("แก้เส้น")
         self.btn_tool_lines.setCheckable(True)
         self.btn_tool_lines.setToolTip("คลิกและลากเส้นแถวหรือคอลัมน์บนตารางที่เลือก")
         self.btn_tool_lines.clicked.connect(
@@ -1200,7 +1195,7 @@ class CalibrationDialog(QDialog):
         toolbar_row2.addWidget(self.btn_tool_lines)
         self.tool_btn_group.addButton(self.btn_tool_lines)
 
-        self.btn_tool_grid = QPushButton("📐 วาดตารางเพิ่ม")
+        self.btn_tool_grid = QPushButton("วาด")
         self.btn_tool_grid.setCheckable(True)
         self.btn_tool_grid.setToolTip("ลากพื้นที่สี่เหลี่ยมบนภาพเพื่อตรวจจับตารางคำตอบในบริเวณนั้น")
         self.btn_tool_grid.clicked.connect(
@@ -1209,7 +1204,7 @@ class CalibrationDialog(QDialog):
         toolbar_row2.addWidget(self.btn_tool_grid)
         self.tool_btn_group.addButton(self.btn_tool_grid)
 
-        self.btn_tool_student = QPushButton("🔢 เลขประจำตัว")
+        self.btn_tool_student = QPushButton("เลขที่")
         self.btn_tool_student.setCheckable(True)
         self.btn_tool_student.setToolTip(
             "💡 ลากกรอบเฉพาะช่องเขียนตัวเลข (เว้นคำว่า 'เลขที่' และเส้นไข่ปลาไว้ด้านนอกเพื่อความแม่นยำสูงสุด)"
@@ -1220,7 +1215,7 @@ class CalibrationDialog(QDialog):
         toolbar_row2.addWidget(self.btn_tool_student)
         self.tool_btn_group.addButton(self.btn_tool_student)
 
-        self.btn_tool_score = QPushButton("📝 คะแนนรวม")
+        self.btn_tool_score = QPushButton("คะแนน")
         self.btn_tool_score.setCheckable(True)
         self.btn_tool_score.setToolTip("ลากกรอบสี่เหลี่ยมเพื่อกำหนดตำแหน่งช่องคะแนนรวม")
         self.btn_tool_score.clicked.connect(
@@ -1235,7 +1230,7 @@ class CalibrationDialog(QDialog):
         self.roi_helper_lbl = QLabel(
             "💡 ลากกรอบเฉพาะช่องเขียนตัวเลข (เว้นคำว่า 'เลขที่' และเส้นไข่ปลาไว้ด้านนอกเพื่อความแม่นยำสูงสุด)"
         )
-        self.roi_helper_lbl.setStyleSheet("color: #718096; font-size: 11px; padding: 2px 4px;")
+        self.roi_helper_lbl.setProperty("role", "hint")
         self.roi_helper_lbl.setWordWrap(True)
         left_layout.addWidget(self.roi_helper_lbl)
 
@@ -1324,7 +1319,7 @@ class CalibrationDialog(QDialog):
         # Arrow buttons
         arrows_layout = QVBoxLayout()
         up_box = QHBoxLayout()
-        self.btn_nudge_up = QPushButton("⬆️ ขึ้น")
+        self.btn_nudge_up = QPushButton("ขึ้น")
         self.btn_nudge_up.clicked.connect(lambda: self._nudge(0, -1))
         up_box.addStretch()
         up_box.addWidget(self.btn_nudge_up)
@@ -1332,9 +1327,9 @@ class CalibrationDialog(QDialog):
         arrows_layout.addLayout(up_box)
 
         mid_box = QHBoxLayout()
-        self.btn_nudge_left = QPushButton("⬅️ ซ้าย")
+        self.btn_nudge_left = QPushButton("ซ้าย")
         self.btn_nudge_left.clicked.connect(lambda: self._nudge(-1, 0))
-        self.btn_nudge_right = QPushButton("ขวา ➡️")
+        self.btn_nudge_right = QPushButton("ขวา")
         self.btn_nudge_right.clicked.connect(lambda: self._nudge(1, 0))
         mid_box.addStretch()
         mid_box.addWidget(self.btn_nudge_left)
@@ -1343,7 +1338,7 @@ class CalibrationDialog(QDialog):
         arrows_layout.addLayout(mid_box)
 
         down_box = QHBoxLayout()
-        self.btn_nudge_down = QPushButton("⬇️ ลง")
+        self.btn_nudge_down = QPushButton("ลง")
         self.btn_nudge_down.clicked.connect(lambda: self._nudge(0, 1))
         down_box.addStretch()
         down_box.addWidget(self.btn_nudge_down)
@@ -1353,12 +1348,12 @@ class CalibrationDialog(QDialog):
 
         # Block actions
         block_action_box = QHBoxLayout()
-        self.btn_add_block = QPushButton("➕ เพิ่มชุด")
+        self.btn_add_block = QPushButton("เพิ่มชุด")
         self.btn_add_block.setToolTip("เพิ่มชุดคำตอบใหม่ถัดจากชุดเดิม")
         self.btn_add_block.clicked.connect(self._add_block)
         block_action_box.addWidget(self.btn_add_block)
 
-        self.btn_del_block = QPushButton("🗑️ ลบชุดที่เลือก")
+        self.btn_del_block = QPushButton("ลบชุดที่เลือก")
         self.btn_del_block.setToolTip("ลบชุดคำตอบที่เลือกออกจากแม่แบบ")
         self.btn_del_block.clicked.connect(self._delete_selected_block)
         block_action_box.addWidget(self.btn_del_block)
@@ -1381,11 +1376,11 @@ class CalibrationDialog(QDialog):
         line_layout.addLayout(row_count_row)
 
         row_edit = QHBoxLayout()
-        self.btn_add_row = QPushButton("➕ เพิ่มแถวท้ายชุด")
+        self.btn_add_row = QPushButton("เพิ่มแถวท้ายชุด")
         self.btn_add_row.setEnabled(False)
         self.btn_add_row.setToolTip("เพิ่มข้อคำตอบต่อท้ายชุดนี้ตามระยะห่างจริง")
         self.btn_add_row.clicked.connect(self._on_append_row_clicked)
-        self.btn_delete_row = QPushButton("➖ ลบแถวล่างสุด")
+        self.btn_delete_row = QPushButton("ลบแถวล่างสุด")
         self.btn_delete_row.setEnabled(False)
         self.btn_delete_row.setToolTip("ลดข้อคำตอบข้อสุดท้ายของชุดนี้ออก")
         self.btn_delete_row.clicked.connect(self._on_remove_row_clicked)
@@ -1394,11 +1389,11 @@ class CalibrationDialog(QDialog):
         line_layout.addLayout(row_edit)
 
         choice_edit = QHBoxLayout()
-        self.btn_add_choice = QPushButton("➕ เพิ่มตัวเลือกขวา")
+        self.btn_add_choice = QPushButton("เพิ่มตัวเลือกขวา")
         self.btn_add_choice.setEnabled(False)
         self.btn_add_choice.setToolTip("เพิ่มคอลัมน์ตัวเลือกทางขวาสุดของชุดนี้")
         self.btn_add_choice.clicked.connect(self._on_append_choice_clicked)
-        self.btn_delete_choice = QPushButton("➖ ลบตัวเลือกขวาสุด")
+        self.btn_delete_choice = QPushButton("ลบตัวเลือกขวาสุด")
         self.btn_delete_choice.setEnabled(False)
         self.btn_delete_choice.setToolTip("ลดคอลัมน์ตัวเลือกล่าสุดออก")
         self.btn_delete_choice.clicked.connect(self._on_remove_choice_clicked)
@@ -1408,7 +1403,7 @@ class CalibrationDialog(QDialog):
 
         line_hint = QLabel("💡 ใช้เครื่องมือ ‘✏️ แก้เส้นตาราง’ บนแถบเครื่องมือ เพื่อคลิกลากเส้นตารางบนภาพได้โดยตรง")
         line_hint.setWordWrap(True)
-        line_hint.setStyleSheet("color: #64748B; font-size: 11px;")
+        line_hint.setProperty("role", "hint")
         line_layout.addWidget(line_hint)
 
         line_position_row = QHBoxLayout()
@@ -1430,7 +1425,7 @@ class CalibrationDialog(QDialog):
         sum_layout = QVBoxLayout(summary_group)
         self.summary_lbl = QLabel("ยังไม่ได้เริ่มวิเคราะห์กระดาษ\nกรุณากด 'เลือกภาพกระดาษคำตอบ' ทางด้านซ้าย")
         self.summary_lbl.setWordWrap(True)
-        self.summary_lbl.setStyleSheet("font-size: 13px; padding: 4px 0px;")
+        self.summary_lbl.setProperty("role", "body")
         sum_layout.addWidget(self.summary_lbl)
         right_layout.addWidget(summary_group)
 
@@ -1451,7 +1446,7 @@ class CalibrationDialog(QDialog):
 
         # Persistent bottom bar (always visible, never scrolls or clips below screen)
         btn_box = QHBoxLayout()
-        self.test_btn = QPushButton("🔍 ทดสอบกับภาพจริง…")
+        self.test_btn = QPushButton("ทดสอบกับภาพจริง…")
         self.test_btn.setEnabled(False)
         self.test_btn.clicked.connect(self._test_current_geometry)
         btn_box.addWidget(self.test_btn)
@@ -1462,10 +1457,8 @@ class CalibrationDialog(QDialog):
         cancel_btn.clicked.connect(self.reject)
         btn_box.addWidget(cancel_btn)
 
-        self.save_btn = QPushButton("💾 บันทึกแม่แบบ")
-        self.save_btn.setStyleSheet(
-            "font-weight: bold; background-color: #2563EB; color: white; padding: 6px 16px;"
-        )
+        self.save_btn = QPushButton("บันทึกแม่แบบ")
+        self.save_btn.setProperty("accent", True)
         self.save_btn.setEnabled(False)
         self.save_btn.clicked.connect(self._save_template)
         btn_box.addWidget(self.save_btn)

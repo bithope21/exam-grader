@@ -18,7 +18,7 @@ class ExamStore:
         if self.path.exists() and self.path.stat().st_size > 0:
             with closing(sqlite3.connect(self.path)) as check_conn:
                 v = check_conn.execute("PRAGMA user_version").fetchone()[0]
-                if 0 < v < 13:
+                if 0 < v < 14:
                     backup_path = self.path.with_name(f"{self.path.name}.v{v}.bak")
                     if not backup_path.exists():
                         with closing(sqlite3.connect(backup_path)) as bck_conn:
@@ -26,7 +26,7 @@ class ExamStore:
         with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 13:
+            if version > 14:
                 raise RuntimeError("ฐานข้อมูลเป็นรุ่นใหม่กว่าแอปนี้ กรุณาใช้แอปรุ่นใหม่")
             if version == 0:
                 connection.execute("""
@@ -165,6 +165,24 @@ class ExamStore:
                     ),
                 )
                 connection.execute("PRAGMA user_version = 13")
+            if version < 14:
+                connection.execute("""CREATE TABLE partial_reviews (
+                    id TEXT PRIMARY KEY,
+                    source_id TEXT NOT NULL REFERENCES sources(id),
+                    key_id TEXT NOT NULL REFERENCES answer_keys(id),
+                    detection_id TEXT REFERENCES detections(id),
+                    student_number TEXT NOT NULL,
+                    identity_confirmed INTEGER NOT NULL CHECK(identity_confirmed IN (0,1)),
+                    identity_origin TEXT NOT NULL,
+                    answers TEXT NOT NULL,
+                    answer_provenance TEXT NOT NULL,
+                    review_issues TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )""")
+                connection.execute(
+                    "CREATE INDEX partial_reviews_source_latest ON partial_reviews(source_id, created_at)"
+                )
+                connection.execute("PRAGMA user_version = 14")
 
     def create(self, details: ExamDetails) -> Exam:
         exam = Exam(str(uuid4()), details, datetime.now(timezone.utc).isoformat())

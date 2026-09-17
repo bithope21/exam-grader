@@ -48,16 +48,25 @@ def test_teacher_workflow_import_review_export_reopen(tmp_path, monkeypatch):
     dialog = ReviewDialog(app.exams.path, key_source)
     dialog.count.setValue(2)
     dialog.accept()
-    assert dialog.result() != QDialog.DialogCode.Accepted
-    assert warnings
+    # Clear, non-ambiguous key reads are ready to save without a second
+    # per-question confirmation click.
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    assert not warnings
     dialog.confirmed.setChecked(True)
     dialog.accept()
     assert dialog.result() == QDialog.DialogCode.Accepted
     review = ReviewDialog(app.exams.path, student_source)
     review.number.setText("17")
+    detection = Workflow(app.exams.path).latest_detection(student_source["id"])
+    assert [review.combos[i].currentData() for i in range(2)] != [None, None], (
+        detection.get("failure"),
+        detection.get("alignment_diagnostics"),
+    )
     review.confirmed.setChecked(True)
     review.accept()
-    assert review.result() == QDialog.DialogCode.Accepted
+    assert review.result() == QDialog.DialogCode.Accepted, [
+        (warning[1], warning[2]) for warning in warnings
+    ]
     assert Workflow(app.exams.path).snapshot(exam.id)["results"][0]["score"] == 1
     output = export_results(Workflow(app.exams.path), exam.id)
     assert (output / "scores.xlsx").exists()

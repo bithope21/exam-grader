@@ -1,5 +1,399 @@
 # Exam Grader progress
 
+## Current task result — 2026-09-17 targeted identity safety fix
+
+The clean authoritative-label benchmark was used as the fixed baseline. The
+change stayed inside student-number identity recognition; document crop,
+registration, OMR, UI/UX, grading, export, business logic, ground truth, and
+fixture-specific runtime rules were not changed.
+
+- Raw labeled corpus: exact `26/32` (`81.25%`) from baseline `21/32`; candidate
+  visibility `28/32` (`87.5%`) from `27/32`; review `22/32`; selective
+  auto-accept `10/32`; wrong auto-accept `0` from `3`.
+- Unique-source view: exact `19/24` (`79.167%`) from `16/24`; candidate
+  visibility `21/24` (`87.5%`) from `20/24`; review `17/24`; selective
+  auto-accept `7/24`; wrong auto-accept `0` from `2`.
+- The gate now requires complete segmentation, no merged-component suspicion,
+  no independent candidate disagreement, and independent model/recognizer
+  agreement. Vol.7/0987, 0990, 0992 and Vol.6/0914 remain review-required.
+- Vol.8/9 held-out regression is preserved: exact `15/22`, visibility `19/22`,
+  wrong auto-accept `0`; selective auto-accept is `2/22`, both exact.
+- Focused source tests: `tests/test_identity.py` and
+  `tests/test_digit_model.py` pass (`20 passed`). Full test suite was not run.
+- Benchmark artifacts:
+  `/private/tmp/exam-grader-vol1-3-5-6-7-benchmark/targeted_fix_report.md`,
+  `/private/tmp/exam-grader-vol1-3-5-6-7-benchmark/report.json`, and
+  `/private/tmp/exam-grader-targeted-fix-heldout.json`.
+- Checkpoint: `f5c740e fix: fail closed student identity auto accept`.
+- Fresh bundle: `/Users/zubinpijit/.codex/worktrees/878c/exam-grader/dist/ExamGrader.app`.
+  Build completed with PyInstaller; strict deep codesign passed. Disposable
+  packaged `--self-check`, offscreen `--smoke-settings`, and offscreen
+  `--smoke-ui` passed. A non-offscreen settings smoke was not used as evidence
+  because the headless session's macOS pasteboard service aborted it.
+- Release-candidate handoff: current validation worktree is detached at
+  `cbd01b0` and was pushed to
+  `origin/fix/vol8-current-usable-checkpoint`. The parent worktree remains
+  untouched with its existing untracked Vol.8/Vol.9 fixtures. Windows
+  validation is now the next gate; no merge, tag, or release has been made.
+
+## Current task result — 2026-09-16 student-number recognition round 2
+
+Round 2 continued from checkpoint `33439ec` and changed only Student Number
+Recognition. The verified `IMG_1071` failure was a short, wide single glyph
+incorrectly split by the touching-digit heuristic; `IMG_1080` had an incomplete
+second digit after the baseline threshold. The fix adds conservative component
+grouping and local faint-stroke recovery without changing document crop,
+registration, OMR, UI/UX, grading, export, or business logic.
+
+- `IMG_1071`: boxes changed from `3` fragments to `2` digit boxes; the remaining
+  error is classifier `8 -> 9`, not ROI/crop failure.
+- `IMG_1080`: recovered complete `46`; no global preprocessing threshold was
+  changed.
+- Augmentation ablation proved blur caused the `IMG_1073` regression. Blur was
+  removed; mild affine-only hard-pair augmentation remains for labels
+  `{1,3,4,6,7,8,9}`, one copy per training sample.
+- Current bundled held-out report is
+  `/private/tmp/exam-grader-identity-round2-bundled-final-v1.json`: exact
+  `15/22` (`68.2%`), candidate visible `19/22` (`86.4%`), review `15/22`,
+  selective auto-accept `7/22`, wrong auto-accept `0`. Vol.8 is `6/10` exact
+  and Vol.9 is `9/12`.
+- Selective gate is enabled only with complete segmentation, candidate at the
+  top of the ranked list, confidence `>=100`, and margin `>=15`. On held-out,
+  all `7/7` auto-accepted candidates were exact; ambiguous cases remain review.
+- Final remaining wrong cases are `7/22`: classifier confusion in all seven
+  after visual re-audit; ranking amplifies the error on `IMG_1028` and
+  `IMG_1072` where `27` remains visible but `21` ranks first. No remaining
+  primary ROI/crop failure was found.
+- Training used only the existing 198-record seed manifest; internal KNN
+  validation is `39/39`, and `generalization_claim_allowed=false` remains.
+- Final bundled model SHA-256:
+  `aabeeb9bab4fdfad481facaa627c9efb521707e7783123746928776e74153502`.
+- Focused tests: `36 passed`; Ruff and `git diff --check` passed. Fresh
+  `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app` passed packaged
+  self-check, offscreen settings/UI smoke, and strict deep codesign. Native
+  Product Owner UAT is separate. Do not claim production-ready from this
+  source/held-out evidence alone.
+
+## Current task result — 2026-09-16 student-number root-cause fix
+
+The verified recognizer bottleneck was addressed without changing document
+crop/registration, OMR, UI/UX, grading, export, or business logic. The bundled
+model remains review-only and all held-out records remain teacher-confirmation
+required.
+
+### Verified state
+
+- Implementation changes: single-digit model support, model/legacy candidate
+  fusion, deterministic hard-pair augmentation support, and focused tests.
+- Annotation is complete: `198 labeled`, `2 excluded`, `0 remaining`,
+  `0 bad_bbox`; the accepted seed manifest has
+  `training_allowed=true` only for `internal_seed_split_only` and
+  `generalization_claim_allowed=false`.
+- Final held-out report is
+  `/private/tmp/exam-grader-identity-final-hardpairs-v1.json`: exact `13/22`
+  (`59.1%`), candidate visible `18/22` (`81.8%`), review `22/22`, auto-accept
+  `0`, wrong auto-accept `0`. Vol.8 is `6/10` exact and Vol.9 is `7/12`.
+- Before/after against the seed-model checkpoint: exact `7/22` -> `13/22`
+  and visibility `14/22` -> `18/22`; review and wrong auto-accept stayed safe.
+- The selected artifact uses one deterministic augmentation copy for labels
+  `{1,3,4,6,7,8,9}`. Copies `2` and `3` were rejected because held-out exact
+  fell to `8/22`.
+- Runtime model is bundled review-only at
+  `src/exam_grader/resources/student_number_digit_model.npz`; auto-accept is
+  disabled and the confidence cap is not a generalization probability.
+- Focused tests: `20 passed`; Ruff and `git diff --check` passed.
+- Threshold-20 preprocessing ablation was rejected: it improved IMG_1080 but
+  reduced overall exact to `10/22`, and IMG_1071 remained unresolved. The
+  production preprocessing path was not changed. Both remain review-required.
+- Final model artifact SHA-256:
+  `0a892c5f4a8b1eff4eb306b3a925f1a4f022b2151391c48216d99ced261159c7`.
+
+### Next exact action
+
+Checkpoint commit is the current HEAD of `fix/vol8-current-usable-checkpoint`.
+Fresh `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`
+was built from it and passed packaged `--self-check`, offscreen
+`--smoke-settings`, offscreen `--smoke-ui`, and strict deep codesign. This is
+package/source evidence only; Product Owner native UAT is still required.
+
+The remaining bottleneck is preprocessing/segmentation for `IMG_1071` and
+`IMG_1080`; threshold-20 ablation was rejected because overall exact fell to
+`10/22`, so production preprocessing remains unchanged. Do not claim
+production readiness or human-review reduction because review remains
+`22/22`.
+
+### Protected invariants and ownership
+
+Preserve immutable originals, source hashes, proposal/crop provenance,
+review-required uncertainty, teacher confirmation, and fail-closed behavior.
+The untracked `tests/fixtures/real/vol.8/` and
+`tests/fixtures/real/vol.9/` belong to the user/previous work; do not reset,
+clean, overwrite, stage, or absorb them.
+
+## Current task handoff — 2026-09-16 student-number dataset Phase 1
+
+Phase 1 is implemented and verified as a read-only dataset/benchmark layer.
+The PDF seed, teacher-confirmed real-sheet corpus, and current recognizer
+baseline are now reproducible without changing runtime recognition, OMR,
+crop/registration, grading, review, UI, or release behavior.
+
+### Evidence
+
+- PDF source: `/Users/zubinpijit/Downloads/number handwriting.pdf`; SHA-256
+  `20e2ffe4aa0244aba648e40ce995891dab99c6ef0912f845aa396e1e7201f244`.
+- Extracted 100 page-1 sequence crops (`00`–`99`) plus a 10-page review queue.
+  The arithmetic pages remain unlabeled; `training_ready=false`.
+- Built a 22-record held-out corpus from teacher-confirmed Vol.8/Vol.9
+  results. Writer identity is unknown, so no training split is claimed.
+- Baseline: primary exact `5/22` (`22.7%`, bootstrap 95% CI `9.1–40.9%`);
+  truth visible in candidate/review suggestions `18/22` (`81.8%`, CI
+  `63.6–95.5%`); review required `22/22`; auto-accept `0`; wrong auto-accept
+  `0`.
+- Per corpus: Vol.8 exact `2/10`, candidate-visible `8/10`; Vol.9 exact
+  `3/12`, candidate-visible `10/12`.
+
+### Files and next gate
+
+- Tooling: `tools/benchmark/extract_number_handwriting_dataset.py`,
+  `tools/benchmark/build_identity_corpus.py`,
+  `tools/benchmark/identity_labeled_benchmark.py`.
+- Tests/docs: `tests/test_identity_dataset_tools.py`,
+  `docs/IDENTITY_DATASET.md`.
+- The next authorized phase is visual QC/annotation of digit crops and a
+  leakage-safe writer-grouped train/validation/test manifest. Do not promote
+  a model or enable auto-accept until independent held-out evidence supports
+  it and wrong auto-accept remains zero.
+
+## Current task handoff — 2026-09-16 visual QC annotation preparation
+
+- Added `tools/benchmark/prepare_digit_annotation.py` and
+  `tests/test_digit_annotation.py`.
+- Generated an external worklist with 200 digit proposals and a 10x10 contact
+  sheet. All 200 remain `needs_review`; `training_ready=false`.
+- Visual QC found a real layout variant: `06`-`09` omit the visible leading
+  zero. All 8 affected spatial proposals have `label_proposed=null` and an
+  explicit review reason; they cannot silently enter training.
+- Output: `/private/tmp/exam-grader-number-handwriting-annotation-v2/`.
+
+## Current task handoff — 2026-09-16 annotation completed
+
+- Product Owner annotation manifest is complete: `198 labeled`, `2 excluded`,
+  `0 remaining`, `0 bad_bbox`, with `372` audit events.
+- Excluded records are `pdf-page-01-cell-22-digit-0` and
+  `pdf-page-01-cell-75-digit-0`; no ambiguous record was silently labeled.
+- Validator produced `/private/tmp/exam-grader-number-handwriting-training-ready.json`
+  with 198 accepted samples and verified source hashes/crops.
+- This is label-ready for the authorized internal seed split. It remains
+  `seed_only`, `writer_group=unknown`, and cannot support a generalization
+  claim.
+
+## Current task handoff — 2026-09-16 seed model integration
+
+- Product Owner authorized internal seed training despite unknown writer groups.
+  The regenerated manifest is
+  `/private/tmp/exam-grader-number-handwriting-training-ready-v2.json` with
+  `training_allowed=true`, `training_scope=internal_seed_split_only`, and
+  `generalization_claim_allowed=false`.
+- KNN beat centroid on the deterministic internal validation split (`39/39`
+  versus `37/39`); the final KNN artifact is bundled at
+  `src/exam_grader/resources/student_number_digit_model.npz`.
+- Independent saved-registration Vol.8/Vol.9 benchmark improved primary exact
+  from `5/22` (`22.7%`) to `7/22` (`31.8%`). Review remained `22/22` and wrong
+  auto-accept remained `0`. The model is integrated as review-only; no
+  auto-accept is enabled.
+- Benchmark report: `/private/tmp/exam-grader-identity-seed-model-benchmark-v3.json`.
+- Fresh arm64 app: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+  Packaged self-check and native UI smoke passed.
+
+## Current task handoff — 2026-09-16 compact UI checkpoint → student-number recognition
+
+The latest bounded macOS UI polish is committed on the fix branch. This
+checkpoint prepares a fresh chat for the next user-scoped student-number task;
+it does not define or reopen that task's implementation details.
+
+### Verified current state
+
+- Repo: `/Users/zubinpijit/private/exam-grader`
+- Branch: `fix/vol8-current-usable-checkpoint`
+- Latest commit: `3ad21da fix: compact macOS UI controls`
+- The commit contains only UI source, focused UI tests, PyInstaller resource
+  metadata, and bundled chevron assets. It does not include the existing
+  untracked Vol.8/Vol.9 fixtures.
+- Focused UI/theme tests: `24 passed`; Home guidance test: `1 passed`.
+- Changed-file Ruff, `git diff --check`, light/dark visual QA, packaged
+  self-check, UI/settings smoke, and strict deep codesign passed.
+- Current trial bundle: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+  This is source/package evidence, not native Product Owner UAT or a release
+  claim.
+
+### Protected scope and ownership
+
+- The next chat is for student-number recognition only after the Product Owner
+  provides the exact scope. Do not infer a new algorithm, threshold, accuracy
+  target, or fixture adjudication from this checkpoint.
+- `DETAIL: [รอ Product Owner บอกใน chat ใหม่]`
+- Preserve immutable originals, provenance, fail-closed uncertainty, mandatory
+  teacher confirmation, existing OMR/crop/geometry/review/scoring/storage/
+  export behavior, and backward compatibility.
+- Existing untracked `tests/fixtures/real/vol.8/` and
+  `tests/fixtures/real/vol.9/` belong to the user/previous work. Do not reset,
+  clean, overwrite, or absorb them.
+
+### Next exact action
+
+Start a fresh chat with the prompt in the matching current section at the top
+of `docs/NEXT_CHAT_HANDOFF.md`. Read the repository docs and exact current
+identity implementation first; wait for the new `DETAIL` before changing code.
+
+## Current task handoff — 2026-09-16 UX/UI continuation
+
+This is a concise continuity checkpoint after the bounded macOS UI polish. The
+next chat may continue UX/UI work only; do not reopen or alter the business
+logic that is already verified.
+
+### Verified current state
+
+- Repo: `/Users/zubinpijit/private/exam-grader`
+- Branch and origin are aligned at `0087a49 fix: polish native exam grader controls`.
+- The latest macOS arm64 bundle is `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+- Visual inspection of the fresh bundle confirmed compact native-style settings/help controls, no large structural emoji icons, and visible combo-box/stepper arrows in `NewExamDialog`.
+- Focused UI tests: `23 passed` (`tests/test_ui.py`, `tests/test_theme_and_layout.py`) plus `1 passed` (`tests/test_vol8_home_help.py`). Geometry/Vol.2/Vol.8/document-normalization regressions: `46 passed`.
+- Ruff, `git diff --check`, strict deep codesign, packaged self-check, settings smoke, and offscreen UI smoke passed. This is source/package evidence only; Product Owner native UAT is still outstanding.
+
+### Protected scope and ownership
+
+- Continue only with minimal macOS-native UX/UI polish. Do not change OMR,
+  geometry resolution, review gates, scoring, identity persistence, storage,
+  export, crop behavior, or other business logic unless the Product Owner gives
+  a new explicit scope.
+- Preserve immutable originals, provenance, fail-closed uncertainty, teacher
+  confirmation for student numbers, existing good crop/OMR behavior, and
+  backward-compatible runtime geometry.
+- Existing `tests/fixtures/real/vol.8/` and `tests/fixtures/real/vol.9/` remain
+  user/previous-agent untracked files. Do not reset, clean, overwrite, or
+  absorb them.
+
+### Next exact action
+
+Open the latest bundle and inspect MainWindow, NewExamDialog, ExamDialog, and
+ReviewDialog at supported desktop sizes against the new screenshots. Identify
+one bounded UI-only improvement, use `$ui-ux-pro-max` only as needed, implement
+it without touching business logic, add focused UI coverage, and re-run the
+app/package smoke before any separately authorized commit or push.
+
+Paste-ready prompt: see the matching current section at the top of
+`docs/NEXT_CHAT_HANDOFF.md`.
+
+## Current task handoff — 2026-09-15 Vol.9 runtime/UI geometry and review-gate root cause
+
+This is a read-only verification handoff for the next implementation chat. No
+source, test, fixture, build, or Git state was changed in this turn. The
+working tree remains intentionally dirty and must be preserved.
+
+### Confirmed findings
+
+- Runtime and UI do not share one geometry-resolution contract. Runtime
+  registration is resolved in `imaging.register()`/`analyze()`, while
+  `review_ui._normalization_corners()` independently chooses preview corners
+  and `exam_ui.populate_issues()` independently resolves issue crops. This
+  permits the displayed crop and the measured runtime ROI to disagree.
+- IMG_1071/IMG_1080 can be read correctly yet remain in review because
+  `imaging.py` makes every answer's `auto_resolved` false when the global
+  `registration.normalization_requires_review` flag is true. A page-level
+  warning is therefore acting as a question-level answer gate. The safe fix is
+  separate page, block, answer, and identity decisions; do not lower the
+  confidence threshold globally.
+- The IMG_1078 screenshot shows q10–q15 previews containing the neighboring
+  printed q25–q30 number strip. A direct current-pipeline replay of the raw
+  `tests/fixtures/real/vol.9/IMG_1078.jpg` with built-in `default-1` produced
+  answer ROIs confined to the five answer columns, so the screenshot is not
+  reproduced by that path. The remaining likely causes are a stale detection
+  or a newly-created custom template whose `with_number`/column inference
+  retained the question-number interval. The exact new exam DB/template/
+  detection payload is still required before naming one as the sole cause.
+- Student-number confirmation is persisted through the full review path, but
+  the Students tab still derives its label from the broader unresolved state.
+  Confirmed identity must refresh immediately and remain visibly separate from
+  any answer-review-pending state.
+
+### Required next implementation
+
+Introduce one persisted/current resolver result containing source hash,
+pipeline version, physical corners, canonical transform, grid/block geometry,
+per-answer ROIs, and confidence/provenance. Make runtime classification,
+review thumbnails, and template/test previews consume it. Add a hard invariant
+that five answer ROIs stay inside their own block and cannot overlap an
+adjacent printed question-number strip; malformed custom geometry must remain
+review-required, never be guessed. Then split review policy by stage: accept
+strong unambiguous answers, keep true multiple/uncertain/invalid geometry
+review-required, and keep student-number confirmation mandatory. After number
+confirmation, refresh Students-tab identity text without auto-confirming
+answers. Preserve immutable originals, bulk prefill confirmation, fail-closed
+uncertainty, and the working OMR/crop behavior.
+
+### Evidence and gate
+
+Current branch is `fix/vol8-current-usable-checkpoint` at `ae973e1`; existing
+focused evidence is 37 + 30 + 7 + 7 passed, with the current local app at
+`/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`. These checks and
+the package predate this read-only verification and are not evidence that the
+new fixes are implemented. The Vol.3 broad benchmark still has its recorded
+unrelated mismatch. Next chat must inspect the exact new exam payload, add
+focused regressions for resolver consistency, IMG_1078 column isolation,
+1071/1080 answer acceptance, and identity refresh, then build a fresh `.app`.
+Product Owner native UAT remains the gate before release/tag/publish.
+
+## Current checkpoint — 2026-09-15 Vol.9 freshness, review preview, and settings controls
+
+This checkpoint is built from the current working tree on branch
+`fix/vol8-current-usable-checkpoint`. It does not replace the earlier release
+history or the existing dirty changes in storage/export/workflow files.
+
+- When an exam opens, persisted detections whose `pipeline_version` is older
+  than the current `omr-illumination-v10-document-normalization-v2` are
+  reprocessed from the immutable source path. A teacher-confirmed key remains
+  durable; unresolved old student detections are refreshed only after a key is
+  confirmed. Current detections are not retried merely because they are
+  review-required.
+- Review thumbnails now use the answer observation's exact `roi_rects` (with a
+  small visual margin), falling back to the registered block offset only when
+  old detections do not contain those rectangles. This prevents the green
+  printed question-number strip from becoming part of the answer crop without
+  changing OMR decisions.
+- A review saved against an older detection is not silently reused after a
+  reread. Teacher-confirmed identity decisions remain explicit and durable.
+- The Home settings control is a full-surface `QToolButton` with
+  `InstantPopup`; template management remains reachable from the create-exam
+  dialog and the settings/template dialog controls remain safely disabled only
+  where the selected built-in template is read-only.
+
+### Vol.9 current-pipeline comparison (real fixture, not an accuracy claim)
+
+The stored fixture detections were `v9`; the values below are a direct current
+`v10` rerun using the canonical reference generated from each immutable raw
+key image. Student identity is intentionally still teacher-confirmed.
+
+| Sheet | Stored v9 identity | Current v10 candidates | Current OMR state | Current geometry |
+|---|---|---|---|---|
+| IMG_1071 | `113` | `147` (single candidate, review-required) | 30 single, 30 blank | norm .7732, residual 3.233 px, coverage .8295, alignment .7328 |
+| IMG_1078 | `12` | `12 / 42`, margin 8.43 (review-required) | 18 single, 30 blank, 1 uncertain, 11 multiple | norm .8296, residual 2.385 px, coverage .8864, alignment .7971 |
+| IMG_1080 | `1` | `46 / 44`, margin 10.75 (review-required) | 29 single, 31 blank | norm .7652, residual 3.394 px, coverage .8068, alignment .7159 |
+
+These candidates are evidence for human review, not automatic identity
+correction. The 1078 green-strip symptom is a preview geometry defect; the
+identity ambiguity remains a separate deliberate review gate.
+
+### Verification and package
+
+- Focused UI/workflow/automation: **37 passed**.
+- Document-normalization and Home guidance: **30 passed**.
+- Vol.8 hardening: **7 passed**; Vol.8 registration: **7 passed**.
+- Changed-file Ruff and `git diff --check`: passed.
+- `dist/ExamGrader.app` rebuilt from the current working tree; deep codesign,
+  packaged self-check, settings smoke, and offscreen UI smoke passed.
+- Product Owner native UAT is still required before any release/tag/publish
+  claim. The app is ready for that test, not yet UAT-accepted production.
+
 ## Git checkpoint — 2026-09-10
 
 Local Git is initialized on `main`; no remote is configured and nothing has
@@ -526,3 +920,80 @@ production-calibrated digit accuracy, and auto-accept remain intentionally defer
   Strict deep codesign passed. Packaged `--self-check`, `--smoke-settings`, and
   offscreen `--smoke-ui` all exited 0; settings smoke loaded Default #1/#2/#3.
   The new artifact is under `dist/ExamGrader.app` (and onedir `dist/ExamGrader`).
+
+## 2026-09-14 — Partial Review Export and Vol.8 Registration
+
+- ReviewDialog now supports **ข้ามรายการที่เหลือ → ไปผลลัพธ์** after explicit confirmation. The confirmation reports unconfirmed identities, unclear answers, and remaining sheets. Teacher edits are persisted; unresolved answers remain `unresolved` and score zero; ambiguous marks remain zero; unknown identities receive stable persisted labels. Results, JSON, checked images, and Excel retain provenance/status/issues. Partial checked JPEGs use collision-safe names and a Thai incomplete-review banner. Processing status keeps pending-review counts visible after image processing reaches 100%.
+- Vol.8 root cause: feature registration was brittle on sparse green forms, while the legacy page detector could treat the full image as a weak page candidate. Candidate choice is now scored against the printed green grid; coarse homography is followed by bounded line-fit correction, with a grid-quality gate and fail-closed registration errors. A high-overlap, already-canonical sheet uses identity without warping student marks. OMR thresholds are unchanged.
+- Per-photo UAT: all 10 images registered (9 green-print quads, 1 page quad), maximum grid residual 2.434 px, minimum confidence 0.8203. IMG_1022 first five marks remain A/B/A/D/C; all fixture hashes are unchanged. This demonstrates registration and preserves the known baseline only; answer accuracy for the remaining photos is not independently established.
+- Diagnostics and visual evidence: `docs/evidence/vol8-registration/after/report.json`, `normalized/`, `grid-overlays/`, and a real-source partial checked preview under `checked-preview/`. The preview uses a synthetic all-A key solely to verify rendering, not grading accuracy. Overlays for IMG_1022, IMG_1024, IMG_1028 and the checked output were visually inspected; the Thai partial-status banner renders correctly.
+- Validation: 32 targeted UI/workflow/export/registration tests passed, including the ReviewDialog skip button confirmation; changed-source Ruff and Mypy passed. Whole-directory Mypy still reports two optional-template typing errors in untouched `settings_ui.py` and `ui.py`. Local macOS arm64 build succeeded at `dist/ExamGrader.app` (234 MB); strict deep codesign, packaged self-check, and offscreen UI/settings smoke passed. No release, tag, or publish was performed.
+- Next user-requested task: **TASK — Vol.8 Production Accuracy Hardening + Camera Guidance + Final macOS UAT Build**. Registration is verified, but answer-level accuracy across Vol.8 has not been independently compared with human-confirmed ground truth. Camera-guidance details remain `DETAIL: [รอ Product Owner บอกใน chat ใหม่]`; the existing `dist/ExamGrader.app` is not the final build for this next task.
+
+## 2026-09-14 — Vol.8 Accuracy, Photo Guidance, and Final macOS Build
+
+- Added the hash-checked manual visual reference at `docs/evidence/vol8-accuracy/ground_truth.json`. It is explicitly provisional pending Product Owner confirmation. The photographed key has 30 active questions; three visually ambiguous answers remain uncertain and are excluded from exact accuracy.
+- Green-form OMR now masks chromatic green grid print, uses isolated centered ink, and resolves cross geometry only when it is strong and unique. The pipeline version is `omr-illumination-v8-green-cross-v2`. Active-key comparison improved from 252/297 exact (84.85%), one false multiple, and 44 uncertain to 290/297 exact (97.64%), zero wrong/false-multiple/false-blank, and 7 uncertain. Unsafe decisions on the three ambiguous answers: 0. This is provisional, corpus-limited engineering evidence, not production-wide accuracy.
+- Registration remains 10/10; max residual 2.434 px, min confidence 0.8203. Number OCR primary candidates match 5/9 legible references and all ten remain review-required. Q31–Q60 are separately reported: 23 uncertain cells and one visible out-of-key mark (IMG_1026 Q31), with no resolved errors.
+- Added a nonmodal photo-guidance info control beside student-sheet import. Native macOS UI inspection confirmed the Student tab exposes the guidance. It lists all four paper corners, a straight overhead angle, full borders/grid, low shadow/glare, and legible text/marks.
+- Focused review/skip/workflow/export/Vol.8 checks: 38 passed. Full suite: 152 passed, 3 skipped, 10 failed. Eight failures stop at the existing registration grid-quality gate before answer processing; one migration assertion expects a different schema version; one Windows UAT attempts a Documents write denied by this sandbox. Whole changed-file Ruff passes. Whole-source Ruff still reports five issues in untouched files; whole-source Mypy still reports two optional-template errors in untouched `settings_ui.py` and `ui.py`.
+- Rebuilt `dist/ExamGrader.app` (macOS arm64, 234 MB). Strict deep codesign, packaged self-check, settings smoke, and offscreen UI smoke pass. The app opened natively and the photo-guidance control appeared in the Student tab. Product Owner ground-truth adjudication and manual teacher UAT remain outstanding. No release, tag, commit, or publish was made.
+
+## 2026-09-14 — Document Normalization / Auto-Crop implementation checkpoint
+
+- Implemented a generic page/grid candidate registration path, immutable-source transform diagnostics, and optional four-corner correction in review. No 4×15/60-question assumptions were added. See [DOCUMENT_NORMALIZATION_UAT.md](docs/DOCUMENT_NORMALIZATION_UAT.md).
+- The valid Vol.8 OMR comparison is v8 → v9: 290/297 exact, 7 uncertain, zero wrong/false-multi/false-blank, and zero unsafe decisions both before and after. Registration is 10/10 with unchanged worst residual/confidence, although the selected candidate mix changed. The v6→v8 gain predates this task. Human labels remain provisional.
+- Focused cross-layout tests: 52 passed. Full suite: 172 passed, 3 skipped, 10 failed; all 10 match the recorded baseline failure groups (eight registration/grid-quality, schema expectation, sandbox-only Windows Documents write). Changed-file Ruff and targeted Mypy passed.
+- Rebuilt local arm64 `dist/ExamGrader.app` (234 MB); strict deep codesign, packaged self-check, settings smoke, and UI smoke passed. No DMG/release/commit/publish. Native corner-editor UAT and label adjudication are outstanding.
+- **DoD not met:** the normalization work did not improve Vol.8 answer accuracy. Synthetic phone-photo checks are not evidence of real-world photo robustness; do not claim production readiness until real-photo/UAT evidence meets the user's bar.
+
+## 2026-09-14 — Vol.8 production-hardening acceptance rerun
+
+- The teacher-reviewed fixture replay is recorded in `/private/tmp/vol8-production-uat-20260914-final/report.json`. All 10 sheets reached registration; 286/300 answer states and 282/295 confirmed single choices matched, with 0 unsafe confident mismatches. Four of five multiple-answer states matched, but marked-choice subsets are unavailable. Original source hashes were unchanged.
+- Five sheets triggered the runner's manual-corner-adjustment criterion; that threshold flag does not alone prove the detected boundary is wrong. All 10 identities remain review-required; the primary, OCR-candidate, and separate shape-review-suggestion lists each contain the teacher label for 3/10, with the union visible for 6/10.
+- Full suite: 176 passed, 3 skipped, 16 failed. The failures include the previously recorded registration/grid, schema-version, and sandbox-only Windows-write groups plus six further failures: one Vol.2 registration case before identity observation and five identity-test failures (two Vol.5 ranking expectations, two Vol.6 batch-adoption cases, and the Vol.7 IMG_0988 recognition miss). Focused post-lint normalization/identity/Vol.8/Home-help checks: 45 passed, 1 failed (Vol.7 IMG_0988 expected 27 is absent from primary, OCR candidates, and review suggestions). Changed-file Ruff passes and `git diff --check` passes.
+- Acceptance remains open: definitive answer accuracy is below 100%, the manual-corner criterion triggers on five sheets, identities remain uncertain, and regressions need resolution. No build, package smoke, native corner-editor UAT, release, commit, or publish was performed for this task. Preserve the existing dirty/untracked work.
+
+## 2026-09-14 — Narrow Vol.8 Q27 rollback checkpoint
+
+- The latest user scope supersedes the broader task above for this round: only restore fail-safe handling for `IMG_1024.jpg` Q27 while preserving the `IMG_1028.jpg` registration improvement. Do not touch Vol.2, identity/student number, scoring, export, or add heuristics.
+- Frozen Vol.8 v8 baseline: 10/10 registered, 290/297 exact, 7 uncertain, 0 wrong, 0 unsafe ambiguous. Same-fixture replay used `tests/fixtures/real/vol.8` and `docs/evidence/vol8-accuracy/ground_truth.json` (297 resolved cells; same key/reference hashes as the frozen report).
+- Before this narrow rollback, Q27 was selected as E by `_green_core_decision` / `green-center-ink-dominance` at core density 0.083; the teacher reference marks it ambiguous. Registration kept the same candidate as baseline. Removing the promotion entirely gave 273/297 exact and 24 uncertain, so that experiment was discarded.
+- The retained narrow rollback requires the existing `SELECTED_DENSITY_THRESHOLD` (0.10) for the green-core promotion. Replay: 10/10 registered, 288/297 exact, 9 uncertain, 0 wrong, 0 unsafe ambiguous. Acceptance is **not met** (exact must be at least 290 and uncertain at most 7). `IMG_1024` Q27 is review-required again; `IMG_1021` Q12 and Q23 became additional uncertain answers. Their core densities are 0.083 and 0.076; Q27 is 0.083, so a scalar core threshold cannot separate them.
+- `IMG_1028` registration remains improved in the same replay: `green-print-quad`, residual 1.795 px, grid coverage 1.000, alignment confidence 0.8793, 30/30 exact. Frozen baseline selected `paper-quad`, residual 2.434 px, coverage 0.9432, confidence 0.8203.
+- Evidence: `/private/tmp/vol8-accuracy-q27-threshold-rollback/report.json`; command is the `vol8_accuracy_uat.py` replay recorded in `docs/NEXT_CHAT_HANDOFF.md` section 6. No full suite, build, release, commit, or publish was run. Next work is blocked on finding an already-existing, evidence-backed distinction for Q12/Q23 versus Q27; do not add a question-specific exception or new heuristic.
+
+## 2026-09-15 — Seamless handoff back to Vol.8 auto document boundary
+
+- The latest Product Owner instruction supersedes the narrow Q27-only scope above. Resume the original **TASK — Production Hardening: Vol.8 Auto Document Boundary + Registration + Student Number**, focusing this round on automatic paper crop/boundary, perspective normalization, and registration robustness on real Vol.8 photographs. Keep `IMG_1024.jpg Q27` `uncertain / review-required`; do not tune OMR. Student-number details and additional acceptance criteria are deferred for the Product Owner to specify in the next chat.
+- Latest teacher-reviewed production replay is `/private/tmp/vol8-production-uat-20260914-final3/report.json`, using the same 10 source sheets and teacher-confirmed export at `tests/fixtures/real/vol.8/2569_ป.1_1_math_vol8 lunar ultra_30q/ผลการตรวจ/2026-09-14_205501/_system/results.json`. All 10 reached registration; 295/300 answer states matched, including 291/295 confirmed single choices. There were 2 unsafe confident mismatches. Five sheets met the runner's manual-intervention/manual-corner-adjustment criterion. Worst residual was 6.508 px and minimum alignment confidence 0.5605. Real-photo crop/registration acceptance is still open; a detected boundary or successful registration alone is not proof of a correct crop.
+- `IMG_1028.jpg` in that replay selected `edge-canny` with `paper-quad-grid-refined-v2`; boundary confidence 0.8437, normalization confidence 0.6455, grid residual 6.508 px, line coverage 0.6705, and alignment confidence 0.5605. The report did not require manual corner adjustment for this image, but did require review for normalization/registration. Keep these measurements distinct from the separate provisional answer benchmark.
+- Separate provisional 297-resolved-answer replay remains `/private/tmp/vol8-accuracy-q27-threshold-rollback/report.json`: 10/10 registered, 288/297 exact, 9 uncertain, 0 wrong, 0 unsafe ambiguous; `IMG_1024.jpg Q27` is review-required. This is a separate oracle/denominator from the teacher-reviewed results above. Use it only as a fail-safe/no-regression OMR guard; do not tune OMR or conflate the two reports.
+- This handoff turn changed documentation only. It did not replay tests, edit code, or build the app. The worktree was already dirty, including modified sources/tests and untracked normalization/UAT files and Vol.8 fixtures; preserve every tracked and untracked item. Do not reset, clean, stage, or commit.
+- Next session: continue the real-image boundary → perspective → fine-registration task and use Vol.8 as the primary regression/UAT corpus. Preserve existing cross-layout behavior and working flows. Do not touch OMR, identity/student number, scoring, review, export, or other business logic; manual corner adjustment stays a fallback. After the agreed crop task passes relevant regressions, build a fresh macOS arm64 `dist/ExamGrader.app` and run applicable package checks for Product Owner trial. No release/tag/publish.
+
+## 2026-09-15 — Vol.8 physical-boundary acceptance follow-up
+
+- Updated real-photo page proposals to retain distinct multi-scale edge contours, record per-side edge evidence, and select physical corners independently from the final grid-registration transform. Corroborated boundary proposals use the template/grid evidence as a tie-breaker. A weak physical boundary now keeps normalization review-required even when the grid transform is strong.
+- Crop/registration replay: `/private/tmp/vol8-registration-uat-20260915-final/report.json` — 10/10 registered, maximum mean grid residual 1.954 px, minimum alignment confidence 0.8572.
+- Teacher-reviewed replay: `/private/tmp/vol8-production-uat-20260915-final2/report.json` — 10/10 processed; 295/300 states and 291/295 confirmed singles matched; 0 unsafe confident mismatches; 7 manual-intervention flags and 4 manual-corner-adjustment flags; worst residual 6.483 px and minimum alignment confidence 0.5654. The seven human-adjusted crops' automatic corner proposals are within 26.1–58.3 px per worst corner, but four remain below the existing confidence/coverage gate. Acceptance is still open.
+- The 297-cell provisional safety replay `/private/tmp/vol8-accuracy-boundary-final/report.json` remains 288/297 exact, 9 uncertain, 0 wrong, and 0 unsafe on ambiguous labels; IMG_1024 Q27 remains machine-uncertain there. The teacher export separately labels that row E. These are separate sources and denominators; OMR code was not changed.
+- Relevant focused suite: 60 passed (Vol.8 normalization/registration/hardening, imaging, and Vol.5/6/7 regressions). Changed-file Ruff and `git diff --check` passed. No build, release, commit, or publish.
+- Next: investigate low-contrast physical edges on IMG_1025/1026/1029/1030 without weakening the review gate. Keep uncertain cases review-required and do not build until the automatic-crop acceptance criteria pass.
+
+## 2026-09-15 — Current usable local program checkpoint
+
+- Checkpoint commit: `b69ce93624ea3088cc2fbb12ff9aa579c360e265` on `fix/vol8-current-usable-checkpoint`; branch pushed to `origin`.
+- Included only the reviewed crop/registration, physical-boundary diagnostics, manual-crop fallback, current OMR fail-safe, related UAT scripts/tests, and continuity docs. Unrelated dirty source/tests and untracked Vol.8/Vol.9 fixtures remain untouched.
+- Fresh macOS arm64 `dist/ExamGrader.app` is 234 MB. Strict deep codesign, packaged self-check, and offscreen UI smoke passed. Focused checks: 8 passed; Vol.8 registration sanity: 10/10, residual max 1.954 px, confidence min 0.8572.
+- Acceptance remains open: teacher replay 291/295 confirmed singles with four manual-corner flags; provisional 297-cell guard 288/297 exact, 9 uncertain, 0 wrong/unsafe; Q27 remains review-required.
+- Next session should wait for a new explicit Product Owner scope and preserve the checkpoint/dirty-file boundaries above.
+
+## 2026-09-15 — Review auto-accept, per-row bulk confirm, and student-number v6
+
+- Review UX now auto-accepts only a current, unambiguous `single_mark` or normal blank. `multiple`, `boundary_cross`, abnormal blank, incomplete geometry, and uncertain reads remain review-required. A clear ReviewDialog opens ready to save; student identity still requires explicit teacher confirmation.
+- Added `ยืนยันข้อมูลที่ระบบอ่านไว้` to the review toolbar. It confirms each selected row's own prefill atomically; it does not apply one answer to every row. The existing manual per-row editor and uniform bulk override remain available.
+- Student-number pipeline is now `student-number-adaptive-roi-v6`: expanded registration-tolerant ROI, green/reference/line suppression, connected-component grouping and touching-digit split, digit-only Tesseract 0–9 variants, measured multi-preprocess voting, review-only shape hints, and fail-closed segmentation. Roster/range is validation only; numbers remain `requires_review`.
+- Real corpus candidate visibility, using the same ground-truth labels and counting primary/OCR/review-hint union (not confirmed accuracy), improved from Vol.8 **5/10 → 8/10** and Vol.9 **8/12 → 11/12**. Primary auto-candidate remained **2/10** and **4/12** respectively. No identity was auto-confirmed.
+- Focused suite: **92 passed**. Changed-file Ruff and `git diff --check`: passed. Packaged macOS arm64 verification: strict deep codesign, disposable-data `--self-check`, offscreen `--smoke-settings`, and offscreen `--smoke-ui`: passed.
+- Product Owner trial app: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`. This is not a release; teacher identity UAT remains required, and `IMG_1024.jpg Q27` remains `uncertain / review-required`.
