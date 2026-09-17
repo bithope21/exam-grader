@@ -24,6 +24,12 @@ fixture-specific runtime rules were not changed.
   `/private/tmp/exam-grader-vol1-3-5-6-7-benchmark/targeted_fix_report.md`,
   `/private/tmp/exam-grader-vol1-3-5-6-7-benchmark/report.json`, and
   `/private/tmp/exam-grader-targeted-fix-heldout.json`.
+- Checkpoint: `f5c740e fix: fail closed student identity auto accept`.
+- Fresh bundle: `/Users/zubinpijit/.codex/worktrees/878c/exam-grader/dist/ExamGrader.app`.
+  Build completed with PyInstaller; strict deep codesign passed. Disposable
+  packaged `--self-check`, offscreen `--smoke-settings`, and offscreen
+  `--smoke-ui` passed. A non-offscreen settings smoke was not used as evidence
+  because the headless session's macOS pasteboard service aborted it.
 
 ## Current task result — 2026-09-16 student-number recognition round 2
 

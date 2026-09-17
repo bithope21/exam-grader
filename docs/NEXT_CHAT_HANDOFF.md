@@ -22,6 +22,12 @@ and labeled Vol.7 benchmark. Scope remains Student Number Recognition only.
   `/private/tmp/exam-grader-targeted-fix-heldout.json`.
 - Focused tests currently pass: `tests/test_identity.py` +
   `tests/test_digit_model.py` = `20 passed`; full suite intentionally not run.
+- Checkpoint: `f5c740e fix: fail closed student identity auto accept`.
+- Fresh package: `/Users/zubinpijit/.codex/worktrees/878c/exam-grader/dist/ExamGrader.app`.
+  PyInstaller build, strict deep codesign, disposable packaged
+  `--self-check`, offscreen `--smoke-settings`, and offscreen `--smoke-ui` all
+  passed. The first non-offscreen settings smoke hit the headless macOS
+  pasteboard service and is not counted as package evidence.
 
 Next delivery gate: run the focused Vol.8/9 and identity smoke checks, inspect
 the final diff, commit the checkpoint, update this handoff with the commit and
