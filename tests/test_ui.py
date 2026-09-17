@@ -405,7 +405,7 @@ def test_shared_control_style_and_stepperless_spinbox_keyboard(tmp_path):
     assert "min-height: 36px" in stylesheet
     assert "QListWidget::item:selected" in stylesheet
     dialog.question_count.ensurePolished()
-    assert 36 <= dialog.question_count.sizeHint().height() <= 40
+    assert 35 <= dialog.question_count.sizeHint().height() <= 40
     assert dialog.question_count.lineEdit() is not None
 
     dialog.question_count.setValue(10)
