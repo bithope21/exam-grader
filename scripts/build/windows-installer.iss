@@ -2,12 +2,12 @@
 [Setup]
 AppId=ExamGraderOffline
 AppName=Exam Grader
-AppVersion=1.0.2
+AppVersion=1.0.3
 DefaultDirName={localappdata}\Programs\ExamGrader
 DefaultGroupName=Exam Grader
 PrivilegesRequired=lowest
 OutputDir=..\..\dist
-OutputBaseFilename=Exam-Grader-v1.0.2-Windows-Setup
+OutputBaseFilename=Exam-Grader-v1.0.3-Windows-Setup
 Compression=lzma2
 SolidCompression=yes
 SetupIconFile=..\..\resources\icons\icon.ico
