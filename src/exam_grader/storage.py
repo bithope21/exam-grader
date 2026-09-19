@@ -1,11 +1,13 @@
 import json
 import sqlite3
+import unicodedata
 from contextlib import closing
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from exam_grader.domain import Exam, ExamDetails
+from exam_grader.domain import Exam, ExamDetails, ExamRoom
 from exam_grader.template_manager import TemplateDefinition, default_1_template_definition
 
 
@@ -18,7 +20,7 @@ class ExamStore:
         if self.path.exists() and self.path.stat().st_size > 0:
             with closing(sqlite3.connect(self.path)) as check_conn:
                 v = check_conn.execute("PRAGMA user_version").fetchone()[0]
-                if 0 < v < 14:
+                if 0 < v < 15:
                     backup_path = self.path.with_name(f"{self.path.name}.v{v}.bak")
                     if not backup_path.exists():
                         with closing(sqlite3.connect(backup_path)) as bck_conn:
@@ -26,7 +28,7 @@ class ExamStore:
         with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 14:
+            if version > 15:
                 raise RuntimeError("ฐานข้อมูลเป็นรุ่นใหม่กว่าแอปนี้ กรุณาใช้แอปรุ่นใหม่")
             if version == 0:
                 connection.execute("""
@@ -183,10 +185,94 @@ class ExamStore:
                     "CREATE INDEX partial_reviews_source_latest ON partial_reviews(source_id, created_at)"
                 )
                 connection.execute("PRAGMA user_version = 14")
+            if version < 15:
+                connection.execute(
+                    """CREATE TABLE exam_rooms (
+                        id TEXT PRIMARY KEY,
+                        exam_id TEXT NOT NULL REFERENCES exams(id),
+                        room_label TEXT NOT NULL,
+                        sort_order INTEGER NOT NULL,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        UNIQUE(exam_id, room_label)
+                    )"""
+                )
+                now = datetime.now(timezone.utc).isoformat()
+                for exam_row in connection.execute("SELECT id, room FROM exams").fetchall():
+                    room_label = (exam_row[1] or "").strip() or "ห้อง 1"
+                    connection.execute(
+                        "INSERT INTO exam_rooms (id,exam_id,room_label,sort_order,created_at,updated_at) "
+                        "VALUES (?,?,?,?,?,?)",
+                        (str(uuid4()), exam_row[0], room_label, 0, now, now),
+                    )
+                connection.execute("ALTER TABLE sources ADD COLUMN room_id TEXT REFERENCES exam_rooms(id)")
+                connection.execute(
+                    "UPDATE sources SET room_id=(SELECT id FROM exam_rooms WHERE exam_id=sources.exam_id ORDER BY sort_order,id LIMIT 1) "
+                    "WHERE purpose='student'"
+                )
+                connection.execute("ALTER TABLE import_failures ADD COLUMN room_id TEXT REFERENCES exam_rooms(id)")
+                connection.execute(
+                    "UPDATE import_failures SET room_id=(SELECT id FROM exam_rooms WHERE exam_id=import_failures.exam_id ORDER BY sort_order,id LIMIT 1)"
+                )
+                connection.execute("ALTER TABLE export_runs ADD COLUMN room_id TEXT REFERENCES exam_rooms(id)")
+                connection.execute(
+                    "UPDATE export_runs SET room_id=(SELECT id FROM exam_rooms WHERE exam_id=export_runs.exam_id ORDER BY sort_order,id LIMIT 1)"
+                )
+
+                connection.execute(
+                    """CREATE TABLE attendance_v15 (
+                        exam_id TEXT NOT NULL REFERENCES exams(id),
+                        room_id TEXT NOT NULL REFERENCES exam_rooms(id),
+                        student_number INTEGER NOT NULL,
+                        status TEXT NOT NULL CHECK(status IN ('pending','absent','excused')),
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY(room_id, student_number)
+                    )"""
+                )
+                connection.execute(
+                    "INSERT INTO attendance_v15 (exam_id,room_id,student_number,status,updated_at) "
+                    "SELECT a.exam_id,r.id,a.student_number,a.status,a.updated_at FROM attendance a "
+                    "JOIN exam_rooms r ON r.exam_id=a.exam_id AND r.sort_order=0"
+                )
+                connection.execute("DROP TABLE attendance")
+                connection.execute("ALTER TABLE attendance_v15 RENAME TO attendance")
+
+                connection.execute(
+                    """CREATE TABLE skipped_numbers_v15 (
+                        exam_id TEXT NOT NULL REFERENCES exams(id),
+                        room_id TEXT NOT NULL REFERENCES exam_rooms(id),
+                        student_number INTEGER NOT NULL,
+                        PRIMARY KEY(room_id, student_number)
+                    )"""
+                )
+                connection.execute(
+                    "INSERT INTO skipped_numbers_v15 (exam_id,room_id,student_number) "
+                    "SELECT s.exam_id,r.id,s.student_number FROM skipped_numbers s "
+                    "JOIN exam_rooms r ON r.exam_id=s.exam_id AND r.sort_order=0"
+                )
+                connection.execute("DROP TABLE skipped_numbers")
+                connection.execute("ALTER TABLE skipped_numbers_v15 RENAME TO skipped_numbers")
+                connection.execute("""CREATE TABLE assessment_indicators (
+                    id TEXT PRIMARY KEY,
+                    exam_id TEXT NOT NULL REFERENCES exams(id),
+                    position INTEGER NOT NULL,
+                    identifier TEXT NOT NULL,
+                    from_question INTEGER NOT NULL,
+                    to_question INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(exam_id, identifier),
+                    UNIQUE(exam_id, position)
+                )""")
+                connection.execute("PRAGMA user_version = 15")
 
     def create(self, details: ExamDetails) -> Exam:
-        exam = Exam(str(uuid4()), details, datetime.now(timezone.utc).isoformat())
+        room_label = details.room.strip() or "ห้อง 1"
+        exam = Exam(
+            str(uuid4()), replace(details, room=room_label), datetime.now(timezone.utc).isoformat()
+        )
         with closing(sqlite3.connect(self.path)) as connection, connection:
+            now = exam.created_at
             connection.execute(
                 "INSERT INTO exams "
                 "(id, name, academic_year, grade, room, subject, question_count, expected_number_max, template_id, template_version, created_at) "
@@ -196,7 +282,7 @@ class ExamStore:
                     details.name,
                     details.academic_year,
                     details.grade,
-                    details.room,
+                    room_label,
                     details.subject,
                     details.question_count,
                     details.expected_number_max,
@@ -205,7 +291,61 @@ class ExamStore:
                     exam.created_at,
                 ),
             )
+            connection.execute(
+                "INSERT INTO exam_rooms (id,exam_id,room_label,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+                (str(uuid4()), exam.id, room_label, 0, now, now),
+            )
         return exam
+
+    @staticmethod
+    def _room_key(value: str) -> str:
+        return " ".join(unicodedata.normalize("NFKC", value).strip().split()).casefold()
+
+    def list_rooms(self, exam_id: str) -> list[ExamRoom]:
+        with closing(sqlite3.connect(self.path)) as connection:
+            rows = connection.execute(
+                "SELECT id,exam_id,room_label,sort_order,created_at,updated_at FROM exam_rooms "
+                "WHERE exam_id=? ORDER BY sort_order,id",
+                (exam_id,),
+            ).fetchall()
+        return [ExamRoom(*row) for row in rows]
+
+    def get_room(self, room_id: str) -> ExamRoom:
+        with closing(sqlite3.connect(self.path)) as connection:
+            row = connection.execute(
+                "SELECT id,exam_id,room_label,sort_order,created_at,updated_at FROM exam_rooms WHERE id=?",
+                (room_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError("ไม่พบห้องเรียน")
+        return ExamRoom(*row)
+
+    def create_room(self, exam_id: str, label: str) -> ExamRoom:
+        label = unicodedata.normalize("NFKC", label).strip()
+        label = " ".join(label.split())
+        if not label:
+            raise ValueError("กรุณาระบุชื่อห้องเรียน")
+        if len(label) > 200:
+            raise ValueError("ชื่อห้องต้องไม่เกิน 200 ตัวอักษร")
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            if not connection.execute("SELECT 1 FROM exams WHERE id=?", (exam_id,)).fetchone():
+                raise ValueError("ไม่พบข้อสอบ")
+            rows = connection.execute(
+                "SELECT room_label FROM exam_rooms WHERE exam_id=?", (exam_id,)
+            ).fetchall()
+            if any(self._room_key(row[0]) == self._room_key(label) for row in rows):
+                raise ValueError("มีห้องชื่อนี้ในข้อสอบแล้ว")
+            now = datetime.now(timezone.utc).isoformat()
+            room_id = str(uuid4())
+            sort_order = connection.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM exam_rooms WHERE exam_id=?",
+                (exam_id,),
+            ).fetchone()[0]
+            connection.execute(
+                "INSERT INTO exam_rooms (id,exam_id,room_label,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+                (room_id, exam_id, label, sort_order, now, now),
+            )
+        return self.get_room(room_id)
 
     def list_exams(self) -> list[Exam]:
         with closing(sqlite3.connect(self.path)) as connection:
@@ -380,8 +520,10 @@ class ExamStore:
             connection.execute("DELETE FROM sources WHERE exam_id=?", (exam_id,))
             connection.execute("DELETE FROM import_failures WHERE exam_id=?", (exam_id,))
             connection.execute("DELETE FROM export_runs WHERE exam_id=?", (exam_id,))
+            connection.execute("DELETE FROM assessment_indicators WHERE exam_id=?", (exam_id,))
             connection.execute("DELETE FROM attendance WHERE exam_id=?", (exam_id,))
             connection.execute("DELETE FROM skipped_numbers WHERE exam_id=?", (exam_id,))
+            connection.execute("DELETE FROM exam_rooms WHERE exam_id=?", (exam_id,))
             changed = connection.execute("DELETE FROM exams WHERE id=?", (exam_id,)).rowcount
             if not changed:
                 raise ValueError("ไม่พบข้อสอบที่ต้องการลบ")
@@ -393,15 +535,18 @@ class ExamStore:
             except OSError:
                 pass
 
-    def export_runs(self, exam_id: str) -> list[dict]:
+    def export_runs(self, exam_id: str, room_id: str | None = None) -> list[dict]:
         with closing(sqlite3.connect(self.path)) as connection:
             connection.row_factory = sqlite3.Row
+            query = "SELECT * FROM export_runs WHERE exam_id=?"
+            params: list[object] = [exam_id]
+            if room_id is not None:
+                query += " AND room_id=?"
+                params.append(room_id)
+            query += " ORDER BY created_at DESC, id"
             return [
                 dict(row)
-                for row in connection.execute(
-                    "SELECT * FROM export_runs WHERE exam_id=? ORDER BY created_at DESC, id",
-                    (exam_id,),
-                )
+                for row in connection.execute(query, params)
             ]
 
     def summary(self, exam_id: str) -> dict[str, int]:

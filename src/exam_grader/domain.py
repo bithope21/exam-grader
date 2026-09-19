@@ -16,13 +16,17 @@ class ExamDetails:
     template_version: int = 1
 
     def __post_init__(self) -> None:
-        for field in ("name", "academic_year", "grade", "room", "subject"):
+        for field in ("name", "academic_year", "grade", "subject"):
             value = getattr(self, field).strip()
             if not value:
                 raise ValueError("กรุณากรอกข้อมูลข้อสอบให้ครบ")
             if len(value) > 200:
                 raise ValueError("ข้อมูลแต่ละช่องต้องไม่เกิน 200 ตัวอักษร")
             object.__setattr__(self, field, value)
+        room = self.room.strip()
+        if len(room) > 200:
+            raise ValueError("ข้อมูลแต่ละช่องต้องไม่เกิน 200 ตัวอักษร")
+        object.__setattr__(self, "room", room)
         if not 1 <= self.question_count <= 60:
             raise ValueError("จำนวนข้อต้องอยู่ระหว่าง 1 ถึง 60 ข้อ")
         if self.expected_number_max is not None and not 1 <= self.expected_number_max <= 9999:
@@ -42,3 +46,21 @@ class Exam:
     id: str
     details: ExamDetails
     created_at: str
+
+
+@dataclass(frozen=True)
+class ExamRoom:
+    id: str
+    exam_id: str
+    label: str
+    sort_order: int
+    created_at: str
+    updated_at: str
+
+    def __post_init__(self) -> None:
+        label = self.label.strip()
+        if not label:
+            raise ValueError("ชื่อห้องต้องไม่ว่าง")
+        if len(label) > 200:
+            raise ValueError("ชื่อห้องต้องไม่เกิน 200 ตัวอักษร")
+        object.__setattr__(self, "label", label)
