@@ -14,6 +14,7 @@ from uuid import uuid4
 import cv2
 import numpy as np
 from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
 from PySide6.QtGui import QColor, QFont, QImage, QPainter
 from PySide6.QtWidgets import QApplication
 
@@ -21,6 +22,7 @@ from exam_grader import __version__
 from exam_grader.imaging import cell_rect, decode, template
 from exam_grader.imports import ImportService
 from exam_grader.preferences import annotation_colors
+from exam_grader.storage import ExamStore
 from exam_grader.template_manager import TemplateDefinition, load_exam_template_def
 from exam_grader.workflow import Workflow, score_answer
 
@@ -44,9 +46,10 @@ def _ensure_render_application() -> None:
     _RENDER_APPLICATION = QApplication([])
 
 
-def human_readable_name(exam: dict) -> str:
+def human_readable_name(exam: dict, room_label: str | None = None) -> str:
+    room = exam.get("room", "") if room_label is None else room_label
     raw = "_".join(
-        str(exam.get(field, "")).strip()
+        str(room if field == "room" else exam.get(field, "")).strip()
         for field in ("academic_year", "grade", "room", "subject", "name")
     )
     normalized = unicodedata.normalize("NFKC", raw)
@@ -290,8 +293,19 @@ def checked_image(
     return encoded.tobytes()
 
 
-def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None) -> Path:
-    snapshot = flow.snapshot(exam_id)
+def export_results(
+    flow: Workflow,
+    exam_id: str,
+    output_root: Path | None = None,
+    room_id: str | None = None,
+) -> Path:
+    snapshot = flow.snapshot(exam_id, room_id=room_id)
+    indicator_config = snapshot.get("assessment_indicators", {})
+    if not indicator_config.get("valid", True):
+        raise ValueError(
+            "ตัวชี้วัดมีช่วงข้อไม่ถูกต้องตามจำนวนข้อปัจจุบัน กรุณาแก้หรือลบตัวชี้วัดก่อนออกผล"
+        )
+    indicators = indicator_config.get("items", [])
     snapshot_fingerprint = flow.snapshot_fingerprint(snapshot)
     importer = ImportService(flow.database)
     # Also verify the approved key's source evidence.
@@ -307,7 +321,18 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
     root_parent.mkdir(parents=True, exist_ok=True)
     if not os.access(root_parent, os.W_OK):
         raise OSError("ไม่มีสิทธิ์เขียนตำแหน่งบันทึกผลลัพธ์")
-    root = root_parent / human_readable_name(snapshot["exam"]) / "ผลการตรวจ"
+    room_label = snapshot["room"]["room_label"]
+    folder_name = human_readable_name(snapshot["exam"], room_label=room_label)
+    # Different labels can sanitize to the same cross-platform folder name
+    # (for example, "ป.1/1" and "ป.1:1"). Keep those rooms deterministic and
+    # separate while preserving the legacy folder name for non-colliding rooms.
+    if any(
+        other.id != snapshot["room"]["id"]
+        and human_readable_name(snapshot["exam"], room_label=other.label) == folder_name
+        for other in ExamStore(flow.database).list_rooms(exam_id)
+    ):
+        folder_name = f"{folder_name}-{snapshot['room']['id'][:8]}"
+    root = root_parent / folder_name / "ผลการตรวจ"
     root.mkdir(parents=True, exist_ok=True)
     run_id = "run-" + str(uuid4())
     staging = Path(tempfile.mkdtemp(prefix=".staging-", dir=root))
@@ -320,7 +345,10 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
         book = Workbook()
         sheet = book.active
         sheet.title = "Scores"
-        sheet.append(["No.", "Score", "Max", "Status", "Source File", "Review Issues"])
+        indicator_headers = [f"ตัวชี้วัด {item['identifier']}" for item in indicators]
+        sheet.append(
+            ["No.", *indicator_headers, "Score", "Max", "Status", "Source File", "Review Issues"]
+        )
         used_names: set[str] = set()
         template_def = None
         try:
@@ -367,6 +395,7 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
             sheet.append(
                 [
                     result["student_number"],
+                    *result.get("indicator_scores", []),
                     result["score"],
                     result["max"],
                     result["status"],
@@ -375,7 +404,13 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
                 ]
             )
             # Force user-controlled strings to text, even if they begin with '='.
-            for column in (1, 4, 5, 6):
+            text_columns = {
+                1,
+                4 + len(indicators),  # Status
+                5 + len(indicators),  # Source File
+                6 + len(indicators),  # Review Issues
+            }
+            for column in text_columns:
                 sheet.cell(sheet.max_row, column).data_type = "s"
         sheet.freeze_panes = "A2"
         for attendance in snapshot.get("attendance", []):
@@ -383,28 +418,24 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
                 sheet.append(
                     [
                         str(attendance["student_number"]),
+                        *([None] * len(indicators)),
                         None,
                         len(snapshot["key"]["answers"]),
                         "ขาดสอบ" if attendance["status"] == "absent" else "ลา / ได้รับยกเว้น",
                         None,
+                        None,
                     ]
                 )
-        for column_letter, width in (
-            ("A", 24),
-            ("B", 12),
-            ("C", 12),
-            ("D", 24),
-            ("E", 50),
-            ("F", 50),
-        ):
-            sheet.column_dimensions[column_letter].width = width
+        widths = [24, *([18] * len(indicators)), 12, 12, 24, 50, 50]
+        for index, width in enumerate(widths, start=1):
+            sheet.column_dimensions[get_column_letter(index)].width = width
 
         info_sheet = book.create_sheet(title="Info")
         t_name = template_def.name if template_def is not None else template_id
         info_sheet.append(["หัวข้อ", "รายละเอียด"])
         info_sheet.append(["ชื่อข้อสอบ", snapshot["exam"]["name"]])
         info_sheet.append(["วิชา", snapshot["exam"]["subject"]])
-        info_sheet.append(["ชั้น / ห้อง", f"{snapshot['exam']['grade']} / {snapshot['exam']['room']}"])
+        info_sheet.append(["ชั้น / ห้อง", f"{snapshot['exam']['grade']} / {room_label}"])
         info_sheet.append(["ปีการศึกษา", str(snapshot["exam"]["academic_year"])])
         info_sheet.append(["แม่แบบกระดาษคำตอบ", t_name])
         info_sheet.append(["จำนวนข้อ", str(snapshot["exam"]["question_count"])])
@@ -417,7 +448,7 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
         snapshot["run_id"] = run_id
         snapshot["app_version"] = __version__
         snapshot["export"] = {
-            "human_readable_name": human_readable_name(exam),
+            "human_readable_name": human_readable_name(exam, room_label=room_label),
             "folder_policy": "human-facing-v2",
             "template": template_def.to_dict() if template_def is not None else template(),
             "renderer_version": "checked-overlay-canonical-jpeg-v2-partial-review",
@@ -443,7 +474,7 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
             json.dumps(hashes, indent=2), encoding="utf-8"
         )
         # Do not publish if a key/review or source set changed during rendering.
-        current = flow.snapshot(exam_id)
+        current = flow.snapshot(exam_id, room_id=snapshot["room"]["id"])
         if flow.snapshot_fingerprint(current) != snapshot_fingerprint:
             raise ValueError("ข้อมูลเปลี่ยนระหว่างสร้างผล กรุณาสร้างผลใหม่")
         stamp = datetime.now().astimezone().strftime("%Y-%m-%d_%H%M%S")
@@ -467,7 +498,13 @@ def export_results(flow: Workflow, exam_id: str, output_root: Path | None = None
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(item, dest)
         published = True
-        flow.record_export(exam_id, str(final), run_id, snapshot_fingerprint)
+        flow.record_export(
+            exam_id,
+            str(final),
+            run_id,
+            snapshot_fingerprint,
+            room_id=snapshot["room"]["id"],
+        )
         return final
     finally:
         if final is not None and reserved and not published:

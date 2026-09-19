@@ -624,7 +624,7 @@ class ReviewDialog(QDialog):
                 QMessageBox.warning(self, "เลขที่ไม่ถูกต้อง", str(error))
                 return
 
-        service = ReviewService(self.flow.database)
+        service = ReviewService(self.flow.database, room_id=self.source.get("room_id"))
         try:
             summary = service.skip_summary(
                 self.source["exam_id"],

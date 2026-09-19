@@ -24,9 +24,10 @@ def normalize_number(value: str) -> str:
 
 
 class ReviewService:
-    def __init__(self, database):
+    def __init__(self, database, room_id: str | None = None):
         self.flow = Workflow(database)
         self.importer = ImportService(database)
+        self.room_id = room_id
 
     def state(self, source: dict) -> dict:
         with self.flow.connection() as con:
@@ -58,7 +59,9 @@ class ReviewService:
 
     def states(self, exam_id: str) -> list[dict]:
         return [
-            self.state(s) for s in self.importer.list_sources(exam_id) if s["purpose"] == "student"
+            self.state(s)
+            for s in self.importer.list_sources(exam_id, self.room_id)
+            if s["purpose"] == "student"
         ]
 
     @staticmethod
@@ -299,6 +302,7 @@ class ReviewService:
         if not operations:
             return {"applied": 0, "total": 0}
         key = self.flow.confirmed_key(exam_id)
+        room_id = self.flow.resolve_room_id(exam_id, self.room_id)
         now = datetime.now(timezone.utc).isoformat()
         applied = 0
         with self.flow.connection() as con:
@@ -327,16 +331,17 @@ class ReviewService:
                     num = int(normalize_number(issue["number"]))
                     if value == "skipped":
                         con.execute(
-                            "INSERT OR IGNORE INTO skipped_numbers VALUES (?,?)", (exam_id, num)
+                            "INSERT OR IGNORE INTO skipped_numbers VALUES (?,?,?)",
+                            (exam_id, room_id, num),
                         )
                     else:
                         con.execute(
-                            "DELETE FROM skipped_numbers WHERE exam_id=? AND student_number=?",
-                            (exam_id, num),
+                            "DELETE FROM skipped_numbers WHERE room_id=? AND student_number=?",
+                            (room_id, num),
                         )
                         con.execute(
-                            "INSERT INTO attendance VALUES (?,?,?,?) ON CONFLICT(exam_id,student_number) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at",
-                            (exam_id, num, value, now),
+                            "INSERT INTO attendance VALUES (?,?,?,?,?) ON CONFLICT(room_id,student_number) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at",
+                            (exam_id, room_id, num, value, now),
                         )
                     applied += 1
                 elif kind == "number":
@@ -437,19 +442,21 @@ class ReviewService:
             s["number"] and int(s["number"]) == int(number) for s in self.states(exam_id)
         ):
             raise ValueError("มีภาพนักเรียนเลขที่นี้แล้ว ไม่สามารถระบุว่าขาดสอบได้")
+        room_id = self.flow.resolve_room_id(exam_id, self.room_id)
         with self.flow.connection() as con:
             if status == "skipped":
                 con.execute(
-                    "INSERT OR IGNORE INTO skipped_numbers VALUES (?,?)", (exam_id, int(number))
+                    "INSERT OR IGNORE INTO skipped_numbers VALUES (?,?,?)",
+                    (exam_id, room_id, int(number)),
                 )
                 return
             con.execute(
-                "DELETE FROM skipped_numbers WHERE exam_id=? AND student_number=?",
-                (exam_id, int(number)),
+                "DELETE FROM skipped_numbers WHERE room_id=? AND student_number=?",
+                (room_id, int(number)),
             )
             con.execute(
-                "INSERT INTO attendance VALUES (?,?,?,?) ON CONFLICT(exam_id,student_number) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at",
-                (exam_id, int(number), status, datetime.now(timezone.utc).isoformat()),
+                "INSERT INTO attendance VALUES (?,?,?,?,?) ON CONFLICT(room_id,student_number) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at",
+                (exam_id, room_id, int(number), status, datetime.now(timezone.utc).isoformat()),
             )
 
     def skip_missing(self, exam_id: str) -> int:
@@ -467,18 +474,19 @@ class ReviewService:
         except ValueError:
             return []  # The key page owns this blocking step.
         numbers = [int(s["number"]) for s in states if s["number"]]
+        room_id = self.flow.resolve_room_id(exam_id, self.room_id)
         with self.flow.connection() as con:
             maximum = con.execute(
                 "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
             ).fetchone()[0]
             attendance = {
                 r["student_number"]: r["status"]
-                for r in con.execute("SELECT * FROM attendance WHERE exam_id=?", (exam_id,))
+                for r in con.execute("SELECT * FROM attendance WHERE room_id=?", (room_id,))
             }
             skipped = {
                 r[0]
                 for r in con.execute(
-                    "SELECT student_number FROM skipped_numbers WHERE exam_id=?", (exam_id,)
+                    "SELECT student_number FROM skipped_numbers WHERE room_id=?", (room_id,)
                 )
             }
         issues = []
@@ -595,7 +603,7 @@ class ReviewService:
                         "candidate": "pending",
                     }
                 )
-        for failure in self.importer.list_failures(exam_id):
+        for failure in self.importer.list_failures(exam_id, self.room_id):
             issues.append(
                 {
                     "source": None,
@@ -703,6 +711,7 @@ class ReviewService:
         answer_edits = answer_edits or {}
         identity_edits = identity_edits or {}
         states = self.states(exam_id)
+        room_id = self.flow.resolve_room_id(exam_id, self.room_id)
         state_by_id = {state["source"]["id"]: state for state in states}
         normalized_edits = {
             sid: normalize_number(value) for sid, value in identity_edits.items() if value
@@ -739,8 +748,8 @@ class ReviewService:
             active_sources = {
                 row["id"]
                 for row in con.execute(
-                    "SELECT id FROM sources WHERE exam_id=? AND purpose='student' AND archived_at IS NULL",
-                    (exam_id,),
+                    "SELECT id FROM sources WHERE exam_id=? AND purpose='student' AND room_id=? AND archived_at IS NULL",
+                    (exam_id, room_id),
                 )
             }
             if active_sources != set(state_by_id):
@@ -779,7 +788,7 @@ class ReviewService:
             attendance = {
                 int(row["student_number"]): row["status"]
                 for row in con.execute(
-                    "SELECT student_number,status FROM attendance WHERE exam_id=?", (exam_id,)
+                    "SELECT student_number,status FROM attendance WHERE room_id=?", (room_id,)
                 )
             }
             number_for_source: dict[str, str | None] = {}

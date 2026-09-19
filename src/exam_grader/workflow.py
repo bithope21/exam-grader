@@ -3,6 +3,7 @@
 import hashlib
 import json
 import sqlite3
+import unicodedata
 from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +28,60 @@ def accepted_choices(answer) -> set[str]:
 def score_answer(student_answer, key_answer) -> int:
     """Award one point only for a single student choice in the accepted set."""
     return int(student_answer in CHOICES and student_answer in accepted_choices(key_answer))
+
+
+def normalize_indicator_identifier(value: str) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value)).strip()
+    normalized = " ".join(normalized.split())
+    if not normalized:
+        raise ValueError("ตัวชี้วัดต้องไม่ว่าง")
+    if len(normalized) > 120:
+        raise ValueError("ตัวชี้วัดต้องไม่เกิน 120 ตัวอักษร")
+    return normalized
+
+
+def validate_assessment_indicators(indicators: list[dict], question_count: int) -> list[dict]:
+    normalized: list[dict] = []
+    seen: set[str] = set()
+    for position, item in enumerate(indicators):
+        identifier = normalize_indicator_identifier(item.get("identifier", ""))
+        duplicate_key = identifier.casefold()
+        if duplicate_key in seen:
+            raise ValueError(f"ตัวชี้วัดซ้ำ: {identifier}")
+        seen.add(duplicate_key)
+        try:
+            from_question = int(item["from_question"])
+            to_question = int(item["to_question"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("ช่วงข้อของตัวชี้วัดไม่ถูกต้อง") from error
+        if not 1 <= from_question <= to_question <= question_count:
+            raise ValueError(
+                f"ช่วงข้อของตัวชี้วัด {identifier} ต้องอยู่ระหว่าง 1 ถึง {question_count} และ From ต้องไม่เกิน To"
+            )
+        normalized.append(
+            {
+                "position": position,
+                "identifier": identifier,
+                "from_question": from_question,
+                "to_question": to_question,
+            }
+        )
+    previous_end = 0
+    for item in sorted(normalized, key=lambda value: (value["from_question"], value["to_question"])):
+        if item["from_question"] <= previous_end:
+            raise ValueError(f"ช่วงข้อของตัวชี้วัด {item['identifier']} ซ้อนทับกัน")
+        previous_end = item["to_question"]
+    return normalized
+
+
+def indicator_scores(answers: list[str], key_answers: list[object], indicators: list[dict]) -> list[int]:
+    return [
+        sum(
+            score_answer(answers[index - 1], key_answers[index - 1])
+            for index in range(item["from_question"], item["to_question"] + 1)
+        )
+        for item in indicators
+    ]
 
 
 class Workflow:
@@ -78,6 +133,73 @@ class Workflow:
             if row is None:
                 raise ValueError("ไม่พบข้อสอบ")
             return int(row["question_count"])
+
+    @staticmethod
+    def _resolve_room_id(connection, exam_id: str, room_id: str | None = None) -> str:
+        if room_id is not None:
+            row = connection.execute(
+                "SELECT id FROM exam_rooms WHERE id=? AND exam_id=?", (room_id, exam_id)
+            ).fetchone()
+            if row is None:
+                raise ValueError("ห้องไม่ตรงกับข้อสอบ")
+            return str(row["id"])
+        row = connection.execute(
+            "SELECT id FROM exam_rooms WHERE exam_id=? ORDER BY sort_order,id LIMIT 1",
+            (exam_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("ข้อสอบยังไม่มีห้องเรียน")
+        return str(row["id"])
+
+    def resolve_room_id(self, exam_id: str, room_id: str | None = None) -> str:
+        with self.connection() as connection:
+            return self._resolve_room_id(connection, exam_id, room_id)
+
+    def list_assessment_indicators(self, exam_id: str) -> list[dict]:
+        with self.connection() as connection:
+            return [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT id,exam_id,position,identifier,from_question,to_question,created_at,updated_at "
+                    "FROM assessment_indicators WHERE exam_id=? ORDER BY position,id",
+                    (exam_id,),
+                )
+            ]
+
+    def save_assessment_indicators(self, exam_id: str, indicators: list[dict]) -> list[dict]:
+        with self.connection() as connection:
+            exam = connection.execute(
+                "SELECT question_count FROM exams WHERE id=?", (exam_id,)
+            ).fetchone()
+            if exam is None:
+                raise ValueError("ไม่พบข้อสอบ")
+            normalized = validate_assessment_indicators(indicators, int(exam["question_count"]))
+            now = datetime.now(timezone.utc).isoformat()
+            connection.execute("DELETE FROM assessment_indicators WHERE exam_id=?", (exam_id,))
+            for item in normalized:
+                connection.execute(
+                    "INSERT INTO assessment_indicators "
+                    "(id,exam_id,position,identifier,from_question,to_question,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (
+                        str(uuid4()),
+                        exam_id,
+                        item["position"],
+                        item["identifier"],
+                        item["from_question"],
+                        item["to_question"],
+                        now,
+                        now,
+                    ),
+                )
+            return [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT id,exam_id,position,identifier,from_question,to_question,created_at,updated_at "
+                    "FROM assessment_indicators WHERE exam_id=? ORDER BY position,id",
+                    (exam_id,),
+                )
+            ]
 
     def approve_key(
         self,
@@ -205,14 +327,40 @@ class Workflow:
             )
             return revision
 
-    def snapshot(self, exam_id: str) -> dict:
+    def snapshot(self, exam_id: str, room_id: str | None = None) -> dict:
         self.confirmed_key(exam_id)
         with self.connection() as connection:
             key = self._key(connection, exam_id)
             exam = connection.execute("SELECT * FROM exams WHERE id=?", (exam_id,)).fetchone()
+            active_room_id = self._resolve_room_id(connection, exam_id, room_id)
+            room = connection.execute(
+                "SELECT * FROM exam_rooms WHERE id=? AND exam_id=?",
+                (active_room_id, exam_id),
+            ).fetchone()
+            if room is None:
+                raise ValueError("ไม่พบห้องเรียน")
+            active_room_id = room["id"]
+            raw_indicators = [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT id,exam_id,position,identifier,from_question,to_question FROM assessment_indicators "
+                    "WHERE exam_id=? ORDER BY position,id",
+                    (exam_id,),
+                )
+            ]
+            try:
+                configured_indicators = validate_assessment_indicators(
+                    raw_indicators, int(exam["question_count"])
+                )
+                for item, raw in zip(configured_indicators, raw_indicators, strict=True):
+                    item["id"] = raw["id"]
+                indicator_error = None
+            except ValueError as error:
+                configured_indicators = []
+                indicator_error = str(error)
             sources = connection.execute(
-                "SELECT * FROM sources WHERE exam_id=? AND purpose='student' AND archived_at IS NULL",
-                (exam_id,),
+                "SELECT * FROM sources WHERE exam_id=? AND purpose='student' AND room_id=? AND archived_at IS NULL",
+                (exam_id, active_room_id),
             ).fetchall()
             if not sources:
                 raise ValueError("ยังไม่มีภาพนักเรียน")
@@ -268,6 +416,11 @@ class Workflow:
                                 score_answer(a, b)
                                 for a, b in zip(answers, key["answers"], strict=True)
                             ),
+                            "indicator_scores": indicator_scores(
+                                answers, key["answers"], configured_indicators
+                            )
+                            if not indicator_error
+                            else [],
                             "max": len(key["answers"]),
                             "status": "review_skipped",
                             "decision_origin": "review_skipped",
@@ -291,8 +444,8 @@ class Workflow:
                 if exam["expected_number_max"] and identity > exam["expected_number_max"]:
                     raise ValueError("เลขที่เกินช่วงที่กำหนด กรุณาแก้ก่อนออกผล")
                 attendance = connection.execute(
-                    "SELECT status FROM attendance WHERE exam_id=? AND student_number=?",
-                    (exam_id, identity),
+                    "SELECT status FROM attendance WHERE room_id=? AND student_number=?",
+                    (active_room_id, identity),
                 ).fetchone()
                 if attendance and attendance["status"] != "pending":
                     raise ValueError("พบภาพที่ระบุขาดสอบ กรุณาแก้สถานะก่อนออกผล")
@@ -332,9 +485,14 @@ class Workflow:
                         "answer_provenance": answer_provenance,
                         "identity_confirmed": True,
                         "identity_origin": "teacher_confirmed",
-                        "score": sum(
+                    "score": sum(
                             score_answer(a, b) for a, b in zip(answers, key["answers"], strict=True)
                         ),
+                        "indicator_scores": indicator_scores(
+                            answers, key["answers"], configured_indicators
+                        )
+                        if not indicator_error
+                        else [],
                         "max": len(key["answers"]),
                         "status": "teacher_reviewed"
                         if review["origin"] == "teacher"
@@ -357,13 +515,19 @@ class Workflow:
             return {
                 "schema_version": 2,
                 "exam": dict(exam),
+                "room": dict(room),
                 "key": key,
+                "assessment_indicators": {
+                    "valid": indicator_error is None,
+                    "error": indicator_error,
+                    "items": raw_indicators,
+                },
                 "scoring_policy": POLICY,
                 "skipped_numbers": [
                     row[0]
                     for row in connection.execute(
-                        "SELECT student_number FROM skipped_numbers WHERE exam_id=? ORDER BY student_number",
-                        (exam_id,),
+                        "SELECT student_number FROM skipped_numbers WHERE room_id=? ORDER BY student_number",
+                        (active_room_id,),
                     )
                     if row[0] not in identities
                 ],
@@ -371,22 +535,24 @@ class Workflow:
                 "attendance": [
                     dict(row)
                     for row in connection.execute(
-                        "SELECT student_number,status,updated_at FROM attendance WHERE exam_id=? ORDER BY student_number",
-                        (exam_id,),
+                        "SELECT student_number,status,updated_at FROM attendance WHERE room_id=? ORDER BY student_number",
+                        (active_room_id,),
                     )
                 ],
             }
 
     def record_export(
-        self, exam_id: str, path: str, run_id: str, snapshot_fingerprint: str
+        self, exam_id: str, path: str, run_id: str, snapshot_fingerprint: str,
+        room_id: str | None = None,
     ) -> None:
         with self.connection() as connection:
             connection.execute(
-                "INSERT INTO export_runs (id, exam_id, path, run_id, snapshot_fingerprint, created_at) "
-                "VALUES (?,?,?,?,?,?)",
+                "INSERT INTO export_runs (id, exam_id, room_id, path, run_id, snapshot_fingerprint, created_at) "
+                "VALUES (?,?,?,?,?,?,?)",
                 (
                     str(uuid4()),
                     exam_id,
+                    room_id,
                     path,
                     run_id,
                     snapshot_fingerprint,
@@ -398,8 +564,8 @@ class Workflow:
         canonical = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    def missing_numbers(self, exam_id: str) -> dict:
-        snapshot = self.snapshot(exam_id)
+    def missing_numbers(self, exam_id: str, room_id: str | None = None) -> dict:
+        snapshot = self.snapshot(exam_id, room_id=room_id)
         observed = sorted(
             int(item["student_number"])
             for item in snapshot["results"]

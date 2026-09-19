@@ -71,7 +71,7 @@ class NewExamDialog(QDialog):
             ("name", "ชื่อข้อสอบ"),
             ("academic_year", "ปีการศึกษา"),
             ("grade", "ชั้น"),
-            ("room", "ห้อง"),
+            ("room", "ห้องเริ่มต้น (ไม่บังคับ)"),
             ("subject", "วิชา"),
         ):
             field: QLineEdit | QComboBox
@@ -89,8 +89,9 @@ class NewExamDialog(QDialog):
                     field.setMinimumContentsLength(8)
                     field.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
                 else:
-                    field.addItems([str(i) for i in range(1, 13)])
-                    field.setToolTip("เลือกห้อง หรือพิมพ์เอง")
+                    field.addItems([""] + [str(i) for i in range(1, 13)])
+                    field.setCurrentText("")
+                    field.setToolTip("เว้นว่างได้ หรือระบุห้องแรกของข้อสอบ")
                 line = field.lineEdit()
                 if line:
                     line.setMaxLength(200)

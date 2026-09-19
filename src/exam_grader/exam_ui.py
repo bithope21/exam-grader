@@ -20,9 +20,11 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -31,6 +33,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QSpinBox,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
@@ -52,7 +55,7 @@ from exam_grader.preferences import default_output_root
 from exam_grader.review_service import ReviewService
 from exam_grader.review_ui import ReviewDialog
 from exam_grader.template_manager import load_exam_template_def
-from exam_grader.workflow import Workflow
+from exam_grader.workflow import Workflow, validate_assessment_indicators
 
 PHOTO_GUIDANCE_TEXT = (
     "ถ่ายให้ตรวจได้แม่นขึ้น\n"
@@ -149,9 +152,15 @@ class BatchWorker(QThread):
     progress = Signal(int, int, str)
     completed = Signal(list)
 
-    def __init__(self, database, exam_id, paths, purpose, parent=None):
+    def __init__(self, database, exam_id, paths, purpose, room_id=None, parent=None):
         super().__init__(parent)
-        self.database, self.exam_id, self.paths, self.purpose = database, exam_id, paths, purpose
+        self.database, self.exam_id, self.paths, self.purpose, self.room_id = (
+            database,
+            exam_id,
+            paths,
+            purpose,
+            room_id,
+        )
 
     def run(self):
         failures = []
@@ -171,7 +180,9 @@ class BatchWorker(QThread):
             if self.isInterruptionRequested():
                 break
             try:
-                source = importer.import_file(self.exam_id, path, self.purpose)
+                source = importer.import_file(
+                    self.exam_id, path, self.purpose, room_id=self.room_id
+                )
                 existing = flow.latest_detection(source["id"])
                 if (
                     existing is None
@@ -217,13 +228,15 @@ class BatchWorker(QThread):
                                 "review_reason": "student-number observation unavailable",
                             }
                     flow.save_detection(source["id"], observation)
-                importer.clear_failure(self.exam_id, path, self.purpose)
+                importer.clear_failure(self.exam_id, path, self.purpose, room_id=self.room_id)
             except Exception as error:
-                importer.record_failure(self.exam_id, path, self.purpose, str(error))
+                importer.record_failure(
+                    self.exam_id, path, self.purpose, str(error), room_id=self.room_id
+                )
                 failures.append(f"{path.name}: {error}")
             self.progress.emit(index + 1, len(self.paths), path.name)
         try:
-            service = ReviewService(self.database)
+            service = ReviewService(self.database, room_id=self.room_id)
             service.finalize(self.exam_id)
         except Exception as error:
             failures.append(f"ประมวลผลอัตโนมัติไม่สำเร็จ: {error}")
@@ -233,18 +246,114 @@ class BatchWorker(QThread):
 class ExportWorker(QThread):
     completed = Signal(str, str)
 
-    def __init__(self, database, exam_id, output_root, parent=None):
+    def __init__(self, database, exam_id, output_root, room_id=None, parent=None):
         super().__init__(parent)
-        self.database, self.exam_id, self.output_root = database, exam_id, output_root
+        self.database, self.exam_id, self.output_root, self.room_id = (
+            database,
+            exam_id,
+            output_root,
+            room_id,
+        )
 
     def run(self):
         try:
             path = export_results(
-                Workflow(self.database), self.exam_id, output_root=self.output_root
+                Workflow(self.database),
+                self.exam_id,
+                output_root=self.output_root,
+                room_id=self.room_id,
             )
             self.completed.emit(str(path), "")
         except Exception as error:
             self.completed.emit("", str(error))
+
+
+class AssessmentIndicatorsDialog(QDialog):
+    def __init__(self, database, exam_id: str, question_count: int, parent=None):
+        super().__init__(parent)
+        self.database = database
+        self.exam_id = exam_id
+        self.question_count = question_count
+        self.setWindowTitle("ระบุตัวชี้วัด")
+        self.setMinimumWidth(720)
+
+        layout = QVBoxLayout(self)
+        self.notice = QLabel(
+            f"กำหนดคะแนนรายตัวชี้วัดจากช่วงข้อสอบ {question_count} ข้อ · ช่วงข้อเป็นแบบรวมต้นและปลาย"
+        )
+        self.notice.setWordWrap(True)
+        layout.addWidget(self.notice)
+        self.rows_layout = QVBoxLayout()
+        self.rows_layout.setSpacing(8)
+        layout.addLayout(self.rows_layout)
+        self.add_button = QPushButton("+ เพิ่มตัวชี้วัด")
+        self.add_button.clicked.connect(self._add_row)
+        layout.addWidget(self.add_button)
+        buttons = QDialogButtonBox()
+        buttons.addButton("บันทึก", QDialogButtonBox.ButtonRole.AcceptRole)
+        buttons.addButton("ยกเลิก", QDialogButtonBox.ButtonRole.RejectRole)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        self.rows: list[tuple[QWidget, QLineEdit, QSpinBox, QSpinBox]] = []
+        existing = Workflow(database).list_assessment_indicators(exam_id)
+        try:
+            validate_assessment_indicators(existing, question_count)
+        except ValueError as error:
+            self.notice.setText(f"ต้องแก้ไขตัวชี้วัดก่อนออกผล: {error}")
+            self.notice.setProperty("role", "warning")
+        for item in existing:
+            self._add_row(item)
+
+    def _add_row(self, item: dict | None = None) -> None:
+        container = QWidget(self)
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+        identifier = QLineEdit(str((item or {}).get("identifier", "")))
+        identifier.setPlaceholderText("เช่น 2.1, การอ่าน, ว 2.1")
+        identifier.setMaxLength(120)
+        from_question = QSpinBox()
+        to_question = QSpinBox()
+        for control, key in ((from_question, "from_question"), (to_question, "to_question")):
+            control.setRange(1, 9999)
+            control.setValue(int((item or {}).get(key, 1)))
+            control.setToolTip(f"ต้องอยู่ในช่วง 1 ถึง {self.question_count}")
+        remove = QPushButton("ลบ")
+        remove.setProperty("destructive", True)
+        row.addWidget(QLabel("ตัวชี้วัด"))
+        row.addWidget(identifier, 2)
+        row.addWidget(QLabel("ข้อ"))
+        row.addWidget(from_question)
+        row.addWidget(QLabel("ถึง"))
+        row.addWidget(to_question)
+        row.addWidget(remove)
+        self.rows_layout.addWidget(container)
+        record = (container, identifier, from_question, to_question)
+        self.rows.append(record)
+        remove.clicked.connect(lambda: self._remove_row(record))
+
+    def _remove_row(self, record) -> None:
+        if record not in self.rows:
+            return
+        self.rows.remove(record)
+        record[0].setParent(None)
+        record[0].deleteLater()
+
+    def accept(self) -> None:
+        values = [
+            {
+                "identifier": identifier.text(),
+                "from_question": from_question.value(),
+                "to_question": to_question.value(),
+            }
+            for _container, identifier, from_question, to_question in self.rows
+        ]
+        try:
+            Workflow(self.database).save_assessment_indicators(self.exam_id, values)
+        except ValueError as error:
+            QMessageBox.warning(self, "บันทึกตัวชี้วัดไม่ได้", str(error))
+            return
+        super().accept()
 
 
 class ExamDialog(QDialog):
@@ -252,8 +361,13 @@ class ExamDialog(QDialog):
         super().__init__(parent)
         self.application, self.exam = application, exam
         self.flow = Workflow(application.exams.path)
-        self.review_service = ReviewService(application.exams.path)
         self.importer = ImportService(application.exams.path)
+        self.rooms = application.exams.list_rooms(exam.id)
+        if not self.rooms:
+            raise ValueError("ข้อสอบยังไม่มีห้องเรียน")
+        self.room_id = self.rooms[0].id
+        self.room_label = self.rooms[0].label
+        self.review_service = ReviewService(application.exams.path, room_id=self.room_id)
         self.worker = None
         self.output_root = application.exams.output_root(exam.id) or default_output_root()
         self.template_def = load_exam_template_def(application.exams.path, exam.id)
@@ -266,6 +380,18 @@ class ExamDialog(QDialog):
         self.status = QLabel()
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
+
+        room_actions = QHBoxLayout()
+        room_actions.addWidget(QLabel("ห้อง"))
+        self.room_combo = QComboBox()
+        for room in self.rooms:
+            self.room_combo.addItem(room.label, room.id)
+        self.room_combo.currentIndexChanged.connect(self._on_room_changed)
+        room_actions.addWidget(self.room_combo, 1)
+        self.add_room_button = QPushButton("เพิ่มห้อง…")
+        self.add_room_button.clicked.connect(self._add_room)
+        room_actions.addWidget(self.add_room_button)
+        layout.addLayout(room_actions)
 
         self.tabs = QTabWidget()
         self.key_list = QListWidget()
@@ -293,6 +419,10 @@ class ExamDialog(QDialog):
         self.change_template_btn = QPushButton("เปลี่ยนแม่แบบข้อสอบ…")
         self.change_template_btn.clicked.connect(self._change_exam_template)
         key_actions.addWidget(self.change_template_btn)
+
+        self.indicator_button = QPushButton("ระบุตัวชี้วัด")
+        self.indicator_button.clicked.connect(self._open_indicators)
+        key_actions.addWidget(self.indicator_button)
 
         key_actions.addStretch()
         key_page.addLayout(key_actions)
@@ -485,6 +615,8 @@ class ExamDialog(QDialog):
             self.adopt_button,
             self.delete_student_button,
             self.delete_all_students_button,
+            self.indicator_button,
+            self.add_room_button,
         ]
         self.issue_drafts = {}
         self.issue_dirty = set()
@@ -510,6 +642,49 @@ class ExamDialog(QDialog):
         self.template_badge.setText(
             f"แม่แบบข้อสอบ: <b>{t_name}</b> ({c_count} ตัวเลือก, {q_count} ข้อ)"
         )
+
+    def _on_room_changed(self, index: int) -> None:
+        room_id = self.room_combo.itemData(index)
+        if not room_id or room_id == self.room_id:
+            return
+        room = next((item for item in self.rooms if item.id == room_id), None)
+        if room is None:
+            return
+        self.room_id = room.id
+        self.room_label = room.label
+        self.review_service = ReviewService(self.application.exams.path, room_id=self.room_id)
+        self.refresh()
+
+    def _add_room(self) -> None:
+        label, accepted = QInputDialog.getText(self, "เพิ่มห้อง", "ชื่อห้อง / ชั้นเรียน:")
+        if not accepted:
+            return
+        try:
+            room = self.application.exams.create_room(self.exam.id, label)
+        except ValueError as error:
+            QMessageBox.warning(self, "เพิ่มห้องไม่ได้", str(error))
+            return
+        self.rooms = self.application.exams.list_rooms(self.exam.id)
+        self.room_combo.blockSignals(True)
+        self.room_combo.clear()
+        for item in self.rooms:
+            self.room_combo.addItem(item.label, item.id)
+        self.room_combo.setCurrentIndex(self.room_combo.findData(room.id))
+        self.room_combo.blockSignals(False)
+        self.room_id = room.id
+        self.room_label = room.label
+        self.review_service = ReviewService(self.application.exams.path, room_id=self.room_id)
+        self.refresh()
+
+    def _open_indicators(self) -> None:
+        dialog = AssessmentIndicatorsDialog(
+            self.application.exams.path,
+            self.exam.id,
+            self.exam.details.question_count,
+            self,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.refresh()
 
     def _change_exam_template(self) -> None:
         from PySide6.QtWidgets import QInputDialog
@@ -648,7 +823,12 @@ class ExamDialog(QDialog):
 
     def dismiss_failure(self, failure: dict) -> None:
         try:
-            self.importer.clear_failure(self.exam.id, Path(failure["path"]), failure["purpose"])
+            self.importer.clear_failure(
+                self.exam.id,
+                Path(failure["path"]),
+                failure["purpose"],
+                room_id=failure.get("room_id"),
+            )
             self.refresh()
         except Exception as error:
             QMessageBox.warning(self, "ลบรายการไม่ได้", str(error))
@@ -665,8 +845,8 @@ class ExamDialog(QDialog):
             key = None
             key_message = f"ยังไม่มีเฉลยยืนยัน · จำนวนข้อของข้อสอบ {self.exam.details.question_count} ข้อ"
 
-        records = self.importer.list_sources(self.exam.id)
-        failures = self.importer.list_failures(self.exam.id)
+        records = self.importer.list_sources(self.exam.id, self.room_id)
+        failures = self.importer.list_failures(self.exam.id, self.room_id)
         student_sources = [source for source in records if source["purpose"] == "student"]
         ready = review_count = prefilled_count = 0
         reviewed_numbers: dict[int, int] = {}
@@ -761,7 +941,7 @@ class ExamDialog(QDialog):
         )
         if key and ready:
             try:
-                missing = self.flow.missing_numbers(self.exam.id)
+                missing = self.flow.missing_numbers(self.exam.id, room_id=self.room_id)
                 if missing["missing_expected"]:
                     self.status.setText(
                         self.status.text() + f"\nเลขที่คาดหวังที่ยังไม่พบ: {missing['missing_expected']}"
@@ -778,7 +958,7 @@ class ExamDialog(QDialog):
         try:
             partial_count = sum(
                 result.get("status") == "review_skipped"
-                for result in self.flow.snapshot(self.exam.id)["results"]
+                for result in self.flow.snapshot(self.exam.id, room_id=self.room_id)["results"]
             )
         except ValueError:
             pass
@@ -816,7 +996,7 @@ class ExamDialog(QDialog):
         else:
             self.progress_label.setText("พร้อมทำงาน")
         self.export_history.clear()
-        for run in self.application.exams.export_runs(self.exam.id):
+        for run in self.application.exams.export_runs(self.exam.id, self.room_id):
             path = Path(run["path"])
             timestamp = (
                 datetime.fromisoformat(run["created_at"]).astimezone().strftime("%Y-%m-%d %H:%M:%S")
@@ -841,8 +1021,8 @@ class ExamDialog(QDialog):
         self.attendance_restore.addItem("แก้สถานะขาดสอบที่บันทึกแล้ว…", None)
         with self.flow.connection() as con:
             for row in con.execute(
-                "SELECT student_number,status FROM attendance WHERE exam_id=? AND status!='pending' ORDER BY student_number",
-                (self.exam.id,),
+                "SELECT student_number,status FROM attendance WHERE room_id=? AND status!='pending' ORDER BY student_number",
+                (self.room_id,),
             ):
                 status = "ขาดสอบ" if row["status"] == "absent" else "ลา / ยกเว้น"
                 self.attendance_restore.addItem(
@@ -850,8 +1030,8 @@ class ExamDialog(QDialog):
                     str(row["student_number"]),
                 )
             for row in con.execute(
-                "SELECT student_number FROM skipped_numbers WHERE exam_id=? ORDER BY student_number",
-                (self.exam.id,),
+                "SELECT student_number FROM skipped_numbers WHERE room_id=? ORDER BY student_number",
+                (self.room_id,),
             ):
                 self.attendance_restore.addItem(
                     f"เลขที่ {row['student_number']} · ข้ามไว้ → ส่งกลับตรวจทาน",
@@ -925,7 +1105,11 @@ class ExamDialog(QDialog):
             QMessageBox.warning(self, "ลบกระดาษไม่ได้", str(error))
 
     def archive_all_students(self):
-        sources = [s for s in self.importer.list_sources(self.exam.id) if s["purpose"] == "student"]
+        sources = [
+            s
+            for s in self.importer.list_sources(self.exam.id, self.room_id)
+            if s["purpose"] == "student"
+        ]
         if not sources:
             QMessageBox.information(self, "ไม่มีภาพนักเรียน", "ยังไม่มีภาพนักเรียนที่ใช้งานอยู่")
             return
@@ -948,7 +1132,7 @@ class ExamDialog(QDialog):
     def reprocess_students(self):
         paths = [
             self.application.exams.path.parent / s["relative_path"]
-            for s in self.importer.list_sources(self.exam.id)
+            for s in self.importer.list_sources(self.exam.id, self.room_id)
             if s["purpose"] == "student"
         ]
         self.start_import(paths, "student")
@@ -964,7 +1148,7 @@ class ExamDialog(QDialog):
         if self.worker and self.worker.isRunning():
             return
         stale_by_purpose: dict[str, list[Path]] = {"key": [], "student": []}
-        for source in self.importer.list_sources(self.exam.id):
+        for source in self.importer.list_sources(self.exam.id, self.room_id):
             if source["purpose"] not in stale_by_purpose:
                 continue
             detection = self.flow.latest_detection(source["id"])
@@ -1251,6 +1435,7 @@ class ExamDialog(QDialog):
                             self.exam.id,
                             Path(issue["failure"]["path"]),
                             issue["failure"]["purpose"],
+                            room_id=issue["failure"].get("room_id"),
                         )
                     elif issue.get("source"):
                         self.importer.archive_source(issue["source"]["id"])
@@ -1440,6 +1625,7 @@ class ExamDialog(QDialog):
         self.review_list.setEnabled(not value)
         self.issue_table.setEnabled(not value)
         self.attendance_restore.setEnabled(not value)
+        self.room_combo.setEnabled(not value)
         self.skip_missing_button.setEnabled(not value)
         self.confirm_key_button.setEnabled(not value and self.key_list.count() > 0)
         if not value:
@@ -1481,7 +1667,10 @@ class ExamDialog(QDialog):
                 QMessageBox.information(self, "ยืนยันเฉลยก่อน", str(error))
                 self.tabs.setCurrentIndex(0)
                 return
-        self.worker = BatchWorker(self.application.exams.path, self.exam.id, paths, purpose, self)
+        room_id = self.room_id if purpose == "student" else None
+        self.worker = BatchWorker(
+            self.application.exams.path, self.exam.id, paths, purpose, room_id, self
+        )
         self.worker.progress.connect(self.on_progress)
         self.worker.completed.connect(self.import_done)
         self.worker.finished.connect(lambda: self.busy(False))
@@ -1586,7 +1775,7 @@ class ExamDialog(QDialog):
 
     def export(self):
         self.worker = ExportWorker(
-            self.application.exams.path, self.exam.id, self.output_root, self
+            self.application.exams.path, self.exam.id, self.output_root, self.room_id, self
         )
         self.worker.completed.connect(self.export_done)
         self.worker.finished.connect(lambda: self.busy(False))
