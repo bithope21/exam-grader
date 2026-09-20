@@ -1,4 +1,27 @@
-# Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
+# Fresh-Chat Handoff: Exam Grader v1.1.0 release checkpoint
+
+## Release authority checkpoint — 2026-09-20
+
+- PR #3 (`feat/windows-uat-indicators-polish`) is fast-forwarded into local
+  `main` at `e9162d5`; its audited scope is Indicators/Rooms, Excel borders and
+  formatting, Home room count, light/dark trash polish, the Windows
+  `QApplication` compatibility fix, and related tests/docs.
+- No experimental Whole-ROI or Student Number training/model code, weights,
+  fixtures, or unrelated changes entered the merge. Untracked `data/` and
+  Vol.8/9/10 fixtures remain preserved outside the release.
+- Release metadata is prepared for semver minor `1.1.0`; auto-accept remains
+  unchanged and there is no new Student Number behavior in this release.
+- Mac focused regression: `77 passed, 1 skipped, 1 deselected`; fresh arm64
+  app self-check/storage, settings/UI smoke, and strict deep codesign passed.
+- macOS artifact:
+  `/Users/zubinpijit/private/exam-grader/dist/Exam-Grader-v1.1.0-macOS-Apple-Silicon.dmg`.
+- Windows native UAT is recorded as passed by PR #3/Product Owner approval;
+  native Windows was not rerun on Mac. The Windows artifact must be built by
+  the tag workflow from the final tag and is not yet locally available.
+
+Do not rewrite the historical handoff sections below. The final publication
+step is to commit this release metadata, create annotated `v1.1.0`, push
+`main` and the tag, and verify the tag workflow/GitHub Release artifacts.
 
 # Current handoff — 2026-09-20 UI/Excel polish checkpoint
 

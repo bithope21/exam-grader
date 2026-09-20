@@ -1,3 +1,48 @@
+## Release authority checkpoint — v1.1.0 candidate — 2026-09-20
+
+The Windows Indicators/Exam Rooms PR was fast-forwarded onto `main` at
+`e9162d5` (`feat: assessment indicators, exam rooms, and UI/Excel polish
+(Windows UAT validated)`). The diff was audited before merge: it contains only
+Assessment Indicators/Exam Rooms, Excel presentation formatting and borders,
+Home room-count presentation, light/dark trash affordance polish, the scoped
+Windows `QApplication` compatibility/test reconciliation, and related
+tests/docs. It adds no Student Number model/training/Whole-ROI code, model
+weights, experimental fixtures, or unrelated business logic. The concurrent
+untracked `data/` and `tests/fixtures/real/vol.8/`, `vol.9/`, and `vol.10/`
+remain outside the release and were not staged or modified.
+
+Release metadata uses semver minor `1.1.0` for the backward-compatible
+Indicators/Rooms feature. `pyproject.toml`, runtime version metadata, DMG and
+Windows installer naming now agree at `1.1.0`; the package script also
+re-signs the final app after versioning its `Info.plist`.
+
+Verification:
+
+- Focused Mac regression: `77 passed, 1 skipped, 1 deselected` with
+  `QT_QPA_PLATFORM=offscreen`. The deselected case writes to a real Mac
+  Documents path and was not treated as Windows evidence; the skipped case
+  lacks its workspace images.
+- Ruff on changed source/tests and `git diff --check`: passed.
+- Fresh macOS arm64 `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`
+  rebuilt; packaged self-check reports version `1.1.0`, `storage=ok`;
+  settings/UI smoke passed; strict deep codesign passed.
+- DMG: `/Users/zubinpijit/private/exam-grader/dist/Exam-Grader-v1.1.0-macOS-Apple-Silicon.dmg`
+  (108 MB), SHA-256
+  `d16750cbf17dc499c0469e73efec699749a5714191d960d4656c335b101447db`.
+- Windows native UAT is recorded as passed in PR #3 / its Product Owner
+  approval, including the `.exe` flow, room/indicator workflow, Excel
+  borders, and Windows compatibility checks. It was not rerun on Mac; the
+  final-tag Windows artifact remains the workflow's responsibility.
+- Auto-accept and Student Number Recognition behavior were not changed in
+  this release; no Whole-ROI experiment is included. OMR, crop/registration,
+  grading/export semantics, provenance, room persistence, and other business
+  logic remain protected by the focused regression.
+
+Release publication is still a separate final step: create the release
+metadata commit, annotated `v1.1.0` tag, push `main` and the tag, then let the
+tag workflow build the Windows artifact from the same final commit and attach
+the macOS/Windows artifacts to the GitHub Release.
+
 ## Current handoff — 2026-09-20 UI/Excel polish checkpoint
 
 The bounded Home presentation and Scores workbook polish is implemented and

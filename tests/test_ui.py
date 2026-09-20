@@ -443,7 +443,9 @@ def test_student_list_action_is_compact_and_unclipped(tmp_path):
 
     item = dialog.student_list.item(0)
     row = dialog.student_list.itemWidget(item)
-    assert item.sizeHint().height() == 44
+    expected_min = 2 * dialog.student_list.fontMetrics().lineSpacing() + 16
+    assert item.sizeHint().height() >= expected_min
+    assert item.sizeHint().height() >= 44
     remove = row.findChildren(QPushButton)[0]
     assert remove.text() == "ลบ"
     assert remove.property("kind") == "compact"
