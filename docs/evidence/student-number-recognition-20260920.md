@@ -92,7 +92,7 @@ room in the benchmark.
 ## Verification and package
 
 - Focused recognition/review tests: 40 passed.
-- Broader scoped regression run: 90 passed, with the existing Vol.7 suite's
+- Broader scoped regression run: 77 passed / 3 failed, with the existing Vol.7 suite's
   3 known baseline failures (two identity visibility cases and one unrelated
   indoor geometry case); the same 3 failures reproduce at baseline `ff64d03`.
 - Changed-file Ruff and `git diff --check`: passed.
