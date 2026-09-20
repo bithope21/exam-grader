@@ -1,5 +1,108 @@
 # Exam Grader progress
 
+# Current handoff — 2026-09-20 assessment indicators, multi-room, and Excel polish
+
+The assessment-indicator and multi-room implementation is complete on the
+feature branch, and the Excel presentation polish is checkpointed. This
+section is the current source of truth for the next chat; older handoff
+sections below are historical evidence and must not override it.
+
+Verified current state:
+
+- Repository: `/Users/zubinpijit/private/exam-grader`
+- Branch: `feat/assessment-indicators-multi-room`
+- HEAD: `edbb9c7 polish: format scores workbook export`
+- Feature checkpoint: `7bdcced feat: add assessment indicators and exam rooms`
+- Focused verification with the required headless Qt environment:
+  `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
+  tests/test_assessment_indicators_rooms.py tests/test_export.py` → `18 passed`.
+- A fresh `dist/ExamGrader.app` was built from HEAD. Packaged self-check and
+  offscreen UI smoke passed; `codesign --verify --deep --strict` passed.
+  The self-check reports runtime version `1.0.2` and `packaging: not_verified`;
+  this is source/package evidence only, not native Product Owner UAT or a
+  release claim.
+
+Implemented and verified boundaries:
+
+- `assessment_indicators` is exam-scoped, ordered, optional, and persisted by
+  schema migration v14 → v15. Identifiers are trimmed free-form display
+  strings with duplicate rejection; ranges are inclusive, gaps are allowed,
+  and overlaps/out-of-range/invalid configurations are rejected without
+  silently clamping.
+- `exam_rooms` allows one exam/key/indicator configuration to serve multiple
+  rooms. Existing exams are migrated to a first room; student sources,
+  attendance, review, snapshots, and exports remain room-scoped.
+- Indicator scores are calculated after the existing final reviewed grading
+  path using the authoritative key and existing `score_answer()` semantics;
+  total `Score`, `Max`, status, provenance, checked images, and review flow
+  remain unchanged.
+- Excel with indicators inserts ordered indicator columns before `Score`; with
+  no indicators the legacy column set remains. The latest export polish adds
+  numeric Excel cells for `No.`/scores, compact bounded widths, styled header,
+  freeze/filter, alignment, wrapping where needed, and cross-platform-safe
+  room result folder naming without changing values or column semantics.
+
+Important implementation files:
+
+- `src/exam_grader/storage.py` — schema v15, rooms, legacy migration,
+  indicator persistence.
+- `src/exam_grader/workflow.py` — validation, room resolution, snapshots,
+  final-grade reuse, indicator aggregation.
+- `src/exam_grader/exam_ui.py` — indicator dialog/button and room context.
+- `src/exam_grader/review_service.py` and `src/exam_grader/imports.py` —
+  room-scoped review/import state.
+- `src/exam_grader/exporting.py` — room-safe output naming, indicator columns,
+  Excel formatting and data types.
+- `tests/test_assessment_indicators_rooms.py`, `tests/test_export.py` — focused
+  persistence, validation, scoring, isolation, ordering, compatibility, and
+  workbook checks.
+
+Dirty ownership:
+
+- `docs/NEXT_CHAT_HANDOFF.md` and `progress.md` are the current documentation
+  checkpoint files being updated for this handoff.
+- Preserve untracked `tests/fixtures/real/vol.8/` and
+  `tests/fixtures/real/vol.9/` as user/previous-agent work. Do not reset,
+  clean, overwrite, stage, or absorb them.
+
+Next-chat contract:
+
+1. The current feature task is complete for source and package evidence. Push
+   the documentation checkpoint, then wait for the Product Owner's new scoped
+   detail.
+2. The next user-scoped task is **Student Number Recognition and directly
+   related preprocessing/segmentation/model/ranking/confidence logic** only.
+   Do not infer its implementation details, metrics, or acceptance target
+   before the Product Owner supplies them in the new chat.
+3. Before any implementation, read the repository docs and inspect current
+   identity code, persisted provenance, fixtures, and git state. Preserve the
+   existing recognition/crop/registration/OMR/grading/review/export behavior
+   unless the new explicit scope strictly requires a related identity change.
+
+The complete paste-ready prompt is at the top of `docs/NEXT_CHAT_HANDOFF.md`.
+
+# Current handoff — 2026-09-17 Vol.1–Vol.7 evaluation-first benchmark
+
+The next chat must continue Student Number Recognition from checkpoint `1624a5c` with an evaluation-first benchmark on the real Vol.1–Vol.7 set. This handoff turn intentionally makes no code/model/data changes and does not run the benchmark.
+
+Verified starting state:
+
+- Branch `fix/vol8-current-usable-checkpoint`, HEAD `1624a5c`.
+- Tracked tree clean; preserve untracked `tests/fixtures/real/vol.8/` and `tests/fixtures/real/vol.9/`.
+- Current Vol.8–Vol.9 evidence remains `/private/tmp/exam-grader-identity-round2-bundled-final-v1.json`: exact `15/22`, visibility `19/22`, review `15/22`, selective auto-accept `7/22`, wrong auto-accept `0`.
+- Current model SHA-256 is `aabeeb9bab4fdfad481facaa627c9efb521707e7783123746928776e74153502`.
+- Prior focused source/package evidence is recorded below in the 2026-09-16 section; it does not prove Vol.1–Vol.7 generalization.
+
+Next-chat contract:
+
+1. Read RTK/repo instructions, this file, `docs/NEXT_CHAT_HANDOFF.md`, and the identity dataset/task/decision docs; inspect git state read-only.
+2. Locate authoritative Vol.1–Vol.7 fixtures, per-image ground truth, and baseline/result artifacts without changing them. Historical volume metrics are comparison evidence only, not a substitute for missing labels.
+3. Run the unchanged `1624a5c` pipeline first and report per-volume plus aggregate exact accuracy, candidate visibility, review rate, selective auto-accept, and wrong auto-accept.
+4. Vision-audit every wrong/regressed case and classify segmentation/preprocessing, classifier, ranking, or confidence gate. Do not change model during the clean benchmark.
+5. Only if a meaningful regression is proven, fix that specific root cause, rerun relevant cases and aggregate, and keep wrong auto-accept from increasing. Otherwise checkpoint the evaluation result and propose a bounded next step.
+
+Protected scope: no document crop/registration, OMR, UX/UI, grading/export/business logic, ground-truth/baseline changes, hard-coded fixtures, new dataset/telemetry, or full-suite run. Do not claim production-ready from aggregate accuracy alone. The complete paste-ready prompt is at the top of `docs/NEXT_CHAT_HANDOFF.md`.
+
 ## Current task result — 2026-09-16 student-number recognition round 2
 
 Round 2 continued from checkpoint `33439ec` and changed only Student Number

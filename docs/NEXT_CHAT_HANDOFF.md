@@ -1,5 +1,126 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+# Current handoff — 2026-09-20 assessment indicators, multi-room, and Excel polish
+
+Use the repository docs and current task as source of truth. The current
+assessment-indicator, multi-room, and Excel-polish task is complete for source
+and package evidence. The next chat must wait for the Product Owner's new
+Student Number Recognition detail; do not infer scope from older sections.
+
+## Verified current state
+
+- Repository: `/Users/zubinpijit/private/exam-grader`
+- Branch: `feat/assessment-indicators-multi-room`
+- HEAD: `edbb9c7 polish: format scores workbook export`
+- Feature checkpoint: `7bdcced feat: add assessment indicators and exam rooms`
+- Focused command: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q tests/test_assessment_indicators_rooms.py tests/test_export.py` → `18 passed`.
+- Fresh `dist/ExamGrader.app` built from HEAD; packaged self-check, offscreen UI smoke, and strict deep codesign passed. The self-check reports version `1.0.2` and `packaging: not_verified`; native Product Owner UAT remains separate and no merge/tag/release claim is made.
+
+## Current implementation and invariants
+
+- `src/exam_grader/storage.py` owns schema v15, `assessment_indicators`,
+  `exam_rooms`, and legacy-exam room migration.
+- `src/exam_grader/workflow.py` validates ordered exam-scoped indicators,
+  resolves room context, snapshots configuration, and aggregates indicator
+  scores after the existing authoritative reviewed grading path.
+- `src/exam_grader/exam_ui.py`, `review_service.py`, and `imports.py` keep
+  indicator configuration and student/review data in the correct exam/room
+  context.
+- `src/exam_grader/exporting.py` emits ordered indicator columns before the
+  unchanged `Score | Max | Status | Source File | Review Issues` columns when
+  configured; no indicators retain the legacy output. It also owns compact
+  bounded Excel styling, numeric cells, filters/freeze panes, and sanitized
+  collision-safe room folder names.
+- Focused tests are in `tests/test_assessment_indicators_rooms.py` and
+  `tests/test_export.py`.
+
+## Dirty ownership and next boundary
+
+Preserve untracked `tests/fixtures/real/vol.8/` and
+`tests/fixtures/real/vol.9/`; do not reset, clean, overwrite, stage, or absorb
+them. The documentation files in this checkpoint are intentionally updated;
+do not rewrite historical handoff sections below. Do not touch recognition,
+crop/registration, OMR, student-number, grading core, or unrelated business
+logic until the next user message defines the exact scope.
+
+## Paste-ready prompt for the next chat
+
+```text
+ทำต่อใน `/Users/zubinpijit/private/exam-grader` โดยใช้ repository docs และ git state เป็น source of truth
+
+อ่าน `/Users/zubinpijit/.codex/RTK.md`, `progress.md`, `docs/NEXT_CHAT_HANDOFF.md`, `docs/TASK_SPEC.md`, `docs/ARCHITECTURE.md` และเอกสารที่เกี่ยวข้องก่อนทำอะไร จากนั้น inspect `git status --short`, current HEAD และ implementation จริงแบบ read-only ก่อนเสนอแผน
+
+สถานะปัจจุบัน: branch `feat/assessment-indicators-multi-room`, HEAD `edbb9c7` (`polish: format scores workbook export`); assessment indicators + multi-room อยู่ที่ `7bdcced`. Focused checks ผ่าน `18 passed` ด้วย `QT_QPA_PLATFORM=offscreen`; fresh `dist/ExamGrader.app` ผ่าน packaged self-check, offscreen UI smoke และ strict deep codesign. นี่เป็น source/package evidence เท่านั้น ยังไม่ใช่ Product Owner native UAT หรือ release
+
+ขอบเขต task ใหม่จะเป็น **Student Number Recognition และ preprocessing/segmentation/model/ranking/confidence logic ที่เกี่ยวข้องโดยตรง** เท่านั้น โดย Product Owner จะให้รายละเอียดและ acceptance criteria ใน chat นี้เอง ห้ามเดา scope, algorithm, threshold, metric หรือเป้าหมาย accuracy ล่วงหน้า และห้ามเริ่มแก้ code ก่อนอ่าน/inspect แล้วสรุปแผนที่ bounded
+
+รักษา invariants เดิม: immutable originals, provenance, fail-closed uncertainty, teacher confirmation, recognition/crop/registration/OMR/grading/review/export behavior ที่ดีอยู่แล้ว และ backward compatibility. ห้าม scope creep ไป assessment indicators, rooms, UI กว้าง, grading/export หรือ business logic ที่ไม่เกี่ยวโดยตรง
+
+Preserve untracked `tests/fixtures/real/vol.8/` และ `tests/fixtures/real/vol.9/`; ห้าม reset, clean, overwrite, stage หรือ absorb งานเหล่านี้. แยก source tests, packaged smoke และ native UAT เป็นคนละหลักฐาน. ห้าม commit/push/deploy/release จนกว่าจะมี authorization ชัดเจนใน task ใหม่นั้น
+
+เมื่อ Product Owner ให้ detail แล้ว ให้ทำ engineer loop: inspect → เสนอแผน/ความไม่ชัดเจน → รอ confirmation หากมี decision ที่เปลี่ยน behavior → implement แบบ surgical → focused test/evidence → inspect output → checkpoint docs/commit ตามที่ได้รับอนุญาต
+```
+
+# Current handoff — 2026-09-17 Vol.1–Vol.7 evaluation-first benchmark
+
+## Task for the next chat
+
+Continue Student Number Recognition from checkpoint `1624a5c`. This next task is evaluation-first: run the current recognizer against the real Vol.1–Vol.7 fixtures to determine whether the Vol.8–Vol.9 improvements generalize or regress the earlier volumes. Do not change ground truth or baseline.
+
+### Verified starting state
+
+- Repository: `/Users/zubinpijit/private/exam-grader`
+- Branch: `fix/vol8-current-usable-checkpoint`
+- HEAD: `1624a5c fix: harden student number recognition round two`
+- Current tracked tree is clean. Preserve the untracked real fixtures `tests/fixtures/real/vol.8/` and `tests/fixtures/real/vol.9/`; they belong to the user and must not be staged, deleted, or overwritten.
+- Current Vol.8–Vol.9 held-out evidence is `/private/tmp/exam-grader-identity-round2-bundled-final-v1.json`: exact `15/22` (68.2%), candidate visibility `19/22` (86.4%), review `15/22` (68.2%), selective auto-accept `7/22` (31.8%), wrong auto-accept `0`; Vol.8 exact `6/10`, Vol.9 exact `9/12`.
+- Current round-2 visual audit is `/private/tmp/exam-grader-recognition-round2-final-audit/report.json`, with screenshots under the same directory. Remaining Vol.8–Vol.9 errors were classified as classifier confusion, with ranking amplification on `IMG_1028` and `IMG_1072`; no remaining primary document crop/registration failure was found.
+- Current model artifact SHA-256: `aabeeb9bab4fdfad481facaa627c9efb521707e7783123746928776e74153502`.
+- Fresh packaged app: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`. Prior focused evidence: 36 relevant tests passed; packaged self-check, offscreen settings/UI smoke, and strict codesign verification passed. These are starting-state evidence, not Vol.1–Vol.7 generalization evidence.
+
+### Required first inspection
+
+Read `/Users/zubinpijit/.codex/RTK.md`, `progress.md`, this handoff, `docs/IDENTITY_DATASET.md`, `docs/TASK_SPEC.md`, and `docs/DECISIONS.md`; then inspect `git status --short`, `git diff`, and the current implementation before running anything. Locate the actual authoritative Vol.1–Vol.7 fixtures, per-image ground truth, and any baseline/result artifacts read-only. Historical claims in `progress.md` (for example, older volume-level success counts) may be comparison evidence only; they must not be substituted for missing per-image ground truth. If authoritative labels are absent, report that the requested accuracy cannot be computed without inventing labels and stop or ask for the missing evidence.
+
+Relevant implementation/evidence to inspect:
+
+- `src/exam_grader/identity.py`
+- `src/exam_grader/digit_model.py`
+- `src/exam_grader/resources/student_number_digit_model.npz`
+- `tools/benchmark/identity_labeled_benchmark.py`
+- `tests/test_identity.py`, `tests/test_digit_model.py`, `tests/test_vol6_uat.py`, `tests/test_vol7_real_sheets.py`, and `tests/test_vol8_accuracy_uat.py`
+- Existing `docs/evidence/identity-regression.json`, `docs/evidence/REAL_UAT.md`, `docs/evidence/polish/identity-benchmark-final.json`, and any discovered Vol.1–Vol.7 benchmark artifacts
+
+### Benchmark contract
+
+1. Freeze and record the source paths/hashes and the unchanged baseline before evaluation.
+2. Run the current pipeline from `1624a5c` without model, preprocessing, threshold, ranking, or ground-truth changes during the initial benchmark.
+3. Report separately for Vol.1, Vol.2, …, Vol.7 and in aggregate:
+   - exact number accuracy
+   - candidate visibility
+   - review rate
+   - selective auto-accept rate
+   - wrong auto-accept count/rate
+4. Compare with prior behavior only where repository evidence exists.
+5. Use vision inspection of every wrong or regressed case, including the original number area, search ROI, preprocessing variants, detected components/candidates, segmented digits, per-digit model prediction/confidence, assembled number, and ground truth. Classify each as segmentation/preprocessing, classifier, ranking, or confidence gate.
+6. Do not modify the model during the clean benchmark. If a meaningful regression is proven, fix only that root cause, rerun the relevant cases and aggregate benchmark, and keep wrong auto-accept from increasing.
+
+### Boundaries and completion
+
+Do not touch document crop/registration, OMR, UX/UI, grading/export/business logic, fixtures, ground truth, or telemetry/dataset creation. Preserve all dirty/untracked work. Use focused tests, relevant regression tests, and a minimal smoke check only. Do not claim production-ready from aggregate accuracy alone.
+
+If there is no meaningful regression, checkpoint the evaluation result in the handoff/progress and propose one bounded next step; do not train during this evaluation task. If regression is proven and the scoped fix improves the evidence without increasing wrong auto-accept, update progress/handoff, create a checkpoint commit for the code change, and build `dist/ExamGrader.app` for Product Owner testing. Otherwise, state the remaining bottleneck and do not claim readiness.
+
+### Paste-ready prompt for the next chat
+
+ทำต่อใน `/Users/zubinpijit/private/exam-grader` จาก checkpoint `1624a5c` โดยทำเฉพาะ Student Number Recognition evaluation-first benchmark กับชุดจริง Vol.1–Vol.7 เพื่อพิสูจน์ว่า improvement จาก Vol.8–9 generalize หรือทำ regression กับของเดิมหรือไม่
+
+ก่อนทำอะไรให้อ่าน `/Users/zubinpijit/.codex/RTK.md`, `progress.md`, `docs/NEXT_CHAT_HANDOFF.md`, `docs/IDENTITY_DATASET.md`, `docs/TASK_SPEC.md`, `docs/DECISIONS.md` และ inspect `git status --short`/`git diff` แบบ read-only; preserve untracked `tests/fixtures/real/vol.8/` และ `tests/fixtures/real/vol.9/`. Locate authoritative Vol.1–Vol.7 fixtures, per-image ground truth, and baseline/result evidence without changing any of them. Historical metrics ห้ามใช้แทน ground truth ที่หายไป; ถ้าไม่มี authoritative labels ให้รายงานว่า compute accuracy ไม่ได้และหยุด/ขอ evidence เพิ่ม ห้ามเดา
+
+ใช้ pipeline ปัจจุบันจาก `1624a5c` รัน clean benchmark ก่อน โดยห้ามแก้ model, preprocessing, threshold, ranking, ground truth หรือ baseline ระหว่าง benchmark. วัดแยก Vol.1–Vol.7 และรวม: exact accuracy, candidate visibility, review rate, selective auto-accept, wrong auto-accept. Compare กับ baseline เฉพาะที่มีหลักฐานใน repo. Audit ด้วยภาพจริงทุกเคสที่ผิดหรือ regress และจัด root cause เป็น segmentation/preprocessing, classifier, ranking หรือ confidence gate โดย diagnostic ต้องเห็น original number area, search ROI, preprocessing variants, components/candidates, segmented digits, per-digit prediction/confidence, assembled number และ ground truth
+
+ห้ามแตะ document crop/registration, OMR, UX/UI, grading/export/business logic; ห้าม hard-code fixture/Vol./เลข, สร้าง dataset/telemetry ใหม่ หรือรัน full suite. wrong auto-accept ต้องไม่เพิ่ม และห้าม claim production-ready จาก aggregate accuracy อย่างเดียว. ถ้าไม่มี meaningful regression ให้ checkpoint ผลใน progress/handoff และเสนอ bounded next step โดยยังไม่ train model. ถ้ามี regression ให้แก้เฉพาะ root cause ที่พิสูจน์ได้ แล้ว rerun relevant cases + aggregate; หากดีขึ้นจริงเท่านั้นจึง checkpoint commit และ build `dist/ExamGrader.app` ให้ Product Owner ทดสอบ. ถ้ายังไม่ดีขึ้นให้สรุป bottleneck ที่เหลือชัดเจนและไม่ฝืน claim readiness.
+
 ## Current handoff — 2026-09-16 student-number recognition round 2
 
 Round 2 continues from checkpoint `33439ec` and is scoped only to Student
