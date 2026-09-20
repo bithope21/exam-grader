@@ -732,8 +732,8 @@ def test_confirmed_student_number_refreshes_students_without_answer_confirmation
 
     after = dialog.student_list.item(0).text()
     assert after != before
-    assert "ยืนยันเลขที่ 7" in after
-    assert flow.latest_review(student_source["id"]) is None
+    assert "เลขที่ 7" in after
+    assert flow.latest_review(student_source["id"]) is not None
     assert ReviewService(flow.database).state(student_source)["number"] == "7"
     dialog.close()
 

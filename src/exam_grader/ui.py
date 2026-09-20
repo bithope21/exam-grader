@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
