@@ -115,7 +115,17 @@ def test_indicator_export_order_and_room_isolation(tmp_path):
         "Source File",
         "Review Issues",
     ]
-    assert [sheet.cell(2, column).value for column in range(1, 6)] == ["1", 1, 1, 2, 4]
+    assert [sheet.cell(2, column).value for column in range(1, 6)] == [1, 1, 1, 2, 4]
+    assert [sheet.cell(2, column).data_type for column in range(1, 6)] == ["n"] * 5
+    assert sheet.freeze_panes == "A2"
+    assert sheet.auto_filter.ref == "A1:H2"
+    assert sheet[1][0].font.bold is True
+    assert sheet[1][0].fill.fgColor.rgb.endswith("EAF2F8")
+    assert sheet[1][0].alignment.horizontal == "center"
+    assert sheet[1][0].alignment.vertical == "center"
+    assert sheet[1][0].border.bottom.style == "thin"
+    assert sheet.column_dimensions["A"].width <= 9
+    assert sheet.column_dimensions["H"].width <= 42
     assert "/" not in first_export.parent.parent.name
     second_export = export_results(
         flow, exam.id, output_root=tmp_path / "results", room_id=second_room.id
