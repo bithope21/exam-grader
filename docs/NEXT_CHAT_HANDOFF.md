@@ -1,5 +1,40 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+# Current handoff — 2026-09-20 Student Number Recognition checkpoint
+
+The current task is complete for the scoped Student Number Recognition
+implementation and package evidence. Current source of truth:
+
+- Repository: `/Users/zubinpijit/private/exam-grader`
+- Branch: `feat/assessment-indicators-multi-room`
+- HEAD: `7a9f6fe identity: gate batch assistance by real-sheet evidence`
+- Vol.8/9: `20/22` exact, `12/14` two-digit, `21/22` truth visible.
+- Vol.10: `15/22` exact, `9/13` two-digit, `18/22` truth visible.
+- All sheets remain review-required; auto-accept and wrong auto-accept are both
+  `0`.
+- Evidence: `docs/evidence/student-number-recognition-20260920.md`.
+- Fresh `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app` passed
+  packaged self-check, offscreen settings/UI smoke, and strict deep codesign.
+  This is not native Product Owner UAT, Windows native UAT, or a release.
+
+The shipped batch behavior is room-scoped hard exclusion from effective
+ranking after a teacher-confirmed identity. Raw candidate evidence is not
+mutated, derived changes remain review-required, and teacher correction wins.
+The soft global assignment solver remains disabled because its real Vol.8/9
+bake-off regressed local prefills. Auto-accept must stay disabled pending an
+independent held-out zero-wrong gate.
+
+Preserve untracked `tests/fixtures/real/vol.8/`,
+`tests/fixtures/real/vol.9/`, and `tests/fixtures/real/vol.10/`; do not reset,
+clean, overwrite, stage, or absorb them. Older sections below are historical
+and must not override this checkpoint.
+
+## Detailed evidence
+
+See `docs/evidence/student-number-recognition-20260920.md` for the frozen
+annotation-v3 provenance/overlap result, Vol.8/9/10 metrics, segmentation and
+classifier failure attribution, batch simulations, tests, and package checks.
+
 # Current handoff — 2026-09-20 assessment indicators, multi-room, and Excel polish
 
 Use the repository docs and current task as source of truth. The current

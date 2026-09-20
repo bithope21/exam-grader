@@ -1,5 +1,43 @@
 # Exam Grader progress
 
+# Current handoff — 2026-09-20 Student Number Recognition validation and batch assistance
+
+The scoped Student Number Recognition implementation is checkpointed and
+validated on the real Vol.8/9/10 evidence. This section supersedes older
+historical handoffs below; OMR, document crop/registration, grading/export,
+assessment indicators, rooms, and unrelated UI/business logic remain outside
+this task.
+
+Verified current state:
+
+- Branch: `feat/assessment-indicators-multi-room`
+- HEAD: `7a9f6fe identity: gate batch assistance by real-sheet evidence`
+- Vol.8/9: exact `20/22`, 1-digit `8/8`, 2-digit `12/14`, visible `21/22`.
+- Vol.10: exact `15/22`, 1-digit `6/9`, 2-digit `9/13`, visible `18/22`.
+- All evaluated sheets remain review-required; auto-accept `0`, wrong
+  auto-accept `0`.
+- Fresh macOS arm64 `dist/ExamGrader.app` passed packaged self-check,
+  offscreen settings/UI smoke, and strict deep codesign. This is package
+  evidence only; Product Owner native UAT and Windows native UAT are separate.
+- Detailed evidence is in
+  `docs/evidence/student-number-recognition-20260920.md`.
+
+The 200-proposal annotation-v3 set was measured frozen before any retraining:
+198 accepted labels, 2 excluded; all 198 evaluated samples overlap the current
+seed training source and cannot be claimed as held-out accuracy. v1 scored
+140/198 and v2 142/198; union top-3 visibility was 170/198. Confidence remains
+unsafe for automatic acceptance.
+
+Batch production behavior is limited to room-scoped, review-only exclusion of
+teacher-confirmed numbers from other sheets' effective ranking. Raw candidates
+and scores remain immutable/provenanced. The soft global solver was measured
+but not enabled because it regressed Vol.8/9 local prefills. Auto-accept stays
+disabled until an independent held-out gate proves wrong auto-accept `0`.
+
+Preserve untracked `tests/fixtures/real/vol.8/`,
+`tests/fixtures/real/vol.9/`, and `tests/fixtures/real/vol.10/`; do not reset,
+clean, overwrite, stage, or absorb them.
+
 # Current handoff — 2026-09-20 assessment indicators, multi-room, and Excel polish
 
 The assessment-indicator and multi-room implementation is complete on the

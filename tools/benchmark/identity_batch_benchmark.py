@@ -127,12 +127,25 @@ def evaluate(rows: list[dict[str, Any]], anchor_count: int) -> dict[str, Any]:
                 }
             )
         non_anchor = [item for item in measured if not item["teacher_anchor"]]
+        post_confirmation = [
+            {
+                **item,
+                "effective_candidate": item["truth"]
+                if item["teacher_anchor"]
+                else item["effective_candidate"],
+                "effective_visible": True
+                if item["teacher_anchor"]
+                else item["effective_visible"],
+            }
+            for item in measured
+        ]
         return {
             "anchor_count": anchor_count,
             "records": len(measured),
             "resolver_seconds": round(elapsed, 6),
             "summary": _summary(measured),
             "non_anchor_summary": _summary(non_anchor),
+            "post_confirmation_summary": _summary(post_confirmation),
             "records_detail": measured,
         }
 
