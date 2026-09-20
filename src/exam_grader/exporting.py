@@ -83,7 +83,19 @@ def _style_scores_sheet(sheet, indicator_count: int) -> None:
     # Tahoma is available on the supported desktop targets and keeps Thai headers
     # readable in Excel/LibreOffice; missing-font fallback remains system-owned.
     header_font = Font(name="Tahoma", size=11, bold=True, color="17365D")
-    header_border = Border(bottom=Side(style="thin", color="B7C9D6"))
+    grid_side = Side(style="thin", color="A6B1BC")
+    header_border = Border(
+        left=grid_side,
+        right=grid_side,
+        top=grid_side,
+        bottom=Side(style="thin", color="8193A5"),
+    )
+    body_border = Border(
+        left=grid_side,
+        right=grid_side,
+        top=grid_side,
+        bottom=grid_side,
+    )
     header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     centered = Alignment(horizontal="center", vertical="center")
 
@@ -98,6 +110,8 @@ def _style_scores_sheet(sheet, indicator_count: int) -> None:
     text_columns = [4 + indicator_count, 5 + indicator_count, 6 + indicator_count]
     for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row, min_col=1, max_col=last_column):
         sheet.row_dimensions[row[0].row].height = 22
+        for cell in row:
+            cell.border = body_border
         for column in numeric_columns:
             cell = row[column - 1]
             cell.alignment = centered

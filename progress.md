@@ -1,5 +1,51 @@
 # Exam Grader progress
 
+# Current handoff — 2026-09-20 UI/Excel polish checkpoint
+
+The bounded Home presentation and Scores workbook polish is implemented and
+verified. This work is separate from the concurrent whole-ROI Student Number
+Recognition experiment.
+
+Verified state:
+
+- Repository: `/Users/zubinpijit/private/exam-grader`
+- Branch: `exp/student-number-training-corpus-v1`
+- HEAD before this checkpoint: `32f3ab0` (`docs: close whole-roi ...`)
+- Home exam rows show the authoritative existing room count as
+  `ห้องเริ่มต้น … · รวม N ห้อง`.
+- Archive/trash actions use a bundled high-contrast destructive SVG and were
+  visually checked in light and dark themes.
+- Scores Excel output has thin borders on all four sides of every used cell;
+  values, headers, filters, freeze panes, widths, and worksheet semantics are
+  unchanged.
+- Auto-accept and Student Number Recognition production behavior were not
+  changed. OMR, document crop/registration, grading/export logic, assessment
+  indicators, room persistence, and unrelated business logic were not changed.
+
+Evidence:
+
+- `docs/evidence/ui-excel-polish-20260920.md`
+- Focused source checks: 6 passed across the changed UI/theme/export paths.
+- Changed-file Ruff and `git diff --check` passed.
+- Fresh `dist/ExamGrader.app` is approximately 235 MB; packaged self-check,
+  settings smoke, offscreen UI smoke, and strict deep codesign passed.
+- Native macOS visual inspection passed for light/dark Home presentation.
+- Windows native UAT and `.exe` build remain pending on the Windows machine.
+
+Dirty ownership:
+
+- Preserve `.gitignore`, `data/`,
+  `tools/benchmark/ingest_student_number_corpus.py`, and untracked
+  `tests/fixtures/real/vol.8/`, `vol.9/`, and `vol.10/` exactly as found.
+  They belong to the concurrent whole-ROI work and are not part of this
+  checkpoint.
+
+Next action:
+
+- Push only the scoped UI/Excel checkpoint commit on the current branch as a
+  remote checkpoint. On Windows, pull this branch and perform native parity
+  checks before any `.exe` candidate or PR decision.
+
 # Current handoff — 2026-09-20 Whole-ROI sequence experiment closed
 
 The bounded Whole-ROI / Sequence Student Number Recognition experiment is

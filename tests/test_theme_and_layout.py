@@ -39,6 +39,8 @@ def test_theme_palette_and_stylesheet():
     assert "QTableWidget {" in dark_qss
     assert "#0F172A" in dark_qss  # Slate 900
     assert "#1E293B" in dark_qss  # Slate 800
+    assert 'QPushButton[kind="icon"][destructive="true"]' in dark_qss
+    assert "#451A1A" in dark_qss
 
     # Light Mode
     light_pal = create_theme_palette("light")
@@ -50,6 +52,8 @@ def test_theme_palette_and_stylesheet():
     assert "QMenu {" in light_qss
     assert "#F8FAFC" in light_qss  # Slate 50
     assert "#FFFFFF" in light_qss
+    assert 'QPushButton[kind="icon"][destructive="true"]' in light_qss
+    assert "#FFF1F2" in light_qss
 
 
 def test_apply_appearance_theme_modes():
