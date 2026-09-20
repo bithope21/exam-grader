@@ -252,7 +252,7 @@ def test_batch_identity_assistance_excludes_teacher_confirmed_number_without_mut
     assert issue["raw_candidate"] == "27"
 
 
-def test_batch_identity_assistance_uses_soft_one_to_one_assignment_and_teacher_override(
+def test_batch_identity_assistance_keeps_soft_solver_disabled_and_teacher_override(
     tmp_path,
 ):
     flow, exam, source, service = setup_auto(tmp_path)
@@ -266,16 +266,12 @@ def test_batch_identity_assistance_uses_soft_one_to_one_assignment_and_teacher_o
         flow.save_detection(student["id"], detected)
 
     effective = service.effective_identity_observations(exam.id)
-    assert {effective[source["id"]]["candidate"], effective[other["id"]]["candidate"]} == {
-        "1",
-        "2",
-    }
-    assisted = [item for item in effective.values() if item.get("batch_assistance")]
-    assert assisted
-    assert all(
-        item["batch_assistance"]["source"] == "soft-one-to-one-assignment"
-        for item in assisted
+    assert effective[source["id"]]["candidate"] == "1"
+    assert effective[other["id"]]["candidate"] == "1"
+    assignment = ReviewService._solve_unique_assignment(
+        {"source": {"1": 90.0, "2": 90.0}, "other": {"1": 90.0, "2": 90.0}}
     )
+    assert set(assignment.values()) == {"1", "2"}
 
     service.set_number(other, "1", expected_detection=service.state(other)["detection_id"])
     overridden = service.effective_identity_observations(exam.id)

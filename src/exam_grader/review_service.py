@@ -174,8 +174,9 @@ class ReviewService:
 
         The application already treats student numbers as unique within a room
         at final snapshot/export. Teacher-confirmed identities therefore act as
-        hard anchors for this room. All other assignments are soft and use only
-        candidates/scores already emitted by the recognizer.
+        hard anchors for this room. Production assistance currently only removes
+        those anchored numbers from other sheets' effective ranking. A soft
+        one-to-one solver remains available for future evidence but is not used.
         """
         states = self.states(exam_id)
         anchored = {
@@ -183,43 +184,34 @@ class ReviewService:
             for state in states
             if state.get("number") and self._teacher_confirmed_identity(state)
         }
+
+        def unanchored(candidates: list) -> list:
+            return [
+                candidate
+                for candidate in candidates
+                if not (
+                    isinstance(candidate, str)
+                    and candidate.isdigit()
+                    and int(candidate) in anchored
+                )
+            ]
+
         effective: dict[str, dict] = {}
-        options: dict[str, dict[str, float]] = {}
-        available_by_source: dict[str, list[str]] = {}
         for state in states:
             observation = state["detection"].get("student_number_observation") or {}
             copy = deepcopy(observation)
             raw_candidates = list(copy.get("candidates") or [])
-            scores = self._identity_candidate_scores(copy)
-            available = [
-                candidate
-                for candidate in raw_candidates
-                if isinstance(candidate, str)
-                and candidate.isdigit()
-                and int(candidate) > 0
-                and int(candidate) not in anchored
-            ]
+            available = unanchored(raw_candidates)
             if state.get("number") or not available:
                 effective[state["source"]["id"]] = copy
                 continue
             source_id = state["source"]["id"]
-            available_by_source[source_id] = available
             effective[source_id] = copy
-
-        top_counts: dict[str, int] = {}
-        for available in available_by_source.values():
-            if available:
-                top_counts[available[0]] = top_counts.get(available[0], 0) + 1
-        for source_id, available in available_by_source.items():
-            if top_counts.get(available[0], 0) <= 1:
-                continue
-            observation = effective[source_id]
-            scores = self._identity_candidate_scores(observation)
-            options[source_id] = {
-                candidate: scores.get(candidate, 0.0) for candidate in available
-            }
-
-        assignments = self._solve_unique_assignment(options)
+        # A soft global assignment was benchmarked but not promoted here: on
+        # current real Vol.8/9 it displaced correct local prefills in collision
+        # groups. Keep the solver available for future evidence; production
+        # assistance is currently limited to hard teacher-confirmed exclusion.
+        assignments: dict[str, str] = {}
         for state in states:
             source_id = state["source"]["id"]
             observation = effective[source_id]
@@ -227,32 +219,11 @@ class ReviewService:
                 continue
             raw_candidates = list(observation.get("candidates") or [])
             raw_candidate = observation.get("candidate")
-            available = [
-                candidate
-                for candidate in raw_candidates
-                if isinstance(candidate, str)
-                and candidate.isdigit()
-                and int(candidate) > 0
-                and int(candidate) not in anchored
-            ]
+            available = unanchored(raw_candidates)
             assigned = assignments.get(source_id)
-            top_is_contested = bool(available and top_counts.get(available[0], 0) > 1)
             if assigned is None and available:
                 assigned = available[0]
-            if (
-                assigned is not None
-                and available
-                and assigned != available[0]
-                and options.get(source_id, {}).get(assigned, 0.0)
-                < options.get(source_id, {}).get(available[0], 0.0)
-            ):
-                # A soft assignment may not displace a stronger local read;
-                # global matching is assistance for ties/near-ties, not a
-                # license to override clear recognizer evidence.
-                assigned = available[0]
-            if assigned is None or (not top_is_contested and available == raw_candidates):
-                continue
-            if assigned == raw_candidate and available == raw_candidates:
+            if assigned is None or available == raw_candidates:
                 continue
             changed = assigned != raw_candidate or available != raw_candidates
             ranked = [assigned] + [candidate for candidate in available if candidate != assigned]
