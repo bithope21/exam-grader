@@ -85,3 +85,54 @@ two-digit accuracy should improve clearly from the frozen `9/13` baseline,
 with `11–12/13` as the requested target. If the prototype does not meet that
 bar without held-out tuning, it will remain an experiment only and will not be
 integrated or bundled.
+
+## Prototype result
+
+The prototype is implemented only in
+`tools/benchmark/whole_roi_sequence.py`; it is not called by the production
+identity runtime. It normalizes the complete ROI ink blob and predicts the two
+output positions from compact centroid features. It does not require the
+existing connected-component digit boxes.
+
+The seed manifest contains 100 two-digit sequence crops (`00`–`99`) from one
+source page/group. It contains no independent writer-diverse sequence set and
+no usable one-digit sequence training set, so the sequence path was evaluated
+as a two-digit supplemental experiment only. One-digit production candidates
+remain on the frozen baseline path.
+
+The direct sequence result was poor and is not eligible for integration:
+
+| Path | Vol.8/9 exact | Vol.10 exact | Vol.10 2-digit | Vol.10 truth visible | Mean recognizer-only latency | Model size |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Frozen baseline | 20/22 | 15/22 | 9/13 | 18/22 | 0.618–0.639 s/sheet | existing bundled models |
+| Whole-ROI sequence top-1 | 0/22 | 2/22 | 2/13 | 4/22 | 0.0020 s/sheet | 171,520 bytes / 167.5 KiB |
+
+The fixed, predeclared hybrid rule was: promote the sequence top-1 only when
+the frozen baseline emitted more than two digits; otherwise keep the baseline
+top-1. This preserved Vol.8/9 at `20/22` exact and improved Vol.10 only to
+`16/22`, with `10/13` two-digit exact and `20/22` truth visible. It did not
+reach the requested `11–12/13` two-digit target, so the sequence model did not
+earn production complexity and was not integrated, bundled, or allowed to
+change runtime behavior.
+
+Failure inspection is consistent with a data-diversity bottleneck rather than
+a proven package/runtime issue:
+
+- `IMG_1189` truth `14`: sequence top-1 recovered `14` from baseline `191`,
+  a useful over-split rescue;
+- `IMG_1193` truth `18`: sequence top-1 was `18`, but the conservative rule
+  retained baseline `98` because both were two-digit and the sequence score is
+  not calibrated;
+- `IMG_1194` truth `20` remained baseline `79`, while sequence proposed `90`;
+- `IMG_1196` truth `22` remained baseline `92`, while sequence proposed `11`.
+
+The full per-record report is disposable at
+`/private/tmp/exam-grader-whole-roi-sequence-20260920-final.json`. The model
+was not copied into `src/exam_grader/resources`, so package impact is zero.
+Auto-accept remains disabled and wrong auto-accept remains `0`.
+
+Conclusion: do not integrate this sequence path. The remaining bottleneck is
+primarily training-data diversity/sequence-domain mismatch, with classifier or
+ranking ambiguity still present in the difficult two-digit cases. A future
+attempt needs authoritative writer-diverse whole-ROI labels before another
+architecture or held-out tuning cycle; Vol.8/9/10 must remain evaluation-only.

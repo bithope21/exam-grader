@@ -1,0 +1,2730 @@
+{
+  "schema_version": 1,
+  "kind": "student_number_whole_roi_sequence_benchmark",
+  "created_at": "2026-09-20T07:49:13.177688+00:00",
+  "model_version": "whole-roi-sequence-centroid-v1",
+  "environment": {
+    "python": "3.13.13",
+    "platform": "macOS-26.1-arm64-arm-64bit-Mach-O"
+  },
+  "seed_support": {
+    "manifest": "/private/tmp/exam-grader-number-handwriting-seed/manifest.json",
+    "manifest_sha256": "63601785613046ff63cbd28629d30f929947620895977fd8fb28ccf084d3c2c2",
+    "sample_count": 100,
+    "unique_sample_ids": 100,
+    "label_counts": {
+      "00": 1,
+      "01": 1,
+      "02": 1,
+      "03": 1,
+      "04": 1,
+      "05": 1,
+      "06": 1,
+      "07": 1,
+      "08": 1,
+      "09": 1,
+      "10": 1,
+      "11": 1,
+      "12": 1,
+      "13": 1,
+      "14": 1,
+      "15": 1,
+      "16": 1,
+      "17": 1,
+      "18": 1,
+      "19": 1,
+      "20": 1,
+      "21": 1,
+      "22": 1,
+      "23": 1,
+      "24": 1,
+      "25": 1,
+      "26": 1,
+      "27": 1,
+      "28": 1,
+      "29": 1,
+      "30": 1,
+      "31": 1,
+      "32": 1,
+      "33": 1,
+      "34": 1,
+      "35": 1,
+      "36": 1,
+      "37": 1,
+      "38": 1,
+      "39": 1,
+      "40": 1,
+      "41": 1,
+      "42": 1,
+      "43": 1,
+      "44": 1,
+      "45": 1,
+      "46": 1,
+      "47": 1,
+      "48": 1,
+      "49": 1,
+      "50": 1,
+      "51": 1,
+      "52": 1,
+      "53": 1,
+      "54": 1,
+      "55": 1,
+      "56": 1,
+      "57": 1,
+      "58": 1,
+      "59": 1,
+      "60": 1,
+      "61": 1,
+      "62": 1,
+      "63": 1,
+      "64": 1,
+      "65": 1,
+      "66": 1,
+      "67": 1,
+      "68": 1,
+      "69": 1,
+      "70": 1,
+      "71": 1,
+      "72": 1,
+      "73": 1,
+      "74": 1,
+      "75": 1,
+      "76": 1,
+      "77": 1,
+      "78": 1,
+      "79": 1,
+      "80": 1,
+      "81": 1,
+      "82": 1,
+      "83": 1,
+      "84": 1,
+      "85": 1,
+      "86": 1,
+      "87": 1,
+      "88": 1,
+      "89": 1,
+      "90": 1,
+      "91": 1,
+      "92": 1,
+      "93": 1,
+      "94": 1,
+      "95": 1,
+      "96": 1,
+      "97": 1,
+      "98": 1,
+      "99": 1
+    },
+    "writer_identity_known": false,
+    "heldout_training_allowed": false,
+    "claim": "seed-support training only; no writer-generalization claim"
+  },
+  "heldout_protocol": {
+    "manifest": "/private/tmp/exam-grader-sequence-baseline-manifest-20260920.json",
+    "manifest_sha256": "22b5cb346160114e7ab84c58d34538e1444c84b318ac60111cef0146c8df4659",
+    "records": 44,
+    "corpora": [
+      "vol10",
+      "vol8",
+      "vol9"
+    ],
+    "claim": "sheet/volume-disjoint evaluation; writer generalization unknown",
+    "used_for_training_or_tuning": false
+  },
+  "model": {
+    "kind": "per-output-position centroid over normalized whole-ROI ink canvas",
+    "requires_digit_segmentation": false,
+    "feature_size": 2144,
+    "position_feature_size": 1088,
+    "centroid_count": 20,
+    "model_size_bytes": 171520,
+    "model_size_kib": 167.5
+  },
+  "summary": {
+    "records": 44,
+    "exact": 2,
+    "exact_rate": 0.045455,
+    "visible": 8,
+    "visible_rate": 0.181818,
+    "one_digit": {
+      "records": 17,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "visible": 0,
+      "visible_rate": 0.0,
+      "one_digit": null,
+      "two_digit": null,
+      "mean_seconds": 0.001919,
+      "review_required": 17,
+      "auto_accept": 0,
+      "wrong_auto_accept": 0
+    },
+    "two_digit": {
+      "records": 27,
+      "exact": 2,
+      "exact_rate": 0.074074,
+      "visible": 8,
+      "visible_rate": 0.296296,
+      "one_digit": null,
+      "two_digit": null,
+      "mean_seconds": 0.00206,
+      "review_required": 27,
+      "auto_accept": 0,
+      "wrong_auto_accept": 0
+    },
+    "mean_seconds": 0.002006,
+    "review_required": 44,
+    "auto_accept": 0,
+    "wrong_auto_accept": 0
+  },
+  "by_corpus": {
+    "vol10": {
+      "records": 22,
+      "exact": 2,
+      "exact_rate": 0.090909,
+      "visible": 4,
+      "visible_rate": 0.181818,
+      "one_digit": {
+        "records": 9,
+        "exact": 0,
+        "exact_rate": 0.0,
+        "visible": 0,
+        "visible_rate": 0.0,
+        "one_digit": null,
+        "two_digit": null,
+        "mean_seconds": 0.001475,
+        "review_required": 9,
+        "auto_accept": 0,
+        "wrong_auto_accept": 0
+      },
+      "two_digit": {
+        "records": 13,
+        "exact": 2,
+        "exact_rate": 0.153846,
+        "visible": 4,
+        "visible_rate": 0.307692,
+        "one_digit": null,
+        "two_digit": null,
+        "mean_seconds": 0.001338,
+        "review_required": 13,
+        "auto_accept": 0,
+        "wrong_auto_accept": 0
+      },
+      "mean_seconds": 0.001394,
+      "review_required": 22,
+      "auto_accept": 0,
+      "wrong_auto_accept": 0
+    },
+    "vol8": {
+      "records": 10,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "visible": 2,
+      "visible_rate": 0.2,
+      "one_digit": {
+        "records": 4,
+        "exact": 0,
+        "exact_rate": 0.0,
+        "visible": 0,
+        "visible_rate": 0.0,
+        "one_digit": null,
+        "two_digit": null,
+        "mean_seconds": 0.002413,
+        "review_required": 4,
+        "auto_accept": 0,
+        "wrong_auto_accept": 0
+      },
+      "two_digit": {
+        "records": 6,
+        "exact": 0,
+        "exact_rate": 0.0,
+        "visible": 2,
+        "visible_rate": 0.333333,
+        "one_digit": null,
+        "two_digit": null,
+        "mean_seconds": 0.002822,
+        "review_required": 6,
+        "auto_accept": 0,
+        "wrong_auto_accept": 0
+      },
+      "mean_seconds": 0.002658,
+      "review_required": 10,
+      "auto_accept": 0,
+      "wrong_auto_accept": 0
+    },
+    "vol9": {
+      "records": 12,
+      "exact": 0,
+      "exact_rate": 0.0,
+      "visible": 2,
+      "visible_rate": 0.166667,
+      "one_digit": {
+        "records": 4,
+        "exact": 0,
+        "exact_rate": 0.0,
+        "visible": 0,
+        "visible_rate": 0.0,
+        "one_digit": null,
+        "two_digit": null,
+        "mean_seconds": 0.002426,
+        "review_required": 4,
+        "auto_accept": 0,
+        "wrong_auto_accept": 0
+      },
+      "two_digit": {
+        "records": 8,
+        "exact": 0,
+        "exact_rate": 0.0,
+        "visible": 2,
+        "visible_rate": 0.25,
+        "one_digit": null,
+        "two_digit": null,
+        "mean_seconds": 0.002663,
+        "review_required": 8,
+        "auto_accept": 0,
+        "wrong_auto_accept": 0
+      },
+      "mean_seconds": 0.002584,
+      "review_required": 12,
+      "auto_accept": 0,
+      "wrong_auto_accept": 0
+    }
+  },
+  "hybrid_fixed_rule": "promote the two-digit sequence top-1 only when the frozen baseline emits more than two digits; otherwise retain baseline top-1",
+  "hybrid_summary": {
+    "records": 44,
+    "exact": 36,
+    "exact_rate": 0.818182,
+    "visible": 41,
+    "visible_rate": 0.931818,
+    "one_digit": {
+      "records": 17,
+      "exact": 14,
+      "exact_rate": 0.823529,
+      "visible": 16,
+      "visible_rate": 0.941176,
+      "one_digit": null,
+      "two_digit": null,
+      "mean_seconds": 0.001919,
+      "review_required": 17,
+      "auto_accept": 0,
+      "wrong_auto_accept": 0
+    },
+    "two_digit": {
+      "records": 27,
+      "exact": 22,
+      "exact_rate": 0.814815,
+      "visible": 25,
+      "visible_rate": 0.925926,
+      "one_digit": null,
+      "two_digit": null,
+      "mean_seconds": 0.00206,
+      "review_required": 27,
+      "auto_accept": 0,
+      "wrong_auto_accept": 0
+    },
+    "mean_seconds": 0.002006,
+    "review_required": 44,
+    "auto_accept": 0,
+    "wrong_auto_accept": 0
+  },
+  "records": [
+    {
+      "record_id": "vol10/IMG_1175.jpg",
+      "corpus_id": "vol10",
+      "truth": "1",
+      "baseline_candidate": "1",
+      "baseline_candidates": [
+        "1",
+        "4",
+        "9"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "18",
+        "17",
+        "04",
+        "19"
+      ],
+      "hybrid_candidate": "1",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001221,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "18",
+          "17",
+          "04",
+          "19"
+        ],
+        "scores": {
+          "14": 71.859,
+          "18": 71.2483,
+          "17": 71.2176,
+          "04": 71.1093,
+          "19": 71.0376
+        },
+        "confidence": 71.859,
+        "confidence_margin": 1.1927,
+        "sequence_length": 2,
+        "width_ratio": 0.073239,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1176.jpg",
+      "corpus_id": "vol10",
+      "truth": "4",
+      "baseline_candidate": "4",
+      "baseline_candidates": [
+        "4",
+        "9",
+        "8",
+        "6"
+      ],
+      "sequence_candidate": "04",
+      "sequence_candidates": [
+        "04",
+        "14",
+        "94",
+        "00",
+        "06"
+      ],
+      "hybrid_candidate": "4",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001284,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "04",
+        "candidates": [
+          "04",
+          "14",
+          "94",
+          "00",
+          "06"
+        ],
+        "scores": {
+          "04": 70.5539,
+          "14": 70.4877,
+          "94": 70.2059,
+          "00": 70.0946,
+          "06": 70.0861
+        },
+        "confidence": 70.5539,
+        "confidence_margin": 0.1331,
+        "sequence_length": 2,
+        "width_ratio": 0.11831,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1177.jpg",
+      "corpus_id": "vol10",
+      "truth": "3",
+      "baseline_candidate": "3",
+      "baseline_candidates": [
+        "3",
+        "4",
+        "8"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "04",
+        "18",
+        "11",
+        "17"
+      ],
+      "hybrid_candidate": "3",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.00123,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "04",
+          "18",
+          "11",
+          "17"
+        ],
+        "scores": {
+          "14": 69.0837,
+          "04": 68.9498,
+          "18": 68.9321,
+          "11": 68.9031,
+          "17": 68.9008
+        },
+        "confidence": 69.0837,
+        "confidence_margin": 0.281,
+        "sequence_length": 2,
+        "width_ratio": 0.098592,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1178.jpg",
+      "corpus_id": "vol10",
+      "truth": "2",
+      "baseline_candidate": "9",
+      "baseline_candidates": [
+        "9",
+        "8",
+        "0"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "18",
+        "94",
+        "98",
+        "04"
+      ],
+      "hybrid_candidate": "9",
+      "baseline_exact": false,
+      "sequence_exact": false,
+      "hybrid_exact": false,
+      "baseline_visible": false,
+      "sequence_visible": false,
+      "union_visible": false,
+      "seconds": 0.001975,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_candidate_generation",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "18",
+          "94",
+          "98",
+          "04"
+        ],
+        "scores": {
+          "14": 67.7345,
+          "18": 67.6415,
+          "94": 67.4526,
+          "98": 67.3604,
+          "04": 67.3362
+        },
+        "confidence": 67.7345,
+        "confidence_margin": 0.203,
+        "sequence_length": 2,
+        "width_ratio": 0.050704,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1179.jpg",
+      "corpus_id": "vol10",
+      "truth": "11",
+      "baseline_candidate": "11",
+      "baseline_candidates": [
+        "11",
+        "91",
+        "10",
+        "90"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "19",
+        "17",
+        "18",
+        "94"
+      ],
+      "hybrid_candidate": "11",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001219,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "19",
+          "17",
+          "18",
+          "94"
+        ],
+        "scores": {
+          "14": 71.5064,
+          "19": 71.1754,
+          "17": 71.0061,
+          "18": 70.9209,
+          "94": 70.9196
+        },
+        "confidence": 71.5064,
+        "confidence_margin": 0.6502,
+        "sequence_length": 2,
+        "width_ratio": 0.15493,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1180.jpg",
+      "corpus_id": "vol10",
+      "truth": "10",
+      "baseline_candidate": "10",
+      "baseline_candidates": [
+        "10",
+        "40",
+        "19",
+        "15",
+        "00",
+        "08",
+        "18",
+        "90",
+        "98",
+        "49"
+      ],
+      "sequence_candidate": "91",
+      "sequence_candidates": [
+        "91",
+        "11",
+        "31",
+        "92",
+        "97"
+      ],
+      "hybrid_candidate": "10",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001245,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "91",
+        "candidates": [
+          "91",
+          "11",
+          "31",
+          "92",
+          "97"
+        ],
+        "scores": {
+          "91": 69.4878,
+          "11": 68.6191,
+          "31": 68.5227,
+          "92": 68.3899,
+          "97": 68.3715
+        },
+        "confidence": 69.4878,
+        "confidence_margin": 1.8219,
+        "sequence_length": 2,
+        "width_ratio": 0.191549,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1181.jpg",
+      "corpus_id": "vol10",
+      "truth": "8",
+      "baseline_candidate": "4",
+      "baseline_candidates": [
+        "4",
+        "8",
+        "3",
+        "7"
+      ],
+      "sequence_candidate": "04",
+      "sequence_candidates": [
+        "04",
+        "08",
+        "00",
+        "07",
+        "09"
+      ],
+      "hybrid_candidate": "4",
+      "baseline_exact": false,
+      "sequence_exact": false,
+      "hybrid_exact": false,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001914,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_candidate_generation",
+      "sequence": {
+        "candidate": "04",
+        "candidates": [
+          "04",
+          "08",
+          "00",
+          "07",
+          "09"
+        ],
+        "scores": {
+          "04": 64.2567,
+          "08": 64.2235,
+          "00": 64.0059,
+          "07": 63.9324,
+          "09": 63.9292
+        },
+        "confidence": 64.2567,
+        "confidence_margin": 0.0805,
+        "sequence_length": 2,
+        "width_ratio": 0.115493,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1182.jpg",
+      "corpus_id": "vol10",
+      "truth": "7",
+      "baseline_candidate": "7",
+      "baseline_candidates": [
+        "7",
+        "8",
+        "4",
+        "5"
+      ],
+      "sequence_candidate": "04",
+      "sequence_candidates": [
+        "04",
+        "09",
+        "07",
+        "00",
+        "01"
+      ],
+      "hybrid_candidate": "7",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.00193,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "04",
+        "candidates": [
+          "04",
+          "09",
+          "07",
+          "00",
+          "01"
+        ],
+        "scores": {
+          "04": 69.9452,
+          "09": 69.4242,
+          "07": 69.4169,
+          "00": 69.2882,
+          "01": 69.2535
+        },
+        "confidence": 69.9452,
+        "confidence_margin": 1.0728,
+        "sequence_length": 2,
+        "width_ratio": 0.129577,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1183.jpg",
+      "corpus_id": "vol10",
+      "truth": "6",
+      "baseline_candidate": "6",
+      "baseline_candidates": [
+        "6",
+        "1"
+      ],
+      "sequence_candidate": "01",
+      "sequence_candidates": [
+        "01",
+        "04",
+        "06",
+        "00",
+        "11"
+      ],
+      "hybrid_candidate": "6",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001189,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "01",
+        "candidates": [
+          "01",
+          "04",
+          "06",
+          "00",
+          "11"
+        ],
+        "scores": {
+          "01": 70.5313,
+          "04": 70.1517,
+          "06": 70.1512,
+          "00": 69.9824,
+          "11": 69.8645
+        },
+        "confidence": 70.5313,
+        "confidence_margin": 0.7672,
+        "sequence_length": 2,
+        "width_ratio": 0.073239,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1184.jpg",
+      "corpus_id": "vol10",
+      "truth": "9",
+      "baseline_candidate": "9",
+      "baseline_candidates": [
+        "9",
+        "4"
+      ],
+      "sequence_candidate": "04",
+      "sequence_candidates": [
+        "04",
+        "14",
+        "94",
+        "08",
+        "07"
+      ],
+      "hybrid_candidate": "9",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001326,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "04",
+        "candidates": [
+          "04",
+          "14",
+          "94",
+          "08",
+          "07"
+        ],
+        "scores": {
+          "04": 72.4627,
+          "14": 72.4206,
+          "94": 71.8124,
+          "08": 71.6993,
+          "07": 71.6596
+        },
+        "confidence": 72.4627,
+        "confidence_margin": 0.0801,
+        "sequence_length": 2,
+        "width_ratio": 0.084507,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1185.jpg",
+      "corpus_id": "vol10",
+      "truth": "5",
+      "baseline_candidate": "3",
+      "baseline_candidates": [
+        "3",
+        "5",
+        "8"
+      ],
+      "sequence_candidate": "18",
+      "sequence_candidates": [
+        "18",
+        "08",
+        "17",
+        "14",
+        "07"
+      ],
+      "hybrid_candidate": "3",
+      "baseline_exact": false,
+      "sequence_exact": false,
+      "hybrid_exact": false,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001202,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_candidate_generation",
+      "sequence": {
+        "candidate": "18",
+        "candidates": [
+          "18",
+          "08",
+          "17",
+          "14",
+          "07"
+        ],
+        "scores": {
+          "18": 68.2002,
+          "08": 68.11,
+          "17": 67.9688,
+          "14": 67.9662,
+          "07": 67.8793
+        },
+        "confidence": 68.2002,
+        "confidence_margin": 0.194,
+        "sequence_length": 2,
+        "width_ratio": 0.121127,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1186.jpg",
+      "corpus_id": "vol10",
+      "truth": "17",
+      "baseline_candidate": "17",
+      "baseline_candidates": [
+        "17",
+        "19",
+        "11",
+        "14",
+        "09",
+        "99"
+      ],
+      "sequence_candidate": "19",
+      "sequence_candidates": [
+        "19",
+        "17",
+        "09",
+        "14",
+        "39"
+      ],
+      "hybrid_candidate": "17",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": true,
+      "union_visible": true,
+      "seconds": 0.001242,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "19",
+        "candidates": [
+          "19",
+          "17",
+          "09",
+          "14",
+          "39"
+        ],
+        "scores": {
+          "19": 68.8579,
+          "17": 68.4729,
+          "09": 68.4653,
+          "14": 68.3785,
+          "39": 68.3639
+        },
+        "confidence": 68.8579,
+        "confidence_margin": 0.8166,
+        "sequence_length": 2,
+        "width_ratio": 0.171831,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1187.jpg",
+      "corpus_id": "vol10",
+      "truth": "16",
+      "baseline_candidate": "16",
+      "baseline_candidates": [
+        "16",
+        "96",
+        "06",
+        "46"
+      ],
+      "sequence_candidate": "91",
+      "sequence_candidates": [
+        "91",
+        "94",
+        "96",
+        "11",
+        "98"
+      ],
+      "hybrid_candidate": "16",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.00176,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "91",
+        "candidates": [
+          "91",
+          "94",
+          "96",
+          "11",
+          "98"
+        ],
+        "scores": {
+          "91": 67.085,
+          "94": 66.9909,
+          "96": 66.919,
+          "11": 66.8689,
+          "98": 66.8608
+        },
+        "confidence": 67.085,
+        "confidence_margin": 0.2094,
+        "sequence_length": 2,
+        "width_ratio": 0.174648,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1188.jpg",
+      "corpus_id": "vol10",
+      "truth": "15",
+      "baseline_candidate": "15",
+      "baseline_candidates": [
+        "15",
+        "45",
+        "16",
+        "13",
+        "98",
+        "93",
+        "95",
+        "18",
+        "48",
+        "35"
+      ],
+      "sequence_candidate": "97",
+      "sequence_candidates": [
+        "97",
+        "92",
+        "94",
+        "91",
+        "96"
+      ],
+      "hybrid_candidate": "15",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001262,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "97",
+        "candidates": [
+          "97",
+          "92",
+          "94",
+          "91",
+          "96"
+        ],
+        "scores": {
+          "97": 68.5716,
+          "92": 68.3231,
+          "94": 68.3181,
+          "91": 68.2366,
+          "96": 68.169
+        },
+        "confidence": 68.5716,
+        "confidence_margin": 0.5304,
+        "sequence_length": 2,
+        "width_ratio": 0.205634,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1189.jpg",
+      "corpus_id": "vol10",
+      "truth": "14",
+      "baseline_candidate": "191",
+      "baseline_candidates": [
+        "191",
+        "111",
+        "001",
+        "051",
+        "091",
+        "101",
+        "151"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "17",
+        "16",
+        "18",
+        "19"
+      ],
+      "hybrid_candidate": "14",
+      "baseline_exact": false,
+      "sequence_exact": true,
+      "hybrid_exact": true,
+      "baseline_visible": false,
+      "sequence_visible": true,
+      "union_visible": true,
+      "seconds": 0.001224,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_rescue",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "17",
+          "16",
+          "18",
+          "19"
+        ],
+        "scores": {
+          "14": 72.2276,
+          "17": 71.9939,
+          "16": 71.6468,
+          "18": 71.6104,
+          "19": 71.3796
+        },
+        "confidence": 72.2276,
+        "confidence_margin": 0.4495,
+        "sequence_length": 2,
+        "width_ratio": 0.230986,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1190.jpg",
+      "corpus_id": "vol10",
+      "truth": "13",
+      "baseline_candidate": "13",
+      "baseline_candidates": [
+        "13",
+        "03"
+      ],
+      "sequence_candidate": "94",
+      "sequence_candidates": [
+        "94",
+        "97",
+        "14",
+        "17",
+        "98"
+      ],
+      "hybrid_candidate": "13",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001167,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "94",
+        "candidates": [
+          "94",
+          "97",
+          "14",
+          "17",
+          "98"
+        ],
+        "scores": {
+          "94": 69.8182,
+          "97": 69.7734,
+          "14": 69.747,
+          "17": 69.7024,
+          "98": 69.5065
+        },
+        "confidence": 69.8182,
+        "confidence_margin": 0.0918,
+        "sequence_length": 2,
+        "width_ratio": 0.180282,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1191.jpg",
+      "corpus_id": "vol10",
+      "truth": "12",
+      "baseline_candidate": "12",
+      "baseline_candidates": [
+        "12",
+        "18",
+        "11",
+        "02",
+        "08"
+      ],
+      "sequence_candidate": "07",
+      "sequence_candidates": [
+        "07",
+        "04",
+        "97",
+        "17",
+        "94"
+      ],
+      "hybrid_candidate": "12",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.00148,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "07",
+        "candidates": [
+          "07",
+          "04",
+          "97",
+          "17",
+          "94"
+        ],
+        "scores": {
+          "07": 69.8439,
+          "04": 69.75,
+          "97": 69.7246,
+          "17": 69.637,
+          "94": 69.6311
+        },
+        "confidence": 69.8439,
+        "confidence_margin": 0.1926,
+        "sequence_length": 2,
+        "width_ratio": 0.183099,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1192.jpg",
+      "corpus_id": "vol10",
+      "truth": "19",
+      "baseline_candidate": "19",
+      "baseline_candidates": [
+        "19",
+        "99",
+        "49",
+        "18",
+        "98",
+        "43"
+      ],
+      "sequence_candidate": "94",
+      "sequence_candidates": [
+        "94",
+        "14",
+        "99",
+        "97",
+        "19"
+      ],
+      "hybrid_candidate": "19",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": true,
+      "union_visible": true,
+      "seconds": 0.001959,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "94",
+        "candidates": [
+          "94",
+          "14",
+          "99",
+          "97",
+          "19"
+        ],
+        "scores": {
+          "94": 70.2731,
+          "14": 70.1146,
+          "99": 69.8727,
+          "97": 69.7572,
+          "19": 69.716
+        },
+        "confidence": 70.2731,
+        "confidence_margin": 0.3216,
+        "sequence_length": 2,
+        "width_ratio": 0.16338,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1193.jpg",
+      "corpus_id": "vol10",
+      "truth": "18",
+      "baseline_candidate": "98",
+      "baseline_candidates": [
+        "98",
+        "94",
+        "68"
+      ],
+      "sequence_candidate": "18",
+      "sequence_candidates": [
+        "18",
+        "28",
+        "11",
+        "16",
+        "98"
+      ],
+      "hybrid_candidate": "98",
+      "baseline_exact": false,
+      "sequence_exact": true,
+      "hybrid_exact": false,
+      "baseline_visible": false,
+      "sequence_visible": true,
+      "union_visible": true,
+      "seconds": 0.001281,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_rescue",
+      "sequence": {
+        "candidate": "18",
+        "candidates": [
+          "18",
+          "28",
+          "11",
+          "16",
+          "98"
+        ],
+        "scores": {
+          "18": 66.3685,
+          "28": 66.2632,
+          "11": 66.1815,
+          "16": 66.1439,
+          "98": 66.1318
+        },
+        "confidence": 66.3685,
+        "confidence_margin": 0.2394,
+        "sequence_length": 2,
+        "width_ratio": 0.197183,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1194.jpg",
+      "corpus_id": "vol10",
+      "truth": "20",
+      "baseline_candidate": "79",
+      "baseline_candidates": [
+        "79",
+        "76",
+        "26",
+        "20",
+        "28",
+        "70",
+        "78",
+        "80",
+        "86",
+        "88"
+      ],
+      "sequence_candidate": "90",
+      "sequence_candidates": [
+        "90",
+        "94",
+        "96",
+        "97",
+        "91"
+      ],
+      "hybrid_candidate": "79",
+      "baseline_exact": false,
+      "sequence_exact": false,
+      "hybrid_exact": false,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001175,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_candidate_generation",
+      "sequence": {
+        "candidate": "90",
+        "candidates": [
+          "90",
+          "94",
+          "96",
+          "97",
+          "91"
+        ],
+        "scores": {
+          "90": 70.4173,
+          "94": 70.3639,
+          "96": 70.1458,
+          "97": 70.0159,
+          "91": 69.9478
+        },
+        "confidence": 70.4173,
+        "confidence_margin": 0.1078,
+        "sequence_length": 2,
+        "width_ratio": 0.253521,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1195.jpg",
+      "corpus_id": "vol10",
+      "truth": "21",
+      "baseline_candidate": "21",
+      "baseline_candidates": [
+        "21",
+        "20"
+      ],
+      "sequence_candidate": "91",
+      "sequence_candidates": [
+        "91",
+        "11",
+        "96",
+        "16",
+        "01"
+      ],
+      "hybrid_candidate": "21",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.001246,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "91",
+        "candidates": [
+          "91",
+          "11",
+          "96",
+          "16",
+          "01"
+        ],
+        "scores": {
+          "91": 68.4095,
+          "11": 68.2548,
+          "96": 68.2285,
+          "16": 68.0747,
+          "01": 67.893
+        },
+        "confidence": 68.4095,
+        "confidence_margin": 0.3312,
+        "sequence_length": 2,
+        "width_ratio": 0.185915,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol10/IMG_1196.jpg",
+      "corpus_id": "vol10",
+      "truth": "22",
+      "baseline_candidate": "92",
+      "baseline_candidates": [
+        "92",
+        "99",
+        "97",
+        "90",
+        "79",
+        "98"
+      ],
+      "sequence_candidate": "11",
+      "sequence_candidates": [
+        "11",
+        "19",
+        "01",
+        "09",
+        "91"
+      ],
+      "hybrid_candidate": "92",
+      "baseline_exact": false,
+      "sequence_exact": false,
+      "hybrid_exact": false,
+      "baseline_visible": false,
+      "sequence_visible": false,
+      "union_visible": false,
+      "seconds": 0.00113,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_candidate_generation",
+      "sequence": {
+        "candidate": "11",
+        "candidates": [
+          "11",
+          "19",
+          "01",
+          "09",
+          "91"
+        ],
+        "scores": {
+          "11": 71.7391,
+          "19": 71.5633,
+          "01": 71.4918,
+          "09": 71.3173,
+          "91": 71.2305
+        },
+        "confidence": 71.7391,
+        "confidence_margin": 0.3423,
+        "sequence_length": 2,
+        "width_ratio": 0.160563,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol8/IMG_1021.jpg",
+      "corpus_id": "vol8",
+      "truth": "49",
+      "baseline_candidate": "19",
+      "baseline_candidates": [
+        "19",
+        "69",
+        "09",
+        "89",
+        "99",
+        "31"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "19",
+        "17",
+        "94",
+        "11"
+      ],
+      "hybrid_candidate": "19",
+      "baseline_exact": false,
+      "sequence_exact": false,
+      "hybrid_exact": false,
+      "baseline_visible": false,
+      "sequence_visible": false,
+      "union_visible": false,
+      "seconds": 0.00497,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_candidate_generation",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "19",
+          "17",
+          "94",
+          "11"
+        ],
+        "scores": {
+          "14": 72.4462,
+          "19": 72.2004,
+          "17": 72.0104,
+          "94": 71.8008,
+          "11": 71.7969
+        },
+        "confidence": 72.4462,
+        "confidence_margin": 0.47,
+        "sequence_length": 2,
+        "width_ratio": 0.195777,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol8/IMG_1022.jpg",
+      "corpus_id": "vol8",
+      "truth": "12",
+      "baseline_candidate": "12",
+      "baseline_candidates": [
+        "12",
+        "18",
+        "13",
+        "42",
+        "02",
+        "03",
+        "08",
+        "32"
+      ],
+      "sequence_candidate": "94",
+      "sequence_candidates": [
+        "94",
+        "97",
+        "91",
+        "98",
+        "90"
+      ],
+      "hybrid_candidate": "12",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002311,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "94",
+        "candidates": [
+          "94",
+          "97",
+          "91",
+          "98",
+          "90"
+        ],
+        "scores": {
+          "94": 67.7567,
+          "97": 67.7405,
+          "91": 67.6723,
+          "98": 67.6426,
+          "90": 67.6254
+        },
+        "confidence": 67.7567,
+        "confidence_margin": 0.0351,
+        "sequence_length": 2,
+        "width_ratio": 0.25144,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol8/IMG_1023.jpg",
+      "corpus_id": "vol8",
+      "truth": "7",
+      "baseline_candidate": "7",
+      "baseline_candidates": [
+        "7",
+        "2",
+        "8"
+      ],
+      "sequence_candidate": "04",
+      "sequence_candidates": [
+        "04",
+        "14",
+        "07",
+        "01",
+        "09"
+      ],
+      "hybrid_candidate": "7",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.00238,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "04",
+        "candidates": [
+          "04",
+          "14",
+          "07",
+          "01",
+          "09"
+        ],
+        "scores": {
+          "04": 70.4155,
+          "14": 69.8667,
+          "07": 69.836,
+          "01": 69.8071,
+          "09": 69.6331
+        },
+        "confidence": 70.4155,
+        "confidence_margin": 1.1155,
+        "sequence_length": 2,
+        "width_ratio": 0.149712,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol8/IMG_1024.jpg",
+      "corpus_id": "vol8",
+      "truth": "1",
+      "baseline_candidate": "1",
+      "baseline_candidates": [
+        "1"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "11",
+        "16",
+        "17",
+        "18"
+      ],
+      "hybrid_candidate": "1",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002426,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "11",
+          "16",
+          "17",
+          "18"
+        ],
+        "scores": {
+          "14": 72.9246,
+          "11": 72.6625,
+          "16": 72.4636,
+          "17": 72.3904,
+          "18": 72.3016
+        },
+        "confidence": 72.9246,
+        "confidence_margin": 0.4947,
+        "sequence_length": 2,
+        "width_ratio": 0.047985,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol8/IMG_1025.jpg",
+      "corpus_id": "vol8",
+      "truth": "9",
+      "baseline_candidate": "9",
+      "baseline_candidates": [
+        "9",
+        "4"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "04",
+        "18",
+        "94",
+        "08"
+      ],
+      "hybrid_candidate": "9",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.00262,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "04",
+          "18",
+          "94",
+          "08"
+        ],
+        "scores": {
+          "14": 72.0904,
+          "04": 72.0784,
+          "18": 71.4282,
+          "94": 71.422,
+          "08": 71.4163
+        },
+        "confidence": 72.0904,
+        "confidence_margin": 0.0232,
+        "sequence_length": 2,
+        "width_ratio": 0.140115,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol8/IMG_1026.jpg",
+      "corpus_id": "vol8",
+      "truth": "3",
+      "baseline_candidate": "3",
+      "baseline_candidates": [
+        "3",
+        "9",
+        "4"
+      ],
+      "sequence_candidate": "04",
+      "sequence_candidates": [
+        "04",
+        "01",
+        "08",
+        "06",
+        "00"
+      ],
+      "hybrid_candidate": "3",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002226,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "04",
+        "candidates": [
+          "04",
+          "01",
+          "08",
+          "06",
+          "00"
+        ],
+        "scores": {
+          "04": 68.368,
+          "01": 68.3357,
+          "08": 68.2391,
+          "06": 68.1307,
+          "00": 68.0648
+        },
+        "confidence": 68.368,
+        "confidence_margin": 0.0691,
+        "sequence_length": 2,
+        "width_ratio": 0.122841,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol8/IMG_1027.jpg",
+      "corpus_id": "vol8",
+      "truth": "19",
+      "baseline_candidate": "19",
+      "baseline_candidates": [
+        "19",
+        "14",
+        "09"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "18",
+        "94",
+        "17",
+        "19"
+      ],
+      "hybrid_candidate": "19",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": true,
+      "union_visible": true,
+      "seconds": 0.002427,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "18",
+          "94",
+          "17",
+          "19"
+        ],
+        "scores": {
+          "14": 71.065,
+          "18": 70.822,
+          "94": 70.8124,
+          "17": 70.7284,
+          "19": 70.6906
+        },
+        "confidence": 71.065,
+        "confidence_margin": 0.4829,
+        "sequence_length": 2,
+        "width_ratio": 0.232246,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol8/IMG_1028.jpg",
+      "corpus_id": "vol8",
+      "truth": "27",
+      "baseline_candidate": "27",
+      "baseline_candidates": [
+        "27",
+        "21",
+        "22",
+        "71",
+        "32",
+        "37"
+      ],
+      "sequence_candidate": "19",
+      "sequence_candidates": [
+        "19",
+        "17",
+        "14",
+        "16",
+        "11"
+      ],
+      "hybrid_candidate": "27",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002575,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "19",
+        "candidates": [
+          "19",
+          "17",
+          "14",
+          "16",
+          "11"
+        ],
+        "scores": {
+          "19": 70.3836,
+          "17": 70.1802,
+          "14": 69.9089,
+          "16": 69.8129,
+          "11": 69.7097
+        },
+        "confidence": 70.3836,
+        "confidence_margin": 0.4117,
+        "sequence_length": 2,
+        "width_ratio": 0.239923,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol8/IMG_1029.jpg",
+      "corpus_id": "vol8",
+      "truth": "18",
+      "baseline_candidate": "18",
+      "baseline_candidates": [
+        "18",
+        "19",
+        "03",
+        "09",
+        "13",
+        "08",
+        "98"
+      ],
+      "sequence_candidate": "17",
+      "sequence_candidates": [
+        "17",
+        "07",
+        "18",
+        "11",
+        "10"
+      ],
+      "hybrid_candidate": "18",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": true,
+      "union_visible": true,
+      "seconds": 0.002356,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "17",
+        "candidates": [
+          "17",
+          "07",
+          "18",
+          "11",
+          "10"
+        ],
+        "scores": {
+          "17": 67.4676,
+          "07": 67.3555,
+          "18": 67.3555,
+          "11": 67.3242,
+          "10": 67.2771
+        },
+        "confidence": 67.4676,
+        "confidence_margin": 0.2467,
+        "sequence_length": 2,
+        "width_ratio": 0.230326,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol8/IMG_1030.jpg",
+      "corpus_id": "vol8",
+      "truth": "13",
+      "baseline_candidate": "13",
+      "baseline_candidates": [
+        "13",
+        "19"
+      ],
+      "sequence_candidate": "98",
+      "sequence_candidates": [
+        "98",
+        "97",
+        "18",
+        "94",
+        "17"
+      ],
+      "hybrid_candidate": "13",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002293,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "98",
+        "candidates": [
+          "98",
+          "97",
+          "18",
+          "94",
+          "17"
+        ],
+        "scores": {
+          "98": 69.8209,
+          "97": 69.6757,
+          "18": 69.643,
+          "94": 69.6215,
+          "17": 69.4986
+        },
+        "confidence": 69.8209,
+        "confidence_margin": 0.2985,
+        "sequence_length": 2,
+        "width_ratio": 0.140115,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1070.jpg",
+      "corpus_id": "vol9",
+      "truth": "13",
+      "baseline_candidate": "19",
+      "baseline_candidates": [
+        "19",
+        "13"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "18",
+        "94",
+        "98",
+        "17"
+      ],
+      "hybrid_candidate": "19",
+      "baseline_exact": false,
+      "sequence_exact": false,
+      "hybrid_exact": false,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002445,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_candidate_generation",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "18",
+          "94",
+          "98",
+          "17"
+        ],
+        "scores": {
+          "14": 71.0337,
+          "18": 71.032,
+          "94": 71.0236,
+          "98": 71.0219,
+          "17": 70.9939
+        },
+        "confidence": 71.0337,
+        "confidence_margin": 0.0034,
+        "sequence_length": 2,
+        "width_ratio": 0.127886,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1071.jpg",
+      "corpus_id": "vol9",
+      "truth": "18",
+      "baseline_candidate": "18",
+      "baseline_candidates": [
+        "18",
+        "19",
+        "98",
+        "03",
+        "09",
+        "13",
+        "08"
+      ],
+      "sequence_candidate": "17",
+      "sequence_candidates": [
+        "17",
+        "18",
+        "07",
+        "10",
+        "08"
+      ],
+      "hybrid_candidate": "18",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": true,
+      "union_visible": true,
+      "seconds": 0.003223,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "17",
+        "candidates": [
+          "17",
+          "18",
+          "07",
+          "10",
+          "08"
+        ],
+        "scores": {
+          "17": 67.507,
+          "18": 67.3869,
+          "07": 67.3554,
+          "10": 67.2501,
+          "08": 67.2358
+        },
+        "confidence": 67.507,
+        "confidence_margin": 0.264,
+        "sequence_length": 2,
+        "width_ratio": 0.21492,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1072.jpg",
+      "corpus_id": "vol9",
+      "truth": "27",
+      "baseline_candidate": "27",
+      "baseline_candidates": [
+        "27",
+        "21",
+        "22",
+        "71",
+        "29",
+        "32",
+        "37",
+        "39"
+      ],
+      "sequence_candidate": "17",
+      "sequence_candidates": [
+        "17",
+        "14",
+        "19",
+        "18",
+        "16"
+      ],
+      "hybrid_candidate": "27",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002679,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "17",
+        "candidates": [
+          "17",
+          "14",
+          "19",
+          "18",
+          "16"
+        ],
+        "scores": {
+          "17": 71.9694,
+          "14": 71.7924,
+          "19": 71.6406,
+          "18": 71.6146,
+          "16": 71.3506
+        },
+        "confidence": 71.9694,
+        "confidence_margin": 0.3427,
+        "sequence_length": 2,
+        "width_ratio": 0.216696,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1073.jpg",
+      "corpus_id": "vol9",
+      "truth": "19",
+      "baseline_candidate": "19",
+      "baseline_candidates": [
+        "19",
+        "14",
+        "09"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "19",
+        "18",
+        "94",
+        "17"
+      ],
+      "hybrid_candidate": "19",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": true,
+      "union_visible": true,
+      "seconds": 0.0024,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "19",
+          "18",
+          "94",
+          "17"
+        ],
+        "scores": {
+          "14": 72.0853,
+          "19": 71.8165,
+          "18": 71.7606,
+          "94": 71.7518,
+          "17": 71.673
+        },
+        "confidence": 72.0853,
+        "confidence_margin": 0.5193,
+        "sequence_length": 2,
+        "width_ratio": 0.211368,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1074.jpg",
+      "corpus_id": "vol9",
+      "truth": "3",
+      "baseline_candidate": "3",
+      "baseline_candidates": [
+        "3",
+        "4"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "18",
+        "04",
+        "17",
+        "19"
+      ],
+      "hybrid_candidate": "3",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002298,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "18",
+          "04",
+          "17",
+          "19"
+        ],
+        "scores": {
+          "14": 70.4403,
+          "18": 70.3155,
+          "04": 70.1911,
+          "17": 70.1287,
+          "19": 70.0905
+        },
+        "confidence": 70.4403,
+        "confidence_margin": 0.2521,
+        "sequence_length": 2,
+        "width_ratio": 0.099467,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1075.jpg",
+      "corpus_id": "vol9",
+      "truth": "9",
+      "baseline_candidate": "9",
+      "baseline_candidates": [
+        "9",
+        "4"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "04",
+        "94",
+        "19",
+        "17"
+      ],
+      "hybrid_candidate": "9",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002505,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "04",
+          "94",
+          "19",
+          "17"
+        ],
+        "scores": {
+          "14": 73.1163,
+          "04": 72.8012,
+          "94": 72.3494,
+          "19": 72.2471,
+          "17": 72.2013
+        },
+        "confidence": 73.1163,
+        "confidence_margin": 0.5919,
+        "sequence_length": 2,
+        "width_ratio": 0.119005,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1076.jpg",
+      "corpus_id": "vol9",
+      "truth": "1",
+      "baseline_candidate": "1",
+      "baseline_candidates": [
+        "1"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "11",
+        "16",
+        "17",
+        "18"
+      ],
+      "hybrid_candidate": "1",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002473,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "11",
+          "16",
+          "17",
+          "18"
+        ],
+        "scores": {
+          "14": 73.0026,
+          "11": 72.6485,
+          "16": 72.5452,
+          "17": 72.5189,
+          "18": 72.4045
+        },
+        "confidence": 73.0026,
+        "confidence_margin": 0.6677,
+        "sequence_length": 2,
+        "width_ratio": 0.040853,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1077.jpg",
+      "corpus_id": "vol9",
+      "truth": "7",
+      "baseline_candidate": "7",
+      "baseline_candidates": [
+        "7",
+        "2"
+      ],
+      "sequence_candidate": "04",
+      "sequence_candidates": [
+        "04",
+        "14",
+        "07",
+        "09",
+        "01"
+      ],
+      "hybrid_candidate": "7",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002428,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "04",
+        "candidates": [
+          "04",
+          "14",
+          "07",
+          "09",
+          "01"
+        ],
+        "scores": {
+          "04": 71.3772,
+          "14": 70.9871,
+          "07": 70.6557,
+          "09": 70.5655,
+          "01": 70.4947
+        },
+        "confidence": 71.3772,
+        "confidence_margin": 0.7697,
+        "sequence_length": 2,
+        "width_ratio": 0.136767,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1078.jpg",
+      "corpus_id": "vol9",
+      "truth": "12",
+      "baseline_candidate": "12",
+      "baseline_candidates": [
+        "12",
+        "42",
+        "13",
+        "02",
+        "03",
+        "44",
+        "32"
+      ],
+      "sequence_candidate": "19",
+      "sequence_candidates": [
+        "19",
+        "14",
+        "11",
+        "15",
+        "17"
+      ],
+      "hybrid_candidate": "12",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.00244,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "19",
+        "candidates": [
+          "19",
+          "14",
+          "11",
+          "15",
+          "17"
+        ],
+        "scores": {
+          "19": 69.7594,
+          "14": 69.6768,
+          "11": 69.52,
+          "15": 69.5008,
+          "17": 69.4899
+        },
+        "confidence": 69.7594,
+        "confidence_margin": 0.17,
+        "sequence_length": 2,
+        "width_ratio": 0.186501,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1079.jpg",
+      "corpus_id": "vol9",
+      "truth": "49",
+      "baseline_candidate": "49",
+      "baseline_candidates": [
+        "49",
+        "69",
+        "19",
+        "99"
+      ],
+      "sequence_candidate": "14",
+      "sequence_candidates": [
+        "14",
+        "19",
+        "94",
+        "17",
+        "04"
+      ],
+      "hybrid_candidate": "49",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002399,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "14",
+        "candidates": [
+          "14",
+          "19",
+          "94",
+          "17",
+          "04"
+        ],
+        "scores": {
+          "14": 73.0728,
+          "19": 72.6803,
+          "94": 72.4886,
+          "17": 72.392,
+          "04": 72.1981
+        },
+        "confidence": 73.0728,
+        "confidence_margin": 0.7391,
+        "sequence_length": 2,
+        "width_ratio": 0.17762,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1080.jpg",
+      "corpus_id": "vol9",
+      "truth": "46",
+      "baseline_candidate": "46",
+      "baseline_candidates": [
+        "46",
+        "45",
+        "96",
+        "66"
+      ],
+      "sequence_candidate": "71",
+      "sequence_candidates": [
+        "71",
+        "01",
+        "70",
+        "91",
+        "11"
+      ],
+      "hybrid_candidate": "46",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.003021,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "71",
+        "candidates": [
+          "71",
+          "01",
+          "70",
+          "91",
+          "11"
+        ],
+        "scores": {
+          "71": 67.2814,
+          "01": 67.088,
+          "70": 67.0442,
+          "91": 67.0106,
+          "11": 66.9975
+        },
+        "confidence": 67.2814,
+        "confidence_margin": 0.4284,
+        "sequence_length": 2,
+        "width_ratio": 0.175844,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    },
+    {
+      "record_id": "vol9/IMG_1081.jpg",
+      "corpus_id": "vol9",
+      "truth": "15",
+      "baseline_candidate": "15",
+      "baseline_candidates": [
+        "15",
+        "45",
+        "13",
+        "03",
+        "05"
+      ],
+      "sequence_candidate": "97",
+      "sequence_candidates": [
+        "97",
+        "94",
+        "98",
+        "91",
+        "92"
+      ],
+      "hybrid_candidate": "15",
+      "baseline_exact": true,
+      "sequence_exact": false,
+      "hybrid_exact": true,
+      "baseline_visible": true,
+      "sequence_visible": false,
+      "union_visible": true,
+      "seconds": 0.002697,
+      "review_required": true,
+      "auto_accept": false,
+      "wrong_auto_accept": false,
+      "failure_attribution": "sequence_regression",
+      "sequence": {
+        "candidate": "97",
+        "candidates": [
+          "97",
+          "94",
+          "98",
+          "91",
+          "92"
+        ],
+        "scores": {
+          "97": 69.1342,
+          "94": 69.0384,
+          "98": 68.735,
+          "91": 68.7222,
+          "92": 68.5942
+        },
+        "confidence": 69.1342,
+        "confidence_margin": 0.2008,
+        "sequence_length": 2,
+        "width_ratio": 0.145648,
+        "model_version": "whole-roi-sequence-centroid-v1"
+      }
+    }
+  ],
+  "limitations": [
+    "Seed support has one source page/group and unknown writer identity.",
+    "Held-out records are evaluation-only and were not used for training, feature selection, or ranking tuning.",
+    "Writer-disjoint generalization is unknown.",
+    "The sequence confidence is a distance-derived review score, not a probability.",
+    "Auto-accept is disabled for both paths."
+  ]
+}
