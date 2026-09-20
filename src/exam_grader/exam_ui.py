@@ -851,6 +851,9 @@ class ExamDialog(QDialog):
         ready = review_count = prefilled_count = 0
         reviewed_numbers: dict[int, int] = {}
         identity_states = {s["source"]["id"]: s for s in self.review_service.states(self.exam.id)}
+        effective_identity_observations = self.review_service.effective_identity_observations(
+            self.exam.id
+        )
         current_issues = self.review_service.issues(self.exam.id)
         issue_source_ids = {
             issue["source"]["id"] for issue in current_issues if issue.get("source")
@@ -915,7 +918,10 @@ class ExamDialog(QDialog):
                 review_count += 1
             if detection and "failure" in detection:
                 state = f"อ่านไม่ได้ · {detection['failure']}"
-            number_observation = (detection or {}).get("student_number_observation", {})
+            number_observation = effective_identity_observations.get(
+                source["id"],
+                (detection or {}).get("student_number_observation", {}),
+            )
             if not review and not source.get("student_number") and number_observation.get("candidate"):
                 candidates = number_observation.get("candidates") or []
                 if candidates == [number_observation["candidate"]]:
@@ -1313,7 +1319,11 @@ class ExamDialog(QDialog):
             editor: QLineEdit | QComboBox
             if issue["kind"] == "number":
                 editor = QLineEdit(
-                    issue.get("prefill") or issue.get("candidate") or issue["number"] or ""
+                    issue.get("prefill")
+                    or issue.get("candidate")
+                    or issue.get("raw_candidate")
+                    or issue["number"]
+                    or ""
                 )
                 editor.setPlaceholderText("เลขที่")
             else:

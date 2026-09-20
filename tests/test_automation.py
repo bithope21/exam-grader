@@ -225,6 +225,64 @@ def test_bulk_adoption_resolves_domains_after_known_numbers(tmp_path):
     assert service.state(ambiguous_twenty_four)["number"] == "24"
 
 
+def test_batch_identity_assistance_excludes_teacher_confirmed_number_without_mutating_raw_detection(
+    tmp_path,
+):
+    flow, exam, source, service = setup_auto(tmp_path)
+    other = another_student(flow, exam, tmp_path, "batch-other.png")
+    source_detection = observation(number="27")
+    source_detection["student_number_observation"]["candidates"] = ["27", "17"]
+    other_detection = observation(number="27")
+    other_detection["student_number_observation"]["candidates"] = ["27", "28"]
+    flow.save_detection(source["id"], source_detection)
+    flow.save_detection(other["id"], other_detection)
+    service.set_number(
+        source, "27", expected_detection=service.state(source)["detection_id"]
+    )
+
+    effective = service.effective_identity_observations(exam.id)
+    assert effective[other["id"]]["candidate"] == "28"
+    assert effective[other["id"]]["batch_assistance"]["source"] == (
+        "teacher-confirmed-identity-exclusion"
+    )
+    assert flow.latest_detection(other["id"])["student_number_observation"]["candidate"] == "27"
+
+    issue = next(item for item in service.issues(exam.id) if item.get("source", {}).get("id") == other["id"])
+    assert issue["prefill"] == "28"
+    assert issue["raw_candidate"] == "27"
+
+
+def test_batch_identity_assistance_uses_soft_one_to_one_assignment_and_teacher_override(
+    tmp_path,
+):
+    flow, exam, source, service = setup_auto(tmp_path)
+    other = another_student(flow, exam, tmp_path, "batch-soft-other.png")
+    for student, score in ((source, 90.0), (other, 90.0)):
+        detected = observation(number="1")
+        detected["student_number_observation"]["candidates"] = ["1", "2"]
+        detected["student_number_observation"]["diagnostics"] = {
+            "raw_candidate_scores": {"1": score, "2": score}
+        }
+        flow.save_detection(student["id"], detected)
+
+    effective = service.effective_identity_observations(exam.id)
+    assert {effective[source["id"]]["candidate"], effective[other["id"]]["candidate"]} == {
+        "1",
+        "2",
+    }
+    assisted = [item for item in effective.values() if item.get("batch_assistance")]
+    assert assisted
+    assert all(
+        item["batch_assistance"]["source"] == "soft-one-to-one-assignment"
+        for item in assisted
+    )
+
+    service.set_number(other, "1", expected_detection=service.state(other)["detection_id"])
+    overridden = service.effective_identity_observations(exam.id)
+    assert service.state(other)["number"] == "1"
+    assert overridden[other["id"]]["candidate"] == "1"
+
+
 def test_duplicate_candidates_never_assigned_from_missing_sequence(tmp_path):
     flow, exam, source, service = setup_auto(tmp_path)
     other = another_student(flow, exam, tmp_path)

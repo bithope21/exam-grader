@@ -8,7 +8,9 @@ contract is eligible. Existing teacher/key revisions remain append-only.
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from datetime import datetime, timezone
+from functools import lru_cache
 from uuid import uuid4
 
 from exam_grader.imaging import OMR_PIPELINE_VERSION
@@ -47,13 +49,16 @@ class ReviewService:
         if review and review.get("detection_id") != detection_id:
             review = None
         number = identity["student_number"] if identity else None
+        number_origin = identity["origin"] if identity else None
         if review and (not identity or review["created_at"] > identity["created_at"]):
             number = review["student_number"]
+            number_origin = review["origin"]
         return {
             "source": source,
             "detection_id": detection_id,
             "detection": json.loads(detection["payload"]) if detection else {},
             "number": number,
+            "number_origin": number_origin,
             "review": review,
         }
 
@@ -63,6 +68,222 @@ class ReviewService:
             for s in self.importer.list_sources(exam_id, self.room_id)
             if s["purpose"] == "student"
         ]
+
+    @staticmethod
+    def _teacher_confirmed_identity(state: dict) -> bool:
+        origin = state.get("number_origin")
+        return isinstance(origin, str) and origin.startswith("teacher")
+
+    @staticmethod
+    def _identity_candidate_scores(observation: dict) -> dict[str, float]:
+        diagnostics = observation.get("diagnostics") or {}
+        raw_scores = diagnostics.get("raw_candidate_scores")
+        if not isinstance(raw_scores, dict):
+            raw_scores = diagnostics.get("candidate_scores")
+        if not isinstance(raw_scores, dict):
+            raw_scores = {}
+        scores: dict[str, float] = {}
+        for candidate in observation.get("candidates") or []:
+            if not isinstance(candidate, str) or not candidate.isdigit() or int(candidate) <= 0:
+                continue
+            value = raw_scores.get(candidate, 0.0)
+            scores[candidate] = float(value) if isinstance(value, (int, float)) else 0.0
+        return scores
+
+    @staticmethod
+    def _solve_unique_assignment(
+        options: dict[str, dict[str, float]],
+    ) -> dict[str, str]:
+        """Choose a soft one-to-one assignment from existing candidate evidence.
+
+        Components are solved exactly while small, and deterministically greedy
+        when unusually large. This is assistance only: no identity row is
+        written and every result remains review-required.
+        """
+        if not options:
+            return {}
+        source_ids = sorted(options)
+        assignments: dict[str, str] = {}
+        remaining = set(source_ids)
+        while remaining:
+            start = min(remaining)
+            component_sources = {start}
+            component_numbers: set[str] = set(options[start])
+            changed = True
+            while changed:
+                changed = False
+                for source_id in list(remaining - component_sources):
+                    if component_numbers.intersection(options[source_id]):
+                        component_sources.add(source_id)
+                        component_numbers.update(options[source_id])
+                        changed = True
+            remaining -= component_sources
+            rows = sorted(component_sources)
+            if len(rows) > 10:
+                used: set[str] = set()
+                for source_id in sorted(
+                    rows,
+                    key=lambda sid: (
+                        -max(options[sid].values(), default=0.0),
+                        sid,
+                    ),
+                ):
+                    choices = sorted(
+                        options[source_id].items(),
+                        key=lambda item: (-item[1], item[0]),
+                    )
+                    for candidate, _score in choices:
+                        if candidate not in used:
+                            assignments[source_id] = candidate
+                            used.add(candidate)
+                            break
+                continue
+
+            candidate_names = sorted(component_numbers)
+
+            @lru_cache(maxsize=None)
+            def solve(index: int, used: tuple[str, ...]) -> tuple[float, tuple[str | None, ...]]:
+                if index == len(rows):
+                    return 0.0, ()
+                used_set = set(used)
+                source_id = rows[index]
+                best_score, best_tail = solve(index + 1, used)
+                best = (best_score, (None,) + best_tail)
+                for candidate in candidate_names:
+                    if candidate in used_set or candidate not in options[source_id]:
+                        continue
+                    next_used = tuple(sorted((*used, candidate)))
+                    tail_score, tail = solve(index + 1, next_used)
+                    score = options[source_id][candidate] + tail_score
+                    choice = (candidate,) + tail
+                    if score > best[0] + 1e-9 or (
+                        abs(score - best[0]) <= 1e-9 and tuple(x or "" for x in choice)
+                        < tuple(x or "" for x in best[1])
+                    ):
+                        best = (score, choice)
+                return best
+
+            _score, chosen = solve(0, ())
+            for source_id, candidate in zip(rows, chosen, strict=True):
+                if candidate is not None:
+                    assignments[source_id] = candidate
+        return assignments
+
+    def effective_identity_observations(self, exam_id: str) -> dict[str, dict]:
+        """Return review-only batch ranking assistance without mutating detections.
+
+        The application already treats student numbers as unique within a room
+        at final snapshot/export. Teacher-confirmed identities therefore act as
+        hard anchors for this room. All other assignments are soft and use only
+        candidates/scores already emitted by the recognizer.
+        """
+        states = self.states(exam_id)
+        anchored = {
+            int(state["number"])
+            for state in states
+            if state.get("number") and self._teacher_confirmed_identity(state)
+        }
+        effective: dict[str, dict] = {}
+        options: dict[str, dict[str, float]] = {}
+        available_by_source: dict[str, list[str]] = {}
+        for state in states:
+            observation = state["detection"].get("student_number_observation") or {}
+            copy = deepcopy(observation)
+            raw_candidates = list(copy.get("candidates") or [])
+            scores = self._identity_candidate_scores(copy)
+            available = [
+                candidate
+                for candidate in raw_candidates
+                if isinstance(candidate, str)
+                and candidate.isdigit()
+                and int(candidate) > 0
+                and int(candidate) not in anchored
+            ]
+            if state.get("number") or not available:
+                effective[state["source"]["id"]] = copy
+                continue
+            source_id = state["source"]["id"]
+            available_by_source[source_id] = available
+            effective[source_id] = copy
+
+        top_counts: dict[str, int] = {}
+        for available in available_by_source.values():
+            if available:
+                top_counts[available[0]] = top_counts.get(available[0], 0) + 1
+        for source_id, available in available_by_source.items():
+            if top_counts.get(available[0], 0) <= 1:
+                continue
+            observation = effective[source_id]
+            scores = self._identity_candidate_scores(observation)
+            options[source_id] = {
+                candidate: scores.get(candidate, 0.0) for candidate in available
+            }
+
+        assignments = self._solve_unique_assignment(options)
+        for state in states:
+            source_id = state["source"]["id"]
+            observation = effective[source_id]
+            if state.get("number"):
+                continue
+            raw_candidates = list(observation.get("candidates") or [])
+            raw_candidate = observation.get("candidate")
+            available = [
+                candidate
+                for candidate in raw_candidates
+                if isinstance(candidate, str)
+                and candidate.isdigit()
+                and int(candidate) > 0
+                and int(candidate) not in anchored
+            ]
+            assigned = assignments.get(source_id)
+            top_is_contested = bool(available and top_counts.get(available[0], 0) > 1)
+            if assigned is None and available:
+                assigned = available[0]
+            if (
+                assigned is not None
+                and available
+                and assigned != available[0]
+                and options.get(source_id, {}).get(assigned, 0.0)
+                < options.get(source_id, {}).get(available[0], 0.0)
+            ):
+                # A soft assignment may not displace a stronger local read;
+                # global matching is assistance for ties/near-ties, not a
+                # license to override clear recognizer evidence.
+                assigned = available[0]
+            if assigned is None or (not top_is_contested and available == raw_candidates):
+                continue
+            if assigned == raw_candidate and available == raw_candidates:
+                continue
+            changed = assigned != raw_candidate or available != raw_candidates
+            ranked = [assigned] + [candidate for candidate in available if candidate != assigned]
+            observation["batch_assistance"] = {
+                "source": (
+                    "teacher-confirmed-identity-exclusion"
+                    if any(
+                        isinstance(candidate, str)
+                        and candidate.isdigit()
+                        and int(candidate) in anchored
+                        for candidate in raw_candidates
+                    )
+                    else "soft-one-to-one-assignment"
+                ),
+                "anchored_numbers": sorted(anchored),
+                "raw_candidate": raw_candidate,
+                "assigned_candidate": assigned,
+                "changed": changed,
+                "review_required": True,
+            }
+            observation["candidates"] = ranked
+            observation["candidate"] = assigned
+            # A derived assignment has no calibrated confidence of its own.
+            if changed:
+                observation["confidence"] = None
+                observation["confidence_margin"] = 0.0
+                observation["requires_review"] = True
+                observation["review_reason"] = (
+                    "batch uniqueness assistance; teacher confirmation required"
+                )
+        return effective
 
     @staticmethod
     def machine_answers(detection: dict, count: int) -> list[str | None]:
@@ -469,6 +690,7 @@ class ReviewService:
 
     def issues(self, exam_id: str) -> list[dict]:
         states = self.states(exam_id)
+        effective_observations = self.effective_identity_observations(exam_id)
         try:
             key = self.flow.confirmed_key(exam_id)
         except ValueError:
@@ -492,6 +714,11 @@ class ReviewService:
         issues = []
         for state in states:
             number = state["number"]
+            observation = effective_observations.get(
+                state["source"]["id"],
+                state["detection"].get("student_number_observation") or {},
+            )
+            raw_observation = state["detection"].get("student_number_observation") or {}
             base = {
                 "source": state["source"],
                 "number": number,
@@ -501,9 +728,7 @@ class ReviewService:
             if not state["detection"] or state["detection"].get("failure"):
                 issues.append({**base, "kind": "image", "label": "ภาพอ่านไม่ได้ · ตรวจภาพต้นฉบับ"})
                 continue
-            candidate = (state["detection"].get("student_number_observation") or {}).get(
-                "candidate"
-            )
+            candidate = observation.get("candidate")
             if not number or numbers.count(int(number)) > 1 or (maximum and int(number) > maximum):
                 if not number:
                     status = "uncertain"
@@ -514,9 +739,7 @@ class ReviewService:
                 else:
                     status = "out_of_range"
                     reason = "เลขที่เกินช่วง"
-                choices = (state["detection"].get("student_number_observation") or {}).get(
-                    "candidates", []
-                )
+                choices = observation.get("candidates", [])
                 if not candidate and choices:
                     reason += " · อาจเป็น " + " / ".join(choices)
                 issues.append(
@@ -527,6 +750,8 @@ class ReviewService:
                         "label": reason,
                         "candidate": candidate,
                         "prefill": candidate,
+                        "raw_candidate": raw_observation.get("candidate"),
+                        "batch_assistance": observation.get("batch_assistance"),
                     }
                 )
             if number and attendance.get(int(number)) in {"absent", "excused"}:
