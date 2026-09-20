@@ -22,7 +22,8 @@ def test_export_consistent_versioned_and_keeps_originals(tmp_path):
     first = export_results(flow, exam.id)
     snapshot = json.loads((first / "_system" / "results.json").read_text())
     workbook = load_workbook(first / "scores.xlsx")
-    assert workbook.active.cell(2, 1).value == "01"
+    assert workbook.active.cell(2, 1).value == 1
+    assert workbook.active.cell(2, 1).data_type == "n"
     assert workbook.active.cell(2, 2).value == snapshot["results"][0]["score"] == 2
     assert (first / snapshot["results"][0]["checked_image"]).is_file()
     second = export_results(flow, exam.id)
@@ -111,7 +112,7 @@ def test_identity_correction_regenerates_filename_and_excel_keeps_prior_run(tmp_
     flow.review(source["id"], "12", ["A", "B", "C"], key["id"])
     second = export_results(flow, exam.id)
     assert (second / "checked/เลขที่-12.jpg").exists()
-    assert load_workbook(second / "scores.xlsx").active.cell(2, 1).value == "12"
+    assert load_workbook(second / "scores.xlsx").active.cell(2, 1).value == 12
     assert (first / "_system/results.json").read_bytes() == original
 
 

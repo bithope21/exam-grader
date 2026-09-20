@@ -14,6 +14,7 @@ from uuid import uuid4
 import cv2
 import numpy as np
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from PySide6.QtGui import QColor, QFont, QImage, QPainter
 from PySide6.QtWidgets import QApplication
@@ -59,6 +60,80 @@ def human_readable_name(exam: dict, room_label: str | None = None) -> str:
     # three bytes per code point. Leave space for suffixes, not just characters.
     safe = safe.encode("utf-8")[:180].decode("utf-8", errors="ignore").rstrip(" .")
     return (safe or "exam") + f"_{int(exam.get('question_count', 0))}q"
+
+
+def _excel_student_number(value: object) -> object:
+    """Keep known student numbers numeric; retain explicit unknown labels as text."""
+    normalized = str(value or "").strip().translate(str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789"))
+    if normalized.isascii() and normalized.isdigit() and int(normalized) > 0:
+        return int(normalized)
+    return str(value or "")
+
+
+def _content_width(values: list[object], minimum: float, maximum: float) -> float:
+    longest = max((len(str(value)) for value in values if value not in (None, "")), default=0)
+    return min(max(minimum, longest + 2), maximum)
+
+
+def _style_scores_sheet(sheet, indicator_count: int) -> None:
+    """Apply compact, cross-platform presentation styling without changing values."""
+    last_column = 6 + indicator_count
+    last_letter = get_column_letter(last_column)
+    header_fill = PatternFill(fill_type="solid", fgColor="EAF2F8")
+    # Tahoma is available on the supported desktop targets and keeps Thai headers
+    # readable in Excel/LibreOffice; missing-font fallback remains system-owned.
+    header_font = Font(name="Tahoma", size=11, bold=True, color="17365D")
+    header_border = Border(bottom=Side(style="thin", color="B7C9D6"))
+    header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    centered = Alignment(horizontal="center", vertical="center")
+
+    for cell in sheet[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = header_alignment
+        cell.border = header_border
+    sheet.row_dimensions[1].height = 32
+
+    numeric_columns = [1, *range(2, 4 + indicator_count)]
+    text_columns = [4 + indicator_count, 5 + indicator_count, 6 + indicator_count]
+    for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row, min_col=1, max_col=last_column):
+        sheet.row_dimensions[row[0].row].height = 22
+        for column in numeric_columns:
+            cell = row[column - 1]
+            cell.alignment = centered
+            cell.number_format = "0"
+        for column in text_columns:
+            cell = row[column - 1]
+            cell.alignment = Alignment(
+                horizontal="left", vertical="center", wrap_text=column == last_column
+            )
+
+    columns = {
+        1: ("No.", 7, 9),
+        **{
+            column: (sheet.cell(1, column).value, 12, 20)
+            for column in range(2, 2 + indicator_count)
+        },
+        2 + indicator_count: ("Score", 9, 11),
+        3 + indicator_count: ("Max", 9, 11),
+        4 + indicator_count: ("Status", 16, 30),
+        5 + indicator_count: ("Source File", 18, 32),
+        6 + indicator_count: ("Review Issues", 20, 42),
+    }
+    for column, (_label, minimum, maximum) in columns.items():
+        values = [sheet.cell(row, column).value for row in range(1, sheet.max_row + 1)]
+        sheet.column_dimensions[get_column_letter(column)].width = _content_width(
+            values, minimum, maximum
+        )
+
+    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A1:{last_letter}{max(sheet.max_row, 1)}"
+    sheet.sheet_view.showGridLines = False
+    sheet.print_title_rows = "1:1"
+    sheet.sheet_properties.pageSetUpPr.fitToPage = True
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
 
 
 def checked_filename(number: str | None, used: set[str]) -> str:
@@ -394,7 +469,7 @@ def export_results(
             }
             sheet.append(
                 [
-                    result["student_number"],
+                    _excel_student_number(result["student_number"]),
                     *result.get("indicator_scores", []),
                     result["score"],
                     result["max"],
@@ -405,7 +480,6 @@ def export_results(
             )
             # Force user-controlled strings to text, even if they begin with '='.
             text_columns = {
-                1,
                 4 + len(indicators),  # Status
                 5 + len(indicators),  # Source File
                 6 + len(indicators),  # Review Issues
@@ -417,7 +491,7 @@ def export_results(
             if attendance["status"] in {"absent", "excused"}:
                 sheet.append(
                     [
-                        str(attendance["student_number"]),
+                        _excel_student_number(attendance["student_number"]),
                         *([None] * len(indicators)),
                         None,
                         len(snapshot["key"]["answers"]),
@@ -426,9 +500,7 @@ def export_results(
                         None,
                     ]
                 )
-        widths = [24, *([18] * len(indicators)), 12, 12, 24, 50, 50]
-        for index, width in enumerate(widths, start=1):
-            sheet.column_dimensions[get_column_letter(index)].width = width
+        _style_scores_sheet(sheet, len(indicators))
 
         info_sheet = book.create_sheet(title="Info")
         t_name = template_def.name if template_def is not None else template_id
