@@ -685,6 +685,29 @@ def preprocess(
         if recovery_improves_geometry:
             ink, boxes = recovered_ink, recovered_boxes
 
+    # A single unusually short component is a strong merged/incomplete-
+    # segmentation signal. Try a relaxed mask only for that geometry, and
+    # accept it only when it produces more plausible components. This avoids
+    # the known regression from applying threshold-20 globally.
+    if len(boxes) == 1 and boxes[0][3] < crop.shape[0] * 0.45:
+        relaxed_darkness = (
+            cv2.GaussianBlur(gray, (0, 0), max(2, round(9 * scale))) - gray
+        )
+        relaxed_mask = (relaxed_darkness > 20).astype(np.uint8) * 255
+        relaxed_mask = cv2.bitwise_and(
+            relaxed_mask, cv2.bitwise_not(green_print)
+        ).astype(np.uint8)
+        if reference_crop is not None and reference_crop.size > 0:
+            relaxed_mask = cv2.bitwise_and(
+                relaxed_mask, cv2.bitwise_not(ref_mask_dilated)
+            ).astype(np.uint8)
+        relaxed_ink = _clean_component_mask(
+            relaxed_mask, crop_shape=crop.shape, scale=scale
+        )
+        relaxed_boxes = _group_digit_boxes(relaxed_ink, scale=scale)
+        if len(boxes) < len(relaxed_boxes) <= 6:
+            ink, boxes = relaxed_ink, relaxed_boxes
+
     return 255 - ink, boxes, gray.astype(np.uint8)
 
 
