@@ -1,5 +1,44 @@
 # Exam Grader progress
 
+# Current handoff — 2026-09-20 Whole-ROI sequence experiment closed
+
+The bounded Whole-ROI / Sequence Student Number Recognition experiment is
+closed for this session. The existing production segmentation → digit-model
+path remains unchanged and review-only. The supplemental prototype was not
+integrated because it did not meet the held-out complexity gate.
+
+Verified state:
+
+- Branch: `feat/assessment-indicators-multi-room`; checkpoint commits are
+  `be58110`, `818857d`, and `10da86d`.
+- Frozen baseline on teacher-confirmed Vol.8/9/10: Vol.8/9 `20/22` exact,
+  `12/14` two-digit; Vol.10 `15/22` exact, `9/13` two-digit, `18/22` visible.
+- Claim boundary: **sheet/volume-disjoint evaluation; writer generalization
+  unknown**. Vol.8/9/10 were evaluation-only; no auto-accept or hard-coded
+  cases were added.
+- Direct sequence top-1 was only `2/27` on two-digit held-out records. The
+  fixed segmentation-rescue hybrid preserved Vol.8/9 at `20/22` and reached
+  Vol.10 `16/22`, `10/13` two-digit, `20/22` visible—below the requested
+  `11–12/13` target.
+- It recovered `IMG_1189` truth `14` from baseline `191`, but did not safely
+  resolve `18→98`, `20→79`, or `22→92`. Remaining bottleneck is primarily
+  writer/sequence data diversity with classifier/ranking ambiguity.
+- Prototype lives only in `tools/benchmark/whole_roi_sequence.py`; it is not
+  in the production runtime or bundled resources. Full report:
+  `docs/evidence/student-number-sequence-experiment-20260920.json`.
+- Focused tests `24 passed`, Ruff and diff-check passed. Fresh macOS arm64
+  package (~235 MB), packaged self-check, offscreen settings/UI smoke, and
+  strict deep codesign passed. Windows native UAT and native Product Owner UAT
+  remain separate.
+
+Preserve untracked `tests/fixtures/real/vol.8/`, `tests/fixtures/real/vol.9/`,
+and `tests/fixtures/real/vol.10/`; do not reset, clean, overwrite, stage, or
+absorb them. Do not push, merge, tag, release, or deploy.
+
+Next bounded step requires authoritative writer-diverse whole-ROI labels and
+provenance approval before another sequence-training cycle. Keep Vol.8/9/10
+held out and do not tune on them.
+
 # Current handoff — 2026-09-20 Student Number Recognition round closure
 
 The current Student Number Recognition round is closed for this session. The

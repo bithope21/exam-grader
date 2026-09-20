@@ -1,5 +1,33 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+# Current handoff — 2026-09-20 Whole-ROI sequence experiment closed
+
+The bounded Whole-ROI / Sequence Student Number Recognition experiment is
+complete and not integrated. The production segmentation → digit-classifier
+path is unchanged, review-required, and auto-accept remains disabled.
+
+- Frozen Vol.8/9/10 baseline: Vol.8/9 `20/22` exact and `12/14` two-digit;
+  Vol.10 `15/22` exact and `9/13` two-digit, with `18/22` truth visible.
+- Evaluation claim: **sheet/volume-disjoint evaluation; writer generalization
+  unknown**. Vol.8/9/10 were never used for sequence training or tuning.
+- Whole-ROI prototype top-1: `2/27` two-digit records. Fixed rescue hybrid:
+  Vol.8/9 stayed `20/22`; Vol.10 reached `16/22`, `10/13` two-digit and
+  `20/22` visible, below the `11–12/13` gate.
+- `14→191` was recovered; `18→98`, `20→79`, and `22→92` were not safely
+  resolved. Do not promote or bundle the prototype.
+- Checkpoints: `be58110` (protocol), `818857d` (prototype/report), and
+  `10da86d` (verification handoff). Full evidence is in
+  `docs/evidence/student-number-sequence-experiment-20260920.md` and the
+  adjacent JSON report. The prototype is only in
+  `tools/benchmark/whole_roi_sequence.py` with focused tests.
+- Focused tests/Ruff/diff-check passed; fresh macOS arm64 package (~235 MB),
+  packaged self-check, offscreen settings/UI smoke, and strict deep codesign
+  passed. Windows native UAT and Product Owner native UAT remain separate.
+
+Next work needs authoritative writer-diverse whole-ROI labels and provenance
+approval. Keep Vol.8/9/10 held out; do not tune on them. Preserve the untracked
+real fixture trees and do not push, merge, tag, release, or deploy.
+
 # Current handoff — 2026-09-20 Student Number Recognition round closure
 
 Use the repository docs and current git state as source of truth. The prior
