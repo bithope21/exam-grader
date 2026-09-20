@@ -136,3 +136,18 @@ primarily training-data diversity/sequence-domain mismatch, with classifier or
 ranking ambiguity still present in the difficult two-digit cases. A future
 attempt needs authoritative writer-diverse whole-ROI labels before another
 architecture or held-out tuning cycle; Vol.8/9/10 must remain evaluation-only.
+
+## Verification and package boundary
+
+- Focused source tests: `24 passed` (`tests/test_whole_roi_sequence.py`,
+  `tests/test_identity.py`, and `tests/test_digit_model.py`).
+- Changed-file Ruff: passed.
+- `git diff --check`: passed.
+- A fresh macOS arm64 `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`
+  was rebuilt from the checkpoint source; size was approximately 235 MB.
+- Packaged `--self-check`, offscreen `--smoke-settings`, offscreen
+  `--smoke-ui`, and `codesign --verify --deep --strict` passed.
+- The package still reports the unchanged production pipeline
+  `student-number-adaptive-roi-v8`; the prototype tool is not bundled.
+- Native Product Owner UAT and Windows native UAT remain separate; no release,
+  push, merge, tag, or deploy was performed.
