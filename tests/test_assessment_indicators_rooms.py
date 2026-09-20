@@ -124,6 +124,11 @@ def test_indicator_export_order_and_room_isolation(tmp_path):
     assert sheet[1][0].alignment.horizontal == "center"
     assert sheet[1][0].alignment.vertical == "center"
     assert sheet[1][0].border.bottom.style == "thin"
+    for cell in (sheet[1][0], sheet[1][7], sheet[2][0], sheet[2][7]):
+        assert cell.border.left.style == "thin"
+        assert cell.border.right.style == "thin"
+        assert cell.border.top.style == "thin"
+        assert cell.border.bottom.style == "thin"
     assert sheet.column_dimensions["A"].width <= 9
     assert sheet.column_dimensions["H"].width <= 42
     assert "/" not in first_export.parent.parent.name

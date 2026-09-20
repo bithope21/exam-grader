@@ -33,12 +33,14 @@ def test_desktop_shell_displays_persisted_exam(tmp_path):
         else:
             field.setText(value)
     dialog.accept()
-    application.exams.create(dialog.details)
+    exam = application.exams.create(dialog.details)
+    application.exams.create_room(exam.id, "ป.1/2")
     window.refresh()
     window.show()
     qt.processEvents()
     assert window.exam_list.count() == 1
     assert "กลางภาค" in window.exam_list.item(0).text()
+    assert "ห้องเริ่มต้น 1 · รวม 2 ห้อง" in window.exam_list.item(0).text()
     assert not hasattr(window, "delete_exam_button")
     row = window.exam_list.itemWidget(window.exam_list.item(0))
     assert row is not None
@@ -47,6 +49,8 @@ def test_desktop_shell_displays_persisted_exam(tmp_path):
         and child.text() == ""
         and child.property("kind") == "icon"
         and child.accessibleName() == "ย้ายไปถังขยะ"
+        and not child.icon().isNull()
+        and child.iconSize().width() == 19
         for child in row.findChildren(QPushButton)
     )
     assert window.exam_list.item(0).sizeHint().height() == 44

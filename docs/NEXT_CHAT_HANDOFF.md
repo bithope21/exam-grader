@@ -1,5 +1,73 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+# Current handoff — 2026-09-20 UI/Excel polish checkpoint
+
+Use the repository docs and current git state as source of truth. This scoped
+presentation task is complete for macOS source/package evidence and is
+separate from the concurrent whole-ROI Student Number Recognition work.
+
+Verified current state:
+
+- Repository: `/Users/zubinpijit/private/exam-grader`
+- Branch: `exp/student-number-training-corpus-v1`; inspect the latest commit
+  after this checkpoint for its exact hash and remote status.
+- Home rows now show the existing authoritative room count as
+  `ห้องเริ่มต้น … · รวม N ห้อง`.
+- Trash/archive controls use a bundled SVG plus explicit light/dark
+  destructive affordance styling; native macOS visual inspection found them
+  clearly visible in both themes.
+- Scores Excel output has thin four-sided borders on every used cell without
+  changing values, headers, filters, freeze panes, widths, or export semantics.
+- Focused checks, changed-file Ruff, diff-check, fresh macOS package,
+  packaged self-check, settings/UI smoke, and strict deep codesign passed.
+- Windows native UAT and `.exe` build are pending. This is not a release.
+
+Important files:
+
+- `src/exam_grader/ui.py`
+- `src/exam_grader/preferences.py`
+- `src/exam_grader/resources/trash-destructive.svg`
+- `src/exam_grader/exporting.py`
+- `tests/test_ui.py`, `tests/test_theme_and_layout.py`,
+  `tests/test_assessment_indicators_rooms.py`
+- `docs/evidence/ui-excel-polish-20260920.md`
+
+Preserve the concurrent whole-ROI dirty/untracked files: `.gitignore`,
+`data/`, `tools/benchmark/ingest_student_number_corpus.py`, and untracked
+`tests/fixtures/real/vol.8/`, `vol.9/`, and `vol.10/`. Do not reset, clean,
+overwrite, stage, or absorb them. Do not touch Student Number Recognition,
+OMR, document crop/registration, grading/export logic, Assessment Indicators,
+rooms, or unrelated UI/business logic from this Windows follow-up.
+
+## Paste-ready Windows follow-up prompt
+
+```text
+Use the repository docs and current git state as source of truth. Pull the
+current remote branch `exp/student-number-training-corpus-v1` and read
+`progress.md`, `docs/NEXT_CHAT_HANDOFF.md`, `docs/TASK_SPEC.md`,
+`docs/ARCHITECTURE.md`, and `docs/evidence/ui-excel-polish-20260920.md` first.
+
+Scope: validate and, only if necessary, surgically fix Windows parity for the
+latest Home room-count summary, light/dark trash affordance, and Scores Excel
+cell borders. Do not touch Student Number Recognition/whole-ROI work, OMR,
+document crop/registration, grading/export semantics, Assessment Indicators,
+room persistence/business logic, or unrelated UI.
+
+Preserve all existing dirty/untracked whole-ROI files and fixtures. Inspect
+`git status --short` before acting. Run the Windows packaged self-check and
+focused UI/export checks using the repository's documented commands. Verify
+the room count comes from existing room logic, the trash icon is visible in
+light and dark Windows themes, and the generated workbook has thin borders on
+all used cells without changed values or columns. Treat source tests,
+packaged smoke, and native Windows UAT as separate evidence.
+
+Do not build or push an `.exe`, create a PR, merge, tag, release, or deploy
+until the Product Owner explicitly confirms after the parity test report. If a
+real Windows-only issue is found, make only the smallest scoped fix, rerun
+focused tests and packaged smoke, update the same evidence/docs, and report
+the exact changed files and remaining limitations.
+```
+
 ## Current handoff — 2026-09-17 targeted identity safety fix
 
 The authorized targeted fix is implemented on top of the clean Vol.1/2/3/5/6

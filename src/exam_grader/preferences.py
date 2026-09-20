@@ -287,6 +287,8 @@ def get_theme_stylesheet(mode: str) -> str:
             }
             QPushButton[kind="icon"][destructive="true"] {
                 color: #DC2626;
+                background-color: #FFF1F2;
+                border-color: #FECDD3;
             }
             QPushButton[kind="icon"][destructive="true"]:hover {
                 background-color: #FEF2F2;
@@ -729,6 +731,8 @@ def get_theme_stylesheet(mode: str) -> str:
             }
             QPushButton[kind="icon"][destructive="true"] {
                 color: #F87171;
+                background-color: #451A1A;
+                border-color: #7F1D1D;
             }
             QPushButton[kind="icon"][destructive="true"]:hover {
                 background-color: #450A0A;

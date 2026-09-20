@@ -5,8 +5,8 @@ from datetime import date
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
-    QApplication,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
-    QStyle,
     QToolButton,
     QToolTip,
     QVBoxLayout,
@@ -410,9 +409,11 @@ class MainWindow(QMainWindow):
         self.exam_list.clear()
         for exam in self.application.exams.list_exams():
             details = exam.details
+            room_count = len(self.application.exams.list_rooms(exam.id))
             text = (
                 f"{details.name} — {details.subject}\n"
-                f"ปี {details.academic_year} · ชั้น {details.grade} · ห้อง {details.room} · "
+                f"ปี {details.academic_year} · ชั้น {details.grade} · "
+                f"ห้องเริ่มต้น {details.room} · รวม {room_count} ห้อง · "
                 f"{details.question_count} ข้อ"
             )
             # Keep the text on the item as well as in the custom row widget so
@@ -428,8 +429,9 @@ class MainWindow(QMainWindow):
             row_layout.setContentsMargins(8, 4, 8, 4)
             row_layout.addStretch()
             remove = QPushButton()
-            remove.setIcon(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
-            remove.setIconSize(QSize(16, 16))
+            trash_icon = Path(__file__).resolve().parent / "resources" / "trash-destructive.svg"
+            remove.setIcon(QIcon(str(trash_icon)))
+            remove.setIconSize(QSize(19, 19))
             remove.setProperty("kind", "icon")
             remove.setProperty("destructive", True)
             remove.setAccessibleName("ย้ายไปถังขยะ")
