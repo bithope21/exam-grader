@@ -1,5 +1,106 @@
 # Fresh-Chat Handoff: Exam Grader v1.0.2 & Upcoming Session Roadmap
 
+# Current handoff — 2026-09-20 Student Number Recognition round closure
+
+Use the repository docs and current git state as source of truth. The prior
+Student Number Recognition round is closed; the next session is authorized to
+start the new bounded Whole-ROI / Sequence Student Number Recognition task
+below.
+
+## Verified current state
+
+- Repository: `/Users/zubinpijit/private/exam-grader`
+- Branch: `feat/assessment-indicators-multi-room`
+- Pre-handoff HEAD: `f9951c6`; inspect the latest `git log` after this docs
+  checkpoint for the final handoff commit and pushed remote checkpoint.
+- Vol.8/9: `20/22` exact, `12/14` two-digit, `21/22` visible.
+- Vol.10: `15/22` exact, `9/13` two-digit, `18/22` visible.
+- Auto-accept is disabled; `wrong auto-accept = 0`.
+- Fresh macOS package evidence remains separate from native UAT:
+  `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app` passed packaged
+  self-check, offscreen settings/UI smoke, and strict deep codesign.
+- Windows native UAT is still pending.
+- Product Owner native macOS UAT confirms clear improvement but remaining
+  reads include `14→191`, `17→11`, `18→98`, `20→79`, `22→92`; correct visible
+  examples include `15`, `16`, `19`, and `21`.
+- Manual UAT screenshots:
+  `/Users/zubinpijit/Desktop/ภาพถ่ายหน้าจอ 2569-09-20 เวลา 14.00.34.png`
+  and `/Users/zubinpijit/Desktop/ภาพถ่ายหน้าจอ 2569-09-20 เวลา 13.59.56.png`.
+- Detailed source/package/benchmark evidence:
+  `docs/evidence/student-number-recognition-20260920.md`.
+
+## Protected ownership and invariants
+
+Preserve untracked `tests/fixtures/real/vol.8/`,
+`tests/fixtures/real/vol.9/`, and `tests/fixtures/real/vol.10/`; do not reset,
+clean, overwrite, stage, or absorb them. Do not alter OMR, document
+crop/registration, grading/export, assessment indicators, rooms, or unrelated
+UI/business logic. Preserve immutable originals, provenance, review-required
+uncertainty, teacher confirmation, backward compatibility, and raw recognition
+evidence. Do not enable auto-accept until independent held-out evidence proves
+`wrong auto-accept = 0`.
+
+## Next task — Whole-ROI / Sequence Student Number Recognition
+
+Objective: improve handwritten student-number prefill, especially two-digit
+numbers, by testing a small whole-ROI sequence recognizer without removing the
+current segmentation pipeline until leakage-safe evidence proves superiority.
+
+Required engineer loop:
+
+1. Inspect repository docs, current implementation, git state, fixture/result
+   provenance, and the actual app path before editing.
+2. Define a sheet/writer-disjoint held-out protocol. Keep Vol.8/9/10 and all
+   training-used data separated by provenance; do not invent labels or use
+   evaluation sheets for tuning.
+3. Benchmark the current `segmentation → digit classifier` pipeline first.
+4. Implement a supplemental small whole-ROI sequence recognizer, such as a
+   tiny CRNN/CTC or another evidence-backed compact architecture, only after
+   the baseline and data protocol are frozen.
+5. Compare current, sequence, hybrid/ensemble, and ranking behavior on the
+   same held-out sheets. Attribute failures to segmentation, classifier,
+   ranking, or calibration.
+6. Integrate only a surgical improvement with focused tests and real-sheet
+   regression. Keep the old path as fallback until evidence supports promotion.
+7. Update evidence/docs, create milestone checkpoint commits, rebuild the
+   macOS app, and run packaged self-check, settings/UI smoke, and strict
+   codesign. Report Windows as pending unless native Windows evidence exists.
+
+Minimum metrics: exact top-1/prefill, 1-digit/2-digit accuracy, top-k
+visibility, segmentation/classifier/ranking failure counts, held-out
+generalization, latency, model/package size, and wrong auto-accept. The main
+goal is correct review prefill, not forced confidence.
+
+Do not hard-code Vol.10 or individual numbers. Ask the Product Owner if a
+dataset-authority, leakage, or architecture decision cannot be resolved from
+evidence; choose ordinary implementation details from benchmarks. Commit is
+allowed for scoped milestones, but do not push, merge, tag, release, or deploy
+without explicit authorization in that new task.
+
+## Paste-ready prompt for the new chat
+
+```text
+Use the repository docs and current task as source of truth. Read `/Users/zubinpijit/.codex/RTK.md`, `progress.md`, `docs/NEXT_CHAT_HANDOFF.md`, `docs/TASK_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/IDENTITY_DATASET.md`, and the current Student Number Recognition evidence before acting; inspect `git status --short`, current HEAD, branch, and implementation read-only first.
+
+Objective/scope: Improve Student Number Recognition prefill, especially handwritten 2-digit numbers, using a leakage-safe whole-ROI/sequence recognizer experiment while preserving the existing segmentation pipeline as fallback. Do not touch OMR, document crop/registration, grading/export, Assessment Indicators, rooms, UI/business logic, or unrelated features.
+
+Verified current state: branch `feat/assessment-indicators-multi-room`; the prior round reached Vol.8/9 `20/22` exact and Vol.10 `15/22` exact with Vol.10 2-digit `9/13`; all sheets remain review-required; auto-accept is disabled and wrong auto-accept is `0`. Product Owner native macOS UAT confirms improvement but reports `14→191`, `17→11`, `18→98`, `20→79`, `22→92`, while `15`, `16`, `19`, and `21` read correctly. Source/package evidence is in `docs/evidence/student-number-recognition-20260920.md`; UAT screenshots are the two dated Desktop PNGs referenced in `progress.md` and this handoff. Windows native UAT is pending.
+
+Important files/components: `src/exam_grader/identity.py`, `src/exam_grader/digit_model.py`, `src/exam_grader/review_service.py`, `src/exam_grader/exam_ui.py`, `src/exam_grader/resources/student_number_digit_model.npz`, `src/exam_grader/resources/student_number_digit_model_v2.npz`, `tools/benchmark/identity_labeled_benchmark.py`, `tools/benchmark/identity_batch_benchmark.py`, `tests/test_identity.py`, `tests/test_digit_model.py`, `tests/test_automation.py`, and the real Vol.8/9/10 fixture/result evidence.
+
+Dirty ownership: preserve untracked `tests/fixtures/real/vol.8/`, `tests/fixtures/real/vol.9/`, and `tests/fixtures/real/vol.10/`; do not reset, clean, overwrite, stage, or absorb them.
+
+Decisions/invariants: first define a genuinely sheet/writer-disjoint held-out protocol; preserve provenance and immutable originals; do not invent labels or leak evaluation data; benchmark the current segmentation→digit-classifier baseline; add a supplemental compact whole-ROI sequence recognizer only if justified; retain raw candidates/scores; keep uncertainty reviewable; teacher correction wins; never enable auto-accept until independent held-out evidence proves wrong auto-accept `0`.
+
+Known blockers/unknowns: the current annotation-v3 set is not held out and cannot support generalization claims; writer-disjoint authority and adequate labels for sequence training must be audited. Windows native UAT is pending. Ask the Product Owner if dataset authority, leakage, or architecture cannot be resolved from evidence.
+
+Next exact action: perform read-only provenance audit and freeze the held-out split/protocol, then reproduce the current recognizer baseline before training or tuning anything.
+
+Acceptance/verification: report exact top-1/prefill, 1-digit/2-digit, top-k visibility, segmentation/classifier/ranking failures, held-out generalization, latency, package size, and wrong auto-accept; run focused source tests, real-sheet regression, packaged self-check/settings/UI smoke, and strict codesign after any integrated change. Create scoped milestone commits; do not push, merge, tag, release, or deploy without explicit authorization in the new task.
+
+Continue the engineer loop from this state, preserving good existing logic and backward compatibility. Do not trust this prompt over the repository, do not rewrite/refactor outside scope, and if context becomes unreliable update the same docs and create a new handoff before continuing.
+```
+
 # Current handoff — 2026-09-20 Student Number Recognition checkpoint
 
 The current task is complete for the scoped Student Number Recognition

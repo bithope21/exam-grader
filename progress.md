@@ -1,5 +1,50 @@
 # Exam Grader progress
 
+# Current handoff — 2026-09-20 Student Number Recognition round closure
+
+The current Student Number Recognition round is closed for this session. The
+source/package implementation is checkpointed; the latest Product Owner
+native macOS UAT confirms a clear improvement in prefilled numbers while also
+confirming remaining two-digit errors. This section supersedes older
+historical handoffs below.
+
+Verified repository state at handoff:
+
+- Repository: `/Users/zubinpijit/private/exam-grader`
+- Branch: `feat/assessment-indicators-multi-room`
+- Pre-handoff HEAD: `f9951c6 docs: correct scoped regression count`
+- The final handoff/docs checkpoint commit is the next commit after this
+  section is written; inspect `git log` for its exact hash.
+- Untracked user fixtures remain untouched and must not be staged, modified,
+  deleted, or absorbed: `tests/fixtures/real/vol.8/`,
+  `tests/fixtures/real/vol.9/`, and `tests/fixtures/real/vol.10/`.
+
+Recognition evidence:
+
+- Vol.8/9: exact `20/22`, 1-digit `8/8`, 2-digit `12/14`, visible `21/22`.
+- Vol.10: exact `15/22`, 1-digit `6/9`, 2-digit `9/13`, visible `18/22`.
+- Current package is review-only: auto-accept remains disabled and
+  `wrong auto-accept = 0`.
+- Product Owner native UAT reports materially better reading, with correct
+  examples such as `15`, `16`, `19`, and `21`, and remaining examples
+  `14→191`, `17→11`, `18→98`, `20→79`, and `22→92`. Screenshots are separate
+  manual-UAT evidence at:
+  `/Users/zubinpijit/Desktop/ภาพถ่ายหน้าจอ 2569-09-20 เวลา 14.00.34.png` and
+  `/Users/zubinpijit/Desktop/ภาพถ่ายหน้าจอ 2569-09-20 เวลา 13.59.56.png`.
+- Business logic outside Student Number Recognition did not change. Windows
+  native UAT remains pending.
+
+The next bounded task is **Whole-ROI / Sequence Student Number Recognition**:
+first establish a genuinely sheet/writer-disjoint held-out protocol, then
+benchmark the current segmentation→digit-classifier pipeline against a small
+whole-ROI sequence recognizer as a supplemental path. Keep both paths and all
+raw evidence until leakage-safe evidence proves a surgical promotion. Do not
+open auto-accept, hard-code Vol.10, or tune on the held-out test set.
+
+Detailed evidence remains in
+`docs/evidence/student-number-recognition-20260920.md`; the next-session
+prompt is at the top of `docs/NEXT_CHAT_HANDOFF.md`.
+
 # Current handoff — 2026-09-20 Student Number Recognition validation and batch assistance
 
 The scoped Student Number Recognition implementation is checkpointed and

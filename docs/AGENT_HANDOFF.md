@@ -1,5 +1,23 @@
 # Antigravity handoff
 
+## Current handoff — 2026-09-20 Student Number Recognition round closure
+
+The prior Student Number Recognition round is closed at the repository
+checkpoint being handed off. Current real-sheet evidence is Vol.8/9 `20/22`
+exact and Vol.10 `15/22` exact (`9/13` two-digit); the latest Product Owner
+native macOS UAT reports clear improvement with remaining examples
+`14→191`, `17→11`, `18→98`, `20→79`, and `22→92`, while `15`, `16`, `19`, and
+`21` are correct. Auto-accept remains disabled and wrong auto-accept is `0`.
+
+The next task is a bounded whole-ROI/sequence recognizer investigation. First
+establish sheet/writer-disjoint held-out provenance, reproduce the current
+segmentation→digit-classifier baseline, then test a compact supplemental
+sequence recognizer without removing the existing path. Preserve immutable
+originals, raw candidates/scores, review-required uncertainty, teacher
+confirmation, and all untracked Vol.8/9/10 fixtures. Windows native UAT is
+pending; OMR, crop/registration, grading/export, rooms, indicators, and
+unrelated UI/business logic are outside scope.
+
 ## Current handoff — 2026-09-14 (Production-Ready OMR & Identity Detection Hardening)
 
 OMR Answer Detection and Student Number Identity recognition on real exam sheets (Vol.7 Shopee 60Q/5C) have been hardened and verified:

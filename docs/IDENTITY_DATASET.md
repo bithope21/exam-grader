@@ -1,5 +1,39 @@
 # Student-number dataset and benchmark
 
+## Current checkpoint — 2026-09-20
+
+The current Student Number Recognition round is closed. The shipped recognizer
+is review-only: auto-accept remains disabled and `wrong auto-accept = 0`.
+Source/package evidence is separate from Product Owner native UAT.
+
+Verified real-sheet results:
+
+- Vol.8/9: exact `20/22`, 1-digit `8/8`, 2-digit `12/14`, candidate/review
+  visibility `21/22`.
+- Vol.10: exact `15/22`, 1-digit `6/9`, 2-digit `9/13`, candidate/review
+  visibility `18/22`.
+- Product Owner UAT confirms materially better prefill. Correct examples
+  include `15`, `16`, `19`, and `21`; remaining visible errors include
+  `14→191`, `17→11`, `18→98`, `20→79`, and `22→92`.
+- Windows native UAT remains pending. OMR, document crop/registration,
+  grading/export, assessment indicators, rooms, and unrelated business logic
+  were not changed in this round.
+
+The annotation-v3 manifest has 200 proposals, 198 accepted labels and 2
+excluded records. All 198 evaluated digits overlap the current seed training
+source; writer identity is unknown and the manifest says
+`training_allowed=false`. Therefore v1 `140/198` and v2 `142/198` are
+training-overlap evidence only, not held-out accuracy. Any next recognizer
+must first establish a sheet/writer-disjoint held-out protocol and preserve
+Vol.8/9/10 provenance before training or tuning.
+
+The next authorized direction is a supplemental whole-ROI/sequence recognizer
+experiment. Benchmark the current segmentation→digit-classifier path first;
+retain it as fallback; do not hard-code Vol.10; and do not use evaluation data
+for tuning. See the current prompt at the top of `docs/NEXT_CHAT_HANDOFF.md`
+and the detailed evidence at
+`docs/evidence/student-number-recognition-20260920.md`.
+
 This repository keeps student-number recognition evidence separate from the
 runtime recognizer and from OMR/crop/registration acceptance.
 

@@ -6,6 +6,27 @@ unrelated UI/business logic were not changed by this work. Raw recognition
 observations remain persisted as immutable evidence; batch assistance is a
 deep-copied, review-only effective ranking.
 
+## Product Owner native macOS UAT
+
+The Product Owner reports that the system reads student numbers materially
+better in the real app, but still requires teacher review for incorrect
+prefills. Confirmed examples from the latest UAT are:
+
+- Correct visible prefills: `15`, `16`, `19`, `21`.
+- Remaining visible misreads: `14→191`, `17→11`, `18→98`, `20→79`, `22→92`.
+
+The screenshots show the real Review screen with the image crop beside the
+editable prefilled number, explicit `ยังไม่ยืนยันเลขที่` status, and the
+teacher's save action. They are manual/native evidence, not source benchmark
+or packaged-smoke evidence:
+
+- `/Users/zubinpijit/Desktop/ภาพถ่ายหน้าจอ 2569-09-20 เวลา 14.00.34.png`
+- `/Users/zubinpijit/Desktop/ภาพถ่ายหน้าจอ 2569-09-20 เวลา 13.59.56.png`
+
+Auto-accept remains disabled; current wrong auto-accept is `0`. Windows native
+UAT remains pending. No OMR, document crop/registration, grading/export,
+assessment-indicator, room, or unrelated business-logic change is claimed.
+
 ## Recognition result
 
 The current recognizer is `student-number-adaptive-roi-v8` with the bundled
