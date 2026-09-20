@@ -28,7 +28,7 @@ import numpy as np
 from exam_grader.imaging import decode, template
 from exam_grader.template_manager import TemplateDefinition
 
-IDENTITY_PIPELINE_VERSION = "student-number-adaptive-roi-v6"
+IDENTITY_PIPELINE_VERSION = "student-number-adaptive-roi-v8"
 NUMBER_SEARCH_X_FRACTION = 0.25
 NUMBER_SEARCH_Y_FRACTION = 0.40
 
@@ -244,6 +244,58 @@ def _shape_segmented_suggestion(
         "requires_review": True,
         "score": None,
     }
+
+
+def _whole_read_evidence(
+    runs: list[dict[str, Any]],
+) -> tuple[dict[str, float], dict[str, int]]:
+    """Summarize independent whole-number OCR reads without changing provenance."""
+    scores: dict[str, float] = {}
+    variants: dict[str, set[str]] = {}
+    for run in runs:
+        candidate = run.get("candidate")
+        variant = run.get("variant")
+        raw_score = run.get("raw_score")
+        if not isinstance(candidate, str) or not candidate or not isinstance(variant, str):
+            continue
+        if variant.startswith("digit-model"):
+            continue
+        if not isinstance(raw_score, (int, float)) or not math.isfinite(float(raw_score)):
+            continue
+        scores[candidate] = max(scores.get(candidate, 0.0), float(raw_score))
+        variants.setdefault(candidate, set()).add(variant)
+    return scores, {candidate: len(names) for candidate, names in variants.items()}
+
+
+def _shape_assisted_score(
+    observations: list[dict[str, Any]],
+    candidate: str,
+) -> float | None:
+    """Score a review-only shape rewrite from direct OCR evidence.
+
+    A rewritten position is discounted because the replacement is geometric
+    evidence, not a direct OCR read. The result is intentionally only a
+    prefill/ranking signal; it cannot make an identity authoritative.
+    """
+    if not 2 <= len(observations) == len(candidate) <= 6 or not candidate.isdigit():
+        return None
+    scores: list[float] = []
+    for digit, observation in zip(candidate, observations):
+        direct = [
+            float(run["raw_score"])
+            for run in observation.get("runs", [])
+            if isinstance(run, dict)
+            and run.get("candidate") == observation.get("candidate")
+            and isinstance(run.get("raw_score"), (int, float))
+            and math.isfinite(float(run["raw_score"]))
+        ]
+        if not direct:
+            return None
+        value = max(direct)
+        if digit != observation.get("candidate"):
+            value *= 0.70
+        scores.append(value)
+    return round(min(scores), 4) if scores else None
 
 
 def find_tesseract() -> str | None:
@@ -918,6 +970,8 @@ def observe(
         effective_digit_model_path = bundled_digit_model_path()
     model = None
     model_observation = None
+    supplemental_model = None
+    supplemental_model_observation = None
     if effective_digit_model_path is not None:
         model = _load_digit_model(str(effective_digit_model_path.resolve()))
         model_observation = _digit_model_observation(model, gray, boxes)
@@ -956,6 +1010,31 @@ def observe(
                 "seed-validation calibrated review score; not probability of correctness"
             )
             diagnostics["model_candidate_scores"] = model_observation["candidate_scores"]
+    if (
+        digit_model_path is None
+        and use_bundled_digit_model
+        and model_observation is not None
+    ):
+        from exam_grader.digit_model import supplemental_bundled_digit_model_path
+
+        supplemental_path = supplemental_bundled_digit_model_path()
+        if supplemental_path is not None:
+            supplemental_model = _load_digit_model(str(supplemental_path.resolve()))
+            supplemental_model_observation = _digit_model_observation(
+                supplemental_model, gray, boxes
+            )
+            diagnostics["supplemental_digit_model"] = {
+                "path": str(supplemental_path.resolve()),
+                "version": supplemental_model.version,
+                "kind": supplemental_model.kind,
+            }
+            if supplemental_model_observation is not None:
+                diagnostics["supplemental_model_candidate_scores"] = (
+                    supplemental_model_observation["candidate_scores"]
+                )
+                diagnostics["supplemental_digit_model_observations"] = (
+                    supplemental_model_observation["digit_observations"]
+                )
     if diagnostics_dir is not None:
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         (diagnostics_dir / "number_roi_original.png").write_bytes(encoded)
@@ -990,11 +1069,18 @@ def observe(
             diagnostics["candidate_votes"] = {
                 candidate: 1 for candidate, _score in model_candidates
             }
+            fallback_candidates = list(model_observation["candidates"])
+            if supplemental_model_observation is not None:
+                fallback_candidates.extend(
+                    candidate
+                    for candidate in supplemental_model_observation["candidates"]
+                    if candidate not in fallback_candidates
+                )
             return {
                 **base,
                 "pipeline_version": model.version,
                 "candidate": model_observation["candidate"],
-                "candidates": model_observation["candidates"],
+                "candidates": fallback_candidates,
                 "confidence": model_observation["confidence"],
                 "confidence_margin": model_observation["confidence_margin"],
                 "diagnostics": diagnostics,
@@ -1135,6 +1221,9 @@ def observe(
     candidates, scores, candidate_votes = _rank_identity_candidates_with_voting(
         runs, segmented_candidate, segmented_alternatives
     )
+    diagnostics["raw_candidates"] = list(candidates)
+    diagnostics["raw_candidate_scores"] = dict(scores)
+    diagnostics["raw_candidate_votes"] = dict(candidate_votes)
     review_suggestions = []
     segmented_suggestion = diagnostics.get("shape_segmented_suggestion")
     if isinstance(segmented_suggestion, dict):
@@ -1171,13 +1260,26 @@ def observe(
     else:
         diagnostics["shape_correction_candidate"] = None
 
+    # Add the supplemental model's same-length candidates before filtering and
+    # ranking. The raw primary-model evidence remains preserved above.
+    secondary_scores = (
+        supplemental_model_observation["candidate_scores"]
+        if supplemental_model_observation is not None
+        else {}
+    )
+    secondary_candidates = list(secondary_scores)
+    if supplemental_model_observation is not None:
+        for candidate in supplemental_model_observation["candidates"]:
+            if candidate not in candidates and len(candidate) == len(boxes):
+                candidates.append(candidate)
+                scores[candidate] = float(secondary_scores.get(candidate, 0.0))
+                candidate_votes[candidate] = 1
+
     # When multiple digit boxes are confirmed and full-length candidates exist,
     # exclude incomplete sub-segmentation fragments (e.g. single-digit fragments).
     if len(boxes) >= 2 and any(len(c) == len(boxes) for c in candidates):
         candidates = [c for c in candidates if len(c) == len(boxes)]
 
-    diagnostics["candidate_scores"] = scores
-    diagnostics["candidate_votes"] = candidate_votes
     segmentation_incomplete = bool(
         len(boxes) >= 2
         and diagnostics.get("digit_observations")
@@ -1188,6 +1290,117 @@ def observe(
             for item in diagnostics["digit_observations"]
         )
     )
+    prefill_source = None
+    whole_ocr_scores, _whole_ocr_variants = _whole_read_evidence(runs)
+
+    # A candidate supported by independent model families and a whole-read OCR
+    # family is safer as a prefill than a single high score from one backend.
+    # This changes only the effective ranking; raw candidates/scores remain in
+    # diagnostics for provenance and later audit.
+    effective_scores = dict(scores)
+    primary_scores = diagnostics.get("model_candidate_scores") or {}
+    for candidate in candidates:
+        families = sum(
+            (
+                isinstance(primary_scores.get(candidate), (int, float))
+                and float(primary_scores[candidate]) > 0,
+                isinstance(secondary_scores.get(candidate), (int, float))
+                and float(secondary_scores[candidate]) > 0,
+                candidate in whole_ocr_scores,
+            )
+        )
+        if families > 1:
+            effective_scores[candidate] = round(
+                effective_scores.get(candidate, 0.0) + 12.0 * (families - 1), 4
+            )
+    candidates.sort(key=lambda value: (-effective_scores.get(value, 0.0), value))
+    scores = effective_scores
+
+    if segmentation_incomplete and secondary_candidates:
+        ink_candidate = next(
+            (
+                candidate
+                for candidate, _score in sorted(
+                    whole_ocr_scores.items(), key=lambda item: (-item[1], item[0])
+                )
+                if len(candidate) == len(boxes)
+            ),
+            None,
+        )
+        secondary_candidate = max(
+            (
+                candidate
+                for candidate in secondary_candidates
+                if len(candidate) == len(boxes)
+            ),
+            key=lambda candidate: float(secondary_scores.get(candidate, 0.0)),
+            default=None,
+        )
+        incomplete_candidate = ink_candidate or secondary_candidate
+        if incomplete_candidate is not None:
+            candidates = [incomplete_candidate] + [
+                candidate for candidate in candidates if candidate != incomplete_candidate
+            ]
+            scores[incomplete_candidate] = max(
+                scores.get(incomplete_candidate, 0.0),
+                float(
+                    whole_ocr_scores.get(
+                        incomplete_candidate,
+                        secondary_scores.get(incomplete_candidate, 0.0),
+                    )
+                ),
+            )
+            prefill_source = (
+                "whole-ocr-incomplete-segmentation"
+                if ink_candidate is not None
+                else "supplemental-digit-model-incomplete-segmentation"
+            )
+    else:
+        ink_candidate = next(
+            (
+                run.get("candidate")
+                for run in runs
+                if run.get("variant") == "ink-word"
+                and isinstance(run.get("candidate"), str)
+            ),
+            None,
+        )
+        if (
+            isinstance(ink_candidate, str)
+            and len(ink_candidate) == len(boxes)
+            and ink_candidate in secondary_candidates
+            and len(candidates) > 1
+            and scores.get(candidates[0], 0.0) - scores.get(candidates[1], 0.0) < 20.0
+        ):
+            candidates = [ink_candidate] + [
+                candidate for candidate in candidates if candidate != ink_candidate
+            ]
+            prefill_source = "ink-word-confirmed-by-supplemental-digit-model"
+
+    # Shape rewrites are useful prefill assistance only when every position has
+    # direct OCR evidence. Discount the changed positions and never use this
+    # signal to bypass review.
+    if not segmentation_incomplete and isinstance(segmented_suggestion, dict):
+        shape_candidate = segmented_suggestion.get("candidate")
+        shape_score = (
+            _shape_assisted_score(diagnostics.get("digit_observations") or [], shape_candidate)
+            if isinstance(shape_candidate, str)
+            else None
+        )
+        if shape_score is not None:
+            diagnostics["shape_assisted_score"] = shape_score
+            candidates.append(shape_candidate) if shape_candidate not in candidates else None
+            scores[shape_candidate] = max(scores.get(shape_candidate, 0.0), shape_score)
+            if shape_score > scores.get(candidates[0], 0.0):
+                candidates = [shape_candidate] + [
+                    candidate for candidate in candidates if candidate != shape_candidate
+                ]
+                prefill_source = "shape-assisted-segmented-prefill"
+
+    diagnostics["candidate_scores"] = scores
+    diagnostics["candidate_votes"] = candidate_votes
+    if prefill_source is not None:
+        diagnostics["prefill_source"] = prefill_source
     diagnostics["segmentation_complete"] = not segmentation_incomplete
 
     ambiguous_leading_digit = False
@@ -1214,7 +1427,9 @@ def observe(
 
     top_candidate = (
         candidates[0]
-        if candidates and not ambiguous_leading_digit and not segmentation_incomplete
+        if candidates
+        and not ambiguous_leading_digit
+        and (not segmentation_incomplete or prefill_source is not None)
         else None
     )
     top_score = scores.get(top_candidate, 0.0) if top_candidate else None

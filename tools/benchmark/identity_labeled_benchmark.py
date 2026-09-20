@@ -77,6 +77,7 @@ def evaluate(
     digit_model_path: Path | None = None,
     *,
     use_bundled_digit_model: bool = True,
+    review_only: bool = False,
 ) -> dict[str, Any]:
     _validate_manifest(manifest)
     records = []
@@ -105,7 +106,7 @@ def evaluate(
             for item in observation.get("review_suggestions") or []
             if isinstance(item, dict)
         ]
-        requires_review = bool(observation.get("requires_review", True))
+        requires_review = True if review_only else bool(observation.get("requires_review", True))
         records.append(
             {
                 "record_id": record["record_id"],
@@ -160,6 +161,7 @@ def evaluate(
             "All records are held-out evaluation evidence; none is training data.",
             "Writer identity is unknown, so writer-disjoint generalization is not established.",
             "Auto-accept remains disabled; no threshold promotion is performed by this tool.",
+            "review_only forces every evaluated record through review so recognizer quality is measured independently of calibration.",
         ],
     }
 
@@ -198,12 +200,18 @@ def main() -> int:
         action="store_true",
         help="benchmark the legacy OCR path without the bundled digit model",
     )
+    parser.add_argument(
+        "--review-only",
+        action="store_true",
+        help="force every record to remain review-required during recognizer bake-off",
+    )
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     report = evaluate(
         manifest,
         args.digit_model,
         use_bundled_digit_model=not args.no_digit_model,
+        review_only=args.review_only,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(

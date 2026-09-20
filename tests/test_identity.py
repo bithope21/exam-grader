@@ -12,7 +12,9 @@ from exam_grader.identity import (
     _rank_identity_candidates,
     _selective_auto_accept_allowed,
     _shape_segmented_suggestion,
+    _shape_assisted_score,
     _supported_segmented_number,
+    _whole_read_evidence,
     number_roi,
     observe,
 )
@@ -142,6 +144,38 @@ def test_shape_ambiguity_is_a_separate_unscored_review_suggestion():
             },
         ]
     ) is None
+
+
+def test_whole_read_evidence_keeps_variant_count_and_best_score():
+    scores, variants = _whole_read_evidence(
+        [
+            {"variant": "gray-word", "candidate": "15", "raw_score": 70.0},
+            {"variant": "binary-word", "candidate": "15", "raw_score": 68.0},
+            {"variant": "ink-word", "candidate": "45", "raw_score": 82.0},
+            {"variant": "digit-model-whole", "candidate": "13", "raw_score": 60.0},
+        ]
+    )
+
+    assert scores == {"15": 70.0, "45": 82.0}
+    assert variants == {"15": 2, "45": 1}
+
+
+def test_shape_assisted_score_discounts_rewritten_positions():
+    score = _shape_assisted_score(
+        [
+            {
+                "candidate": "4",
+                "runs": [{"candidate": "4", "raw_score": 95.0}],
+            },
+            {
+                "candidate": "7",
+                "runs": [{"candidate": "7", "raw_score": 89.0}],
+            },
+        ],
+        "17",
+    )
+
+    assert score == 66.5
 
 
 def test_incomplete_or_zero_segmented_identity_is_not_promoted():

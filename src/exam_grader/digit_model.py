@@ -10,7 +10,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-DIGIT_MODEL_VERSION = "student-number-digit-knn-v1"
+DIGIT_MODEL_VERSION = "student-number-digit-knn-v2"
 FEATURE_SIZE = 28
 
 
@@ -19,7 +19,16 @@ def bundled_digit_model_path() -> Path | None:
     return path if path.is_file() else None
 
 
-def digit_feature(image: np.ndarray) -> np.ndarray:
+def supplemental_bundled_digit_model_path() -> Path | None:
+    path = (
+        Path(__file__).resolve().parent
+        / "resources"
+        / "student_number_digit_model_v2.npz"
+    )
+    return path if path.is_file() else None
+
+
+def digit_feature(image: np.ndarray, *, mode: str = "binary") -> np.ndarray:
     """Normalize a dark-on-light digit without fitting on dataset statistics."""
     if image.ndim == 3:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -28,11 +37,18 @@ def digit_feature(image: np.ndarray) -> np.ndarray:
     gray = np.asarray(gray, dtype=np.uint8)
     if gray.size == 0:
         raise ValueError("empty digit image")
-    _, ink = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    points = cv2.findNonZero(ink)
-    canvas = np.zeros((FEATURE_SIZE, FEATURE_SIZE), dtype=np.uint8)
+    if mode == "binary":
+        _, ink = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        points = cv2.findNonZero(ink)
+    elif mode == "gray":
+        ink = 255 - gray
+        _, bounds = cv2.threshold(ink, 12, 255, cv2.THRESH_BINARY)
+        points = cv2.findNonZero(bounds)
+    else:
+        raise ValueError(f"unsupported digit feature mode: {mode}")
+    canvas = np.zeros((FEATURE_SIZE, FEATURE_SIZE), dtype=np.float32)
     if points is None:
-        return canvas.reshape(-1).astype(np.float32)
+        return canvas.reshape(-1)
     x, y, width, height = cv2.boundingRect(points)
     glyph = ink[y : y + height, x : x + width]
     scale = min((FEATURE_SIZE - 4) / max(width, 1), (FEATURE_SIZE - 4) / max(height, 1))
@@ -44,13 +60,13 @@ def digit_feature(image: np.ndarray) -> np.ndarray:
     offset_x = (FEATURE_SIZE - resized.shape[1]) // 2
     offset_y = (FEATURE_SIZE - resized.shape[0]) // 2
     canvas[offset_y : offset_y + resized.shape[0], offset_x : offset_x + resized.shape[1]] = resized
-    return (canvas.reshape(-1).astype(np.float32) / 255.0)
+    return canvas.reshape(-1).astype(np.float32) / 255.0
 
 
-def feature_matrix(images: list[np.ndarray]) -> np.ndarray:
+def feature_matrix(images: list[np.ndarray], *, mode: str = "binary") -> np.ndarray:
     if not images:
         return np.empty((0, FEATURE_SIZE * FEATURE_SIZE), dtype=np.float32)
-    return np.vstack([digit_feature(image) for image in images]).astype(np.float32)
+    return np.vstack([digit_feature(image, mode=mode) for image in images]).astype(np.float32)
 
 
 class DigitModel:
@@ -59,6 +75,8 @@ class DigitModel:
     def __init__(self, payload: dict[str, Any]) -> None:
         self.kind = str(payload["kind"])
         self.version = str(payload["version"])
+        self.feature_mode = str(payload.get("feature_mode", "binary"))
+        self.distance = str(payload.get("distance", "l2"))
         self.calibration = dict(payload.get("calibration", {}))
         self.labels = np.asarray(payload["labels"], dtype=np.int64)
         self.features = np.asarray(payload.get("features", []), dtype=np.float32)
@@ -91,6 +109,8 @@ class DigitModel:
         labels: np.ndarray,
         version: str = DIGIT_MODEL_VERSION,
         calibration: dict[str, Any] | None = None,
+        feature_mode: str = "binary",
+        distance: str = "l2",
     ) -> "DigitModel":
         unique = np.array(sorted(set(int(value) for value in labels)), dtype=np.int64)
         if kind == "knn":
@@ -98,6 +118,8 @@ class DigitModel:
                 {
                     "kind": kind,
                     "version": version,
+                    "feature_mode": feature_mode,
+                    "distance": distance,
                     "labels": labels,
                     "features": features,
                     "calibration": calibration or {},
@@ -109,6 +131,8 @@ class DigitModel:
                 {
                     "kind": kind,
                     "version": version,
+                    "feature_mode": feature_mode,
+                    "distance": distance,
                     "labels": unique,
                     "centroids": centroids,
                     "calibration": calibration or {},
@@ -119,7 +143,13 @@ class DigitModel:
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         metadata = json.dumps(
-            {"kind": self.kind, "version": self.version, "calibration": self.calibration},
+            {
+                "kind": self.kind,
+                "version": self.version,
+                "feature_mode": self.feature_mode,
+                "distance": self.distance,
+                "calibration": self.calibration,
+            },
             sort_keys=True,
         )
         values: dict[str, Any] = {"metadata": np.array(metadata), "labels": self.labels}
@@ -130,11 +160,22 @@ class DigitModel:
         np.savez_compressed(path, **values)
 
     def predict(self, image: np.ndarray, *, top_k: int = 3) -> dict[str, Any]:
-        vector = image.astype(np.float32) if image.ndim == 1 else digit_feature(image)
+        vector = (
+            image.astype(np.float32)
+            if image.ndim == 1
+            else digit_feature(image, mode=self.feature_mode)
+        )
         if vector.shape != (FEATURE_SIZE * FEATURE_SIZE,):
             raise ValueError("digit feature vector has unexpected shape")
         if self.kind == "knn":
-            distances = np.linalg.norm(self.features - vector, axis=1)
+            if self.distance == "cosine":
+                vector_norm = max(float(np.linalg.norm(vector)), 1e-6)
+                feature_norms = np.maximum(np.linalg.norm(self.features, axis=1), 1e-6)
+                distances = 1.0 - (self.features @ vector) / (feature_norms * vector_norm)
+            elif self.distance == "l2":
+                distances = np.linalg.norm(self.features - vector, axis=1)
+            else:
+                raise ValueError(f"unsupported digit model distance: {self.distance}")
             nearest = np.argsort(distances)[: min(5, len(distances))]
             votes = Counter(int(self.labels[index]) for index in nearest)
             ranked = sorted(

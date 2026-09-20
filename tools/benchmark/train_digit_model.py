@@ -103,6 +103,8 @@ def train(
     output_dir: Path,
     *,
     hard_pair_augmentation_copies: int = 0,
+    feature_mode: str = "binary",
+    distance: str = "l2",
 ) -> dict[str, Any]:
     manifest_path = manifest_path.resolve()
     output_dir = output_dir.resolve()
@@ -149,7 +151,7 @@ def train(
 
     label_array = np.asarray(labels, dtype=np.int64)
     validation_features = feature_matrix(
-        [images[index] for index in validation_indices]
+        [images[index] for index in validation_indices], mode=feature_mode
     )
     validation_labels = label_array[validation_indices]
     train_images, train_labels = augment_hard_pair_images(
@@ -157,11 +159,17 @@ def train(
         label_array[train_indices],
         copies_per_sample=hard_pair_augmentation_copies,
     )
-    train_features = feature_matrix(train_images)
+    train_features = feature_matrix(train_images, mode=feature_mode)
 
     candidates: dict[str, dict[str, Any]] = {}
     for kind in ("knn", "centroid"):
-        model = DigitModel.from_training(kind, train_features, train_labels)
+        model = DigitModel.from_training(
+            kind,
+            train_features,
+            train_labels,
+            feature_mode=feature_mode,
+            distance=distance,
+        )
         exact: list[bool] = []
         for feature, label in zip(validation_features, validation_labels):
             exact.append(model.predict(feature)["candidate"] == str(int(label)))
@@ -185,12 +193,12 @@ def train(
         key=lambda kind: (candidates[kind]["exact_rate"], kind == "knn"),
     )
     calibration = {
-        "status": "calibrated_for_selective_auto_accept",
-        "method": "held_out_zero_error_confidence_margin_gate",
+        "status": "review_only_pending_held_out_gate",
+        "method": "disabled_until_independent_held_out_zero_error_gate",
         "max_confidence": 95.0,
         "validation_records": len(validation_indices),
         "generalization_claim_allowed": False,
-        "auto_accept_enabled": True,
+        "auto_accept_enabled": False,
         "auto_accept_min_confidence": 100.0,
         "auto_accept_min_margin": 15.0,
     }
@@ -202,9 +210,11 @@ def train(
     )
     final_model = DigitModel.from_training(
         selected_kind,
-        feature_matrix(final_images),
+        feature_matrix(final_images, mode=feature_mode),
         final_labels,
         calibration=calibration,
+        feature_mode=feature_mode,
+        distance=distance,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     model_path = output_dir / "student_number_digit_model.npz"
@@ -232,6 +242,8 @@ def train(
         "kind": "student_number_digit_seed_training_report",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "model_version": DIGIT_MODEL_VERSION,
+        "feature_mode": feature_mode,
+        "distance": distance,
         "source_manifest": {"path": str(manifest_path), "sha256": _sha256(manifest_path)},
         "data": {
             "records": len(records),
@@ -275,11 +287,15 @@ def main() -> int:
         default=0,
         help="deterministic variants per training sample for the observed hard-pair digits",
     )
+    parser.add_argument("--feature-mode", choices=("binary", "gray"), default="binary")
+    parser.add_argument("--distance", choices=("l2", "cosine"), default="l2")
     args = parser.parse_args()
     report = train(
         args.manifest,
         args.output_dir,
         hard_pair_augmentation_copies=args.hard_pair_augmentation_copies,
+        feature_mode=args.feature_mode,
+        distance=args.distance,
     )
     print(
         json.dumps(

@@ -3,7 +3,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from exam_grader.digit_model import DigitModel, digit_feature, feature_matrix
+from exam_grader.digit_model import (
+    DigitModel,
+    bundled_digit_model_path,
+    digit_feature,
+    feature_matrix,
+    supplemental_bundled_digit_model_path,
+)
 from tools.benchmark.train_digit_model import augment_hard_pair_images
 
 
@@ -39,6 +45,26 @@ def test_review_calibration_caps_confidence_without_enabling_acceptance():
 
     assert result["confidence"] <= 95.0
     assert result["calibration"]["auto_accept_enabled"] is False
+
+
+def test_supplemental_bundled_model_is_present_and_review_only():
+    path = supplemental_bundled_digit_model_path()
+    assert path is not None and path.exists()
+    model = DigitModel.load(path)
+    assert model.version == "student-number-digit-knn-v2"
+    assert model.feature_mode == "gray"
+    assert model.distance == "cosine"
+    assert model.calibration["auto_accept_enabled"] is False
+
+
+def test_legacy_bundled_model_keeps_its_original_feature_contract():
+    path = bundled_digit_model_path()
+    assert path is not None and path.exists()
+    model = DigitModel.load(path)
+    assert model.version == "student-number-digit-knn-v1"
+    assert model.feature_mode == "binary"
+    assert model.distance == "l2"
+    assert model.calibration["auto_accept_enabled"] is False
 
 
 def test_centroid_model_returns_ranked_digit_candidates():
