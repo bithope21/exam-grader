@@ -425,10 +425,10 @@ def get_theme_stylesheet(mode: str) -> str:
                 color: #94A3B8;
             }
             QToolButton[kind="icon"] {
-                min-width: 36px;
-                max-width: 36px;
-                min-height: 36px;
-                max-height: 36px;
+                min-width: 34px;
+                max-width: 34px;
+                min-height: 34px;
+                max-height: 34px;
                 border: 1px solid transparent;
                 border-radius: 8px;
                 padding: 0px;
@@ -890,10 +890,10 @@ def get_theme_stylesheet(mode: str) -> str:
                 color: #64748B;
             }
             QToolButton[kind="icon"] {
-                min-width: 36px;
-                max-width: 36px;
-                min-height: 36px;
-                max-height: 36px;
+                min-width: 34px;
+                max-width: 34px;
+                min-height: 34px;
+                max-height: 34px;
                 border: 1px solid transparent;
                 border-radius: 8px;
                 padding: 0px;

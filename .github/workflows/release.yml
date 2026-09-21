@@ -23,6 +23,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Verify exact tag checkout
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if (-not $tag.StartsWith("v")) {
+            throw "Release workflow must run from a v* tag, got $tag"
+          }
+          $tagCommit = (git rev-list -n 1 $tag).Trim()
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $tagCommit) {
+            throw "Checked out $head, but tag $tag resolves to $tagCommit"
+          }
+
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
@@ -105,3 +119,82 @@ jobs:
           } else {
             Write-Host "Release $tag does not exist yet. Artifacts are preserved in workflow run and will be attached to the release."
           }
+
+  build-macos:
+    name: Build macOS DMG (Apple Silicon)
+    runs-on: macos-14
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify exact tag checkout
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          case "$tag" in
+            v*) ;;
+            *) echo "Release workflow must run from a v* tag, got $tag" >&2; exit 1 ;;
+          esac
+          tag_commit="$(git rev-list -n 1 "$tag")"
+          head="$(git rev-parse HEAD)"
+          test "$head" = "$tag_commit" || {
+            echo "Checked out $head, but tag $tag resolves to $tag_commit" >&2
+            exit 1
+          }
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Build macOS app with PyInstaller
+        run: |
+          python scripts/build/build.py
+
+      - name: Verify macOS app (self-check)
+        run: |
+          ./dist/ExamGrader.app/Contents/MacOS/ExamGrader --self-check
+
+      - name: Package macOS DMG
+        run: |
+          bash scripts/build/package_dmg.sh
+
+      - name: Archive macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Exam-Grader-macOS-DMG
+          path: |
+            dist/Exam-Grader-v*-macOS-Apple-Silicon.dmg
+            dist/Exam-Grader-v*-macOS-Apple-Silicon.dmg.sha256
+
+      - name: Upload macOS DMG to Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag }}"
+          if [ -z "$tag" ]; then
+            tag="$GITHUB_REF_NAME"
+          fi
+          if [ "$tag" = "main" ] || [ "$tag" = "master" ] || [ -z "$tag" ]; then
+            version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+            tag="v${version:-1.2.0}"
+          fi
+          echo "Target Release Tag: $tag"
+          files=(dist/Exam-Grader-*-macOS-Apple-Silicon.dmg*)
+          if gh release view "$tag" --json id >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --clobber
+          else
+            echo "Release $tag does not exist yet. Artifacts are preserved in workflow run and can be attached after release creation."
+          fi

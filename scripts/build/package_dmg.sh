@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_PATH="$DIST_DIR/ExamGrader.app"
-DMG_NAME="Exam-Grader-v1.1.0-macOS-Apple-Silicon.dmg"
+DMG_NAME="Exam-Grader-v1.2.0-macOS-Apple-Silicon.dmg"
 DMG_PATH="$DIST_DIR/$DMG_NAME"
 VOLUME_NAME="Exam Grader"
 TEMP_DMG_DIR="$DIST_DIR/dmg_temp"
@@ -15,8 +15,8 @@ if [ ! -d "$APP_PATH" ]; then
 fi
 
 echo "==> Preparing Info.plist versioning..."
-plutil -replace CFBundleShortVersionString -string "1.1.0" "$APP_PATH/Contents/Info.plist" || true
-plutil -replace CFBundleVersion -string "1.1.0" "$APP_PATH/Contents/Info.plist" || true
+plutil -replace CFBundleShortVersionString -string "1.2.0" "$APP_PATH/Contents/Info.plist" || true
+plutil -replace CFBundleVersion -string "1.2.0" "$APP_PATH/Contents/Info.plist" || true
 # Versioning changes the bundle metadata after PyInstaller's initial signing.
 # Re-sign the final app before it is copied into the DMG.
 codesign --force --deep --sign - "$APP_PATH"
