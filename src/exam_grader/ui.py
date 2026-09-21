@@ -435,9 +435,8 @@ class MainWindow(QMainWindow):
             remove = QPushButton()
             trash_icon = Path(__file__).resolve().parent / "resources" / "trash-destructive.svg"
             remove.setIcon(QIcon(str(trash_icon)))
-            remove.setIconSize(QSize(19, 19))
-            remove.setProperty("kind", "icon")
-            remove.setProperty("destructive", True)
+            remove.setIconSize(QSize(18, 18))
+            remove.setProperty("kind", "trash")
             remove.setAccessibleName("ย้ายไปถังขยะ")
             remove.setAccessibleDescription("ย้ายชุดข้อสอบนี้ไปที่ถังขยะ สามารถกู้คืนได้")
             remove.setToolTip("ย้ายชุดนี้ไปที่ถังขยะ · สามารถกู้คืนหรือลบถาวรได้จากเมนูถังขยะ")

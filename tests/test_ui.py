@@ -56,10 +56,11 @@ def test_desktop_shell_displays_persisted_exam(tmp_path):
     assert any(
         isinstance(child, QPushButton)
         and child.text() == ""
-        and child.property("kind") == "icon"
+        and child.property("kind") == "trash"
+        and child.property("destructive") is None
         and child.accessibleName() == "ย้ายไปถังขยะ"
         and not child.icon().isNull()
-        and child.iconSize().width() == 19
+        and child.iconSize().width() == 18
         for child in row.findChildren(QPushButton)
     )
     assert window.exam_list.item(0).sizeHint().height() == 44
@@ -752,6 +753,14 @@ def test_review_tab_bulk_edit_ui(tmp_path):
     dialog = ExamDialog(app, exam)
     dialog.tabs.setCurrentIndex(2)  # Review tab
 
+    # The review list keeps its double-click actions; the duplicate top buttons
+    # are intentionally not rendered because the row itself is the entry point.
+    assert not hasattr(dialog, "review_button")
+    assert not hasattr(dialog, "retry_button")
+    assert dialog.bulk_confirm_btn.toolTip() == "ยืนยันรายการที่ระบบอ่านถูกต้องแล้วหลายรายการพร้อมกัน"
+    assert dialog.bulk_apply_btn.toolTip() == "ใช้คำตอบหรือสถานะที่เลือกกับหลายรายการ แล้วบันทึกพร้อมกัน"
+    assert "รายการที่ไม่ได้แก้ไข" in dialog.save_all_button.toolTip()
+
     # 1. Verify 6 columns
     assert dialog.issue_table.columnCount() == 6
     assert dialog.issue_table.horizontalHeaderItem(0).text() == "เลือก"
@@ -760,6 +769,7 @@ def test_review_tab_bulk_edit_ui(tmp_path):
     first_row_save = dialog.issue_table.cellWidget(0, 5)
     assert first_editor is not None
     assert first_row_save is not None
+    assert first_row_save.toolTip() == "บันทึกและยืนยันการแก้ไขรายการนี้เท่านั้น"
     first_editor.setCurrentIndex(first_editor.findData("blank"))
     assert dialog.save_all_button.isEnabled()
     dialog._set_review_save_busy(True)

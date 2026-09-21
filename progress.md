@@ -1,3 +1,7 @@
+> Current continuation checkpoint: **2026-09-21 QR Mobile Upload**. See the
+> final dated section in this file for the verified state, dirty ownership and
+> paste-ready next-session scope; older sections are historical.
+
 ## Release authority checkpoint — v1.1.0 candidate — 2026-09-20
 
 The Windows Indicators/Exam Rooms PR was fast-forwarded onto `main` at
@@ -1086,3 +1090,72 @@ production-calibrated digit accuracy, and auto-accept remain intentionally defer
 - Real corpus candidate visibility, using the same ground-truth labels and counting primary/OCR/review-hint union (not confirmed accuracy), improved from Vol.8 **5/10 → 8/10** and Vol.9 **8/12 → 11/12**. Primary auto-candidate remained **2/10** and **4/12** respectively. No identity was auto-confirmed.
 - Focused suite: **92 passed**. Changed-file Ruff and `git diff --check`: passed. Packaged macOS arm64 verification: strict deep codesign, disposable-data `--self-check`, offscreen `--smoke-settings`, and offscreen `--smoke-ui`: passed.
 - Product Owner trial app: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`. This is not a release; teacher identity UAT remains required, and `IMG_1024.jpg Q27` remains `uncertain / review-required`.
+## Current handoff — 2026-09-21 QR Mobile Upload checkpoint
+
+This checkpoint applies to the isolated feature worktree
+`/Users/zubinpijit/.codex/worktrees/qr-mobile-upload/exam-grader`, not the
+parent checkout that contains the concurrent Student Number work.
+
+Verified current state:
+
+- Branch: `feat/qr-mobile-upload`; HEAD and `origin` are at
+  `8709eea0df13daf9da138a21bcf570524d689d43` (`feat: polish QR and review UI
+  flows`).
+- QR Mobile Upload is implemented with a local-only, tokenized, expiring LAN
+  upload session. Uploads stream one file at a time to temporary disk and then
+  enter the existing `start_import()`/`BatchWorker` pipeline.
+- Answer-key QR accepts one image and closes/revokes its modal after the image
+  enters the existing import pipeline. Student QR is a fresh session opened
+  from the Students tab and supports browser multi-file selection, up to the
+  configured 200 files/session.
+- Limits remain 50 MB/file and 1 GB/session. MIME/extension/signature,
+  filename, collision, expiry, shutdown and cleanup protections are in place.
+- Focused verification passed: `28 passed` for QR upload plus imports,
+  desktop workflow and UI tests; Ruff, focused mypy and `git diff --check`
+  passed.
+- The macOS UAT app was built from this commit with the repository build
+  script and placed at
+  `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`; packaged
+  self-check, offscreen UI smoke and strict deep codesign passed. This is UAT
+  package evidence, not a new release/DMG/tag.
+- Latest UI polish uses a minimal soft-destructive trash affordance on the Home
+  exam list, a responsive two-row Review toolbar, Thai tooltips for important
+  actions, and removes only the redundant top-level review/retry buttons. The
+  underlying review, retry, save, grading and import logic is preserved.
+
+Important files/components:
+
+- `src/exam_grader/local_upload.py`
+- `src/exam_grader/exam_ui.py`
+- `tests/test_local_upload.py`
+- `docs/USER_MANUAL.md`, `pyproject.toml`, `uv.lock`
+
+Protected decisions/invariants:
+
+- Keep QR upload offline/local-only; do not introduce LocalSend, cloud upload,
+  permanent unauthenticated endpoints, or a second grading/import pipeline.
+- Reuse existing decoding, duplicate handling, processing, review, provenance,
+  OMR, student-number recognition, scoring and export behavior.
+- Preserve immutable originals and the 50 MB/file, 1 GB/session and 200
+  files/session defaults unless a later Product Owner decision changes them.
+- Keep the parent checkout `/Users/zubinpijit/private/exam-grader` on
+  `exp/student-number-training-corpus-v1` with its dirty Student Number docs
+  and untracked Vol.8/9/10 fixtures untouched.
+
+Current next-chat scope:
+
+- Run native teacher UAT against the packaged app at normal and narrow window
+  widths.
+- If a finding appears, change only the affected UI surface and preserve the
+  existing review/import/grading behavior.
+
+Dirty ownership:
+
+- The source/test polish is committed and pushed at `8709eea`; this handoff
+  update intentionally leaves only the relevant Markdown checkpoint files
+  modified and uncommitted for the next session to review.
+- No Student Number files are owned by this feature checkpoint.
+
+Next action: read the matching section in `docs/NEXT_CHAT_HANDOFF.md`, inspect
+the actual current UI/source and git state, then wait for the Product Owner's
+new-chat detail before implementing the three bounded UI polish items.

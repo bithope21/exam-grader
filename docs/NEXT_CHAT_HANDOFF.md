@@ -1,3 +1,8 @@
+> Current continuation checkpoint: **2026-09-21 QR Mobile Upload**. The
+> complete current handoff and paste-ready next-session prompt are in the
+> final dated section titled `Current handoff — 2026-09-21 QR Mobile Upload
+> checkpoint`; older sections below are historical and must not override it.
+
 # Fresh-Chat Handoff: Exam Grader v1.1.0 release checkpoint
 
 ## Release authority checkpoint — 2026-09-20
@@ -710,3 +715,114 @@ Continue the engineer loop from this state, preserving good existing logic and b
 - Real-label candidate visibility union (primary + OCR candidates + separate review hints; not accuracy): Vol.8 **8/10** vs prior **5/10**; Vol.9 **11/12** vs prior **8/12**. Primary candidates: Vol.8 **2/10**, Vol.9 **4/12**. These are candidate-recall metrics only, not confirmed identity accuracy.
 - Verification: focused suite **92 passed**; changed-file Ruff and `git diff --check` passed. Fresh app build completed from current worktree. `codesign --verify --deep --strict`, disposable `--self-check`, offscreen `--smoke-settings`, and offscreen `--smoke-ui` all passed.
 - UAT artifact: `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app` (macOS arm64). Product Owner interactive UAT is still outstanding; do not tag, release, or publish. Keep `IMG_1024.jpg Q27` `uncertain / review-required` and preserve dirty/untracked files outside the reviewed checkpoint.
+## Current handoff — 2026-09-21 QR Mobile Upload checkpoint
+
+Use the repository docs and current git state as source of truth. This
+checkpoint is for the isolated worktree
+`/Users/zubinpijit/.codex/worktrees/qr-mobile-upload/exam-grader` on
+`feat/qr-mobile-upload`; do not switch or modify the parent Student Number
+checkout.
+
+Verified current state:
+
+- HEAD: `8709eea0df13daf9da138a21bcf570524d689d43`, also pushed to
+  `origin/feat/qr-mobile-upload`.
+- QR upload is local-only and LAN-bound with a random expiring token, streamed
+  temp-disk uploads, MIME/signature/extension/filename validation, 50 MB/file,
+  1 GB/session and 200 files/session defaults.
+- The answer-key session accepts one image, enters the existing
+  `start_import()`/`BatchWorker` flow, then closes/revokes its modal. The
+  Students tab opens a new QR session and supports multi-file selection.
+- Existing import, OMR, recognition, scoring, review, export and provenance
+  logic are reused and were not redesigned.
+- Focused QR/import/UI tests: `28 passed`; Ruff, focused mypy and
+  `git diff --check` passed. The UAT app built from this commit passed packaged
+  self-check, offscreen UI smoke and strict deep codesign at
+  `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+- Latest UI polish keeps the Home trash action minimal and soft-destructive,
+  consolidates Review bulk actions into one responsive two-row toolbar, adds
+  Thai tooltips for important review actions, and removes only the redundant
+  top-level review/retry buttons. The underlying double-click, retry, review,
+  save and grading logic remains in place.
+
+Important files/components: `src/exam_grader/local_upload.py`,
+`src/exam_grader/exam_ui.py`, `tests/test_local_upload.py`,
+`docs/USER_MANUAL.md`, `pyproject.toml`, and `uv.lock`.
+
+Dirty ownership: the source/test polish is committed as `8709eea`; this
+checkpoint leaves only the current Markdown handoff changes uncommitted for the
+next session to review. The parent checkout
+`/Users/zubinpijit/private/exam-grader` remains on
+`exp/student-number-training-corpus-v1` with its existing dirty Student Number
+docs and untracked Vol.8/9/10 fixtures. Do not reset, clean, stash, overwrite,
+stage or absorb those files.
+
+Decisions/invariants: remain offline/local-only; do not add LocalSend/cloud or
+a second import/grading pipeline; preserve immutable originals and all current
+OMR, student-number, scoring, review, export and provenance behavior. Keep the
+current QR limits and answer-key/student session separation unless the Product
+Owner explicitly changes them.
+
+Known remaining validation: fresh teacher UAT for the latest UI polish is still
+pending. The packaged app has passed self-check, offscreen UI smoke and strict
+deep codesign; this evidence does not replace native interaction testing.
+
+Next exact action: open the packaged UAT app and verify the Home trash affordance
+and Review toolbar at normal and narrow window widths, then test the existing
+double-click/retry, tooltip, bulk apply and dirty-only save flows.
+
+Acceptance/verification: preserve current QR focused tests and packaged smoke;
+focused UI checks for the changed controls pass; verify delete behavior is
+explicit, safe and provenance-preserving; verify Review Select All/Clear All
+only changes the intended selection state; rebuild packaged UAT and run the
+existing self-check/UI smoke/codesign checks when UI source changes. Do not
+merge main or modify the parent Student Number checkout.
+
+### Paste-ready prompt for the next session
+
+```text
+Use the repository docs and current task as source of truth. Read
+`CODEX_EXAM_GRADER_PROJECT_HANDOFF.md`, `progress.md`, and
+`docs/NEXT_CHAT_HANDOFF.md` first; inspect the actual implementation and git
+state before acting.
+
+Objective/scope: Continue only QR Mobile Upload UI polish on
+`feat/qr-mobile-upload`; the latest committed polish is complete. Keep the
+existing QR, import, review and grading behavior unchanged while handling any
+follow-up UAT findings narrowly.
+
+Verified current state: HEAD `8709eea0df13daf9da138a21bcf570524d689d43`; QR
+upload and the latest UI polish are pushed; 5 latest focused UI tests passed;
+the UAT app is `/Users/zubinpijit/private/exam-grader/dist/ExamGrader.app`.
+
+Important files/components: `src/exam_grader/exam_ui.py`,
+`src/exam_grader/local_upload.py`, `tests/test_local_upload.py`,
+`docs/USER_MANUAL.md`, `progress.md`, and this handoff.
+
+Dirty ownership: preserve the parent checkout's Student Number dirty docs and
+untracked `tests/fixtures/real/vol.8/`, `vol.9/`, and `vol.10/`; do not switch
+to it, reset, clean, stash, overwrite, stage or absorb it. The current
+worktree has only the uncommitted Markdown checkpoint changes from this handoff.
+
+Decisions/invariants: remain offline/local-only; reuse the existing import,
+OMR, recognition, scoring, review, export and provenance logic; preserve
+immutable originals; do not invent deferred UX details. Keep current QR limits
+and answer-key/student session separation.
+
+Known blocker/unknown: native teacher UAT is still pending; do not treat
+offscreen smoke as proof of visual acceptance.
+
+Next exact action: run the teacher UAT checklist against the packaged app and
+record only actionable UI findings.
+
+Acceptance/verification: focused UI checks pass; trash is minimal and
+recoverable; Review controls are readable at normal and narrow widths; tooltips
+are Thai and action-specific; existing review/retry/save behavior remains
+available through the current list/table flows. Do not commit/push/merge/release
+without explicit authorization.
+
+Continue the engineer loop from this state, preserving good existing logic and
+backward compatibility. Do not trust this prompt over the repository, do not
+rewrite/refactor outside scope, and if context becomes unreliable update these
+docs and create a new handoff before starting a fresh session.
+```

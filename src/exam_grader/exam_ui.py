@@ -674,44 +674,48 @@ class ExamDialog(QDialog):
         student_page.addWidget(self.attendance_restore)
 
         review_page = QVBoxLayout()
-        review_actions = QHBoxLayout()
-        self.review_button = QPushButton("ตรวจทานที่เลือก")
-        self.review_button.clicked.connect(self.review_selected)
-        self.retry_button = QPushButton("ตรวจใหม่")
-        self.retry_button.clicked.connect(self.retry_selected)
         self.save_all_button = QPushButton("บันทึกการแก้ไขทั้งหมด")
-        self.save_all_button.clicked.connect(self.save_all_issues)
-        review_actions.addWidget(self.review_button)
-        review_actions.addWidget(self.retry_button)
-        review_actions.addStretch()
-        review_page.addLayout(review_actions)
-        review_page.addWidget(
-            QLabel(
-                "แก้เฉพาะข้อมูลที่มีปัญหา แล้วกดบันทึกที่แถวนั้น หรือเลือกหลายแถวแล้วบันทึกพร้อมกัน · เรียงเลขที่น้อย → มาก"
-            )
+        self.save_all_button.setToolTip(
+            "บันทึกรายการที่คุณแก้ไขไว้หลายรายการพร้อมกัน · รายการที่ไม่ได้แก้ไขจะไม่ถูกยืนยันอัตโนมัติ"
         )
+        self.save_all_button.clicked.connect(self.save_all_issues)
+        review_hint = QLabel(
+            "ดับเบิลคลิกรายการเพื่อเปิดตรวจ · แก้เฉพาะข้อมูลที่มีปัญหา แล้วบันทึกเป็นรายแถวหรือหลายรายการพร้อมกัน"
+        )
+        review_hint.setWordWrap(True)
+        review_hint.setProperty("role", "muted")
+        review_page.addWidget(review_hint)
         
         # Bulk Actions Toolbar
         self.bulk_bar_widget = QWidget()
-        bulk_bar = QHBoxLayout(self.bulk_bar_widget)
+        bulk_bar = QVBoxLayout(self.bulk_bar_widget)
         bulk_bar.setContentsMargins(0, 4, 0, 4)
-        bulk_bar.setSpacing(8)
+        bulk_bar.setSpacing(6)
+        selection_row = QHBoxLayout()
+        selection_row.setSpacing(8)
         self.select_all_btn = QPushButton("เลือกทั้งหมด")
+        self.select_all_btn.setToolTip("เลือกรายการที่ต้องแก้ไขทั้งหมดในหน้านี้")
         self.select_all_btn.clicked.connect(self.select_all_issues)
         self.clear_selection_btn = QPushButton("ล้างการเลือก")
+        self.clear_selection_btn.setToolTip("ยกเลิกการเลือกรายการทั้งหมด")
         self.clear_selection_btn.clicked.connect(self.clear_issue_selection)
         self.selection_label = QLabel("เลือก 0 รายการ")
         self.selection_label.setProperty("role", "muted")
+        selection_row.addWidget(self.select_all_btn)
+        selection_row.addWidget(self.clear_selection_btn)
+        selection_row.addWidget(self.selection_label)
+        selection_row.addStretch()
 
         self.bulk_confirm_btn = QPushButton("ยืนยันข้อมูลที่ระบบอ่านไว้")
         self.bulk_confirm_btn.setToolTip(
-            "ยืนยันค่า prefill ของแต่ละแถวที่เลือก โดยไม่บังคับใช้คำตอบเดียวกับทุกแถว"
+            "ยืนยันรายการที่ระบบอ่านถูกต้องแล้วหลายรายการพร้อมกัน"
         )
         self.bulk_confirm_btn.setEnabled(False)
         self.bulk_confirm_btn.clicked.connect(self.confirm_bulk_prefilled)
 
         self.bulk_combo = QComboBox()
-        self.bulk_combo.setMinimumWidth(220)
+        self.bulk_combo.setMinimumWidth(160)
+        self.bulk_combo.setToolTip("เลือกคำตอบหรือสถานะเดียวกันเพื่อใช้กับรายการที่เลือก")
         self.bulk_combo.addItem("— กำหนดคำตอบ / สถานะให้แถวที่เลือก —", None)
         for thai, latin in zip("กขคงจ", "ABCDE"):
             self.bulk_combo.addItem(f"{thai} / {latin}", latin)
@@ -725,23 +729,25 @@ class ExamDialog(QDialog):
 
         self.bulk_apply_btn = QPushButton("นำไปใช้และบันทึกที่เลือก")
         self.bulk_apply_btn.setProperty("accent", True)
+        self.bulk_apply_btn.setToolTip(
+            "ใช้คำตอบหรือสถานะที่เลือกกับหลายรายการ แล้วบันทึกพร้อมกัน"
+        )
         self.bulk_apply_btn.setEnabled(False)
         self.bulk_apply_btn.clicked.connect(self.apply_bulk_edit)
 
-        bulk_bar.addWidget(self.select_all_btn)
-        bulk_bar.addWidget(self.clear_selection_btn)
-        bulk_bar.addWidget(self.selection_label)
-        bulk_bar.addSpacing(12)
-        bulk_bar.addWidget(self.bulk_confirm_btn)
-        bulk_bar.addWidget(self.bulk_combo)
-        bulk_bar.addWidget(self.bulk_apply_btn)
-        bulk_bar.addStretch()
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
+        action_row.addWidget(self.bulk_confirm_btn)
+        action_row.addWidget(self.bulk_combo, 1)
+        action_row.addWidget(self.bulk_apply_btn)
         self.review_save_separator = QFrame()
         self.review_save_separator.setFrameShape(QFrame.Shape.VLine)
         self.review_save_separator.setFrameShadow(QFrame.Shadow.Plain)
         self.review_save_separator.setFixedHeight(24)
-        bulk_bar.addWidget(self.review_save_separator)
-        bulk_bar.addWidget(self.save_all_button)
+        action_row.addWidget(self.review_save_separator)
+        action_row.addWidget(self.save_all_button)
+        bulk_bar.addLayout(selection_row)
+        bulk_bar.addLayout(action_row)
         review_page.addWidget(self.bulk_bar_widget)
 
         self.issue_table = QTableWidget(0, 6)
@@ -829,8 +835,6 @@ class ExamDialog(QDialog):
             self.delete_key_button,
             self.student_button,
             self.student_mobile_button,
-            self.review_button,
-            self.retry_button,
             self.save_all_button,
             self.output_button,
             self.export_button,
@@ -1623,6 +1627,7 @@ class ExamDialog(QDialog):
                 )
             self.issue_table.setCellWidget(row, 4, editor)
             button = QPushButton("บันทึก")
+            button.setToolTip("บันทึกและยืนยันการแก้ไขรายการนี้เท่านั้น")
             button.clicked.connect(
                 lambda checked=False, i=issue, e=editor, b=button: self.save_issue(i, e, b)
             )

@@ -285,6 +285,27 @@ def get_theme_stylesheet(mode: str) -> str:
             QPushButton[kind="icon"]:focus {
                 border-color: #2563EB;
             }
+            QPushButton[kind="trash"] {
+                min-width: 32px;
+                max-width: 32px;
+                min-height: 32px;
+                max-height: 32px;
+                border: 1px solid transparent;
+                border-radius: 7px;
+                padding: 0px;
+                background: transparent;
+            }
+            QPushButton[kind="trash"]:hover {
+                background-color: #FFF7F7;
+                border-color: transparent;
+            }
+            QPushButton[kind="trash"]:pressed {
+                background-color: #FEECEF;
+                border-color: transparent;
+            }
+            QPushButton[kind="trash"]:focus {
+                border-color: #E7AAB2;
+            }
             QPushButton[kind="icon"][destructive="true"] {
                 color: #DC2626;
                 background-color: #FFF1F2;
@@ -728,6 +749,27 @@ def get_theme_stylesheet(mode: str) -> str:
             }
             QPushButton[kind="icon"]:focus {
                 border-color: #3B82F6;
+            }
+            QPushButton[kind="trash"] {
+                min-width: 32px;
+                max-width: 32px;
+                min-height: 32px;
+                max-height: 32px;
+                border: 1px solid transparent;
+                border-radius: 7px;
+                padding: 0px;
+                background: transparent;
+            }
+            QPushButton[kind="trash"]:hover {
+                background-color: #3B2529;
+                border-color: transparent;
+            }
+            QPushButton[kind="trash"]:pressed {
+                background-color: #512C32;
+                border-color: transparent;
+            }
+            QPushButton[kind="trash"]:focus {
+                border-color: #B86B76;
             }
             QPushButton[kind="icon"][destructive="true"] {
                 color: #F87171;
