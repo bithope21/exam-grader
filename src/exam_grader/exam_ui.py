@@ -6,6 +6,7 @@ from typing import cast
 
 import cv2
 import numpy as np
+import qrcode
 from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor,
@@ -51,6 +52,7 @@ from exam_grader.geometry_resolution import geometry_from_detection
 from exam_grader.identity import observe as observe_student_number
 from exam_grader.imaging import OMR_PIPELINE_VERSION, RegistrationError, analyze, decode
 from exam_grader.imports import ImportService
+from exam_grader.local_upload import LanUnavailableError, UploadSession, UploadSessionError
 from exam_grader.preferences import default_output_root
 from exam_grader.review_service import ReviewService
 from exam_grader.review_ui import ReviewDialog
@@ -65,6 +67,36 @@ PHOTO_GUIDANCE_TEXT = (
     "• หลีกเลี่ยงเงาและแสงสะท้อนแรง\n"
     "• ให้ตัวหนังสือและรอยกากบาทเห็นชัด"
 )
+
+
+def qr_pixmap(value: str, pixel_size: int = 7) -> QPixmap:
+    """Render a QR code locally with Qt; no remote QR/image service is used."""
+
+    code = qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=1,
+        border=4,
+    )
+    code.add_data(value)
+    code.make(fit=True)
+    matrix = code.get_matrix()
+    side = len(matrix) * pixel_size
+    image = QImage(side, side, QImage.Format.Format_RGB32)
+    image.fill(Qt.GlobalColor.white)
+    painter = QPainter(image)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(Qt.GlobalColor.black)
+    for row, values in enumerate(matrix):
+        for column, enabled in enumerate(values):
+            if enabled:
+                painter.drawRect(
+                    column * pixel_size,
+                    row * pixel_size,
+                    pixel_size,
+                    pixel_size,
+                )
+    painter.end()
+    return QPixmap.fromImage(image)
 
 
 class CheckBoxDelegate(QStyledItemDelegate):
@@ -268,6 +300,74 @@ class ExportWorker(QThread):
             self.completed.emit("", str(error))
 
 
+class MobileUploadDialog(QDialog):
+    """Desktop-side QR modal for one short-lived local upload session."""
+
+    def __init__(self, session: UploadSession, parent=None):
+        super().__init__(parent)
+        self.session = session
+        purpose = "เฉลย" if session.purpose == "key" else "กระดาษคำตอบนักเรียน"
+        self.setWindowTitle(f"เพิ่ม{purpose}ผ่านมือถือ")
+        self.setModal(True)
+        self.setMinimumWidth(520)
+
+        layout = QVBoxLayout(self)
+        heading = QLabel(
+            f"สแกน QR ด้วยมือถือเพื่อเพิ่ม{purpose}\n"
+            "มือถือและคอมต้องอยู่เครือข่าย Wi‑Fi/LAN เดียวกัน"
+        )
+        heading.setWordWrap(True)
+        layout.addWidget(heading)
+
+        qr_label = QLabel()
+        qr_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        qr_label.setPixmap(qr_pixmap(session.url))
+        layout.addWidget(qr_label)
+
+        self.url_edit = QLineEdit(session.url)
+        self.url_edit.setReadOnly(True)
+        self.url_edit.setAccessibleName("URL สำหรับอัปโหลดจากมือถือ")
+        url_row = QHBoxLayout()
+        url_row.addWidget(self.url_edit, 1)
+        copy_button = QPushButton("คัดลอก URL")
+        copy_button.clicked.connect(self.copy_url)
+        url_row.addWidget(copy_button)
+        layout.addLayout(url_row)
+
+        limit_text = (
+            f"รับได้สูงสุด {session.max_files} ภาพ · "
+            f"ไม่เกิน {session.limits.max_file_bytes // (1024 * 1024)} MB ต่อภาพ · "
+            f"รวมไม่เกิน {session.limits.max_session_bytes // (1024 * 1024 * 1024)} GB"
+        )
+        limit_label = QLabel(limit_text)
+        limit_label.setProperty("role", "muted")
+        layout.addWidget(limit_label)
+
+        self.status_label = QLabel(f"รอรับ{purpose}")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+        close_button = QPushButton("ปิด session")
+        close_button.clicked.connect(self.close)
+        layout.addWidget(close_button)
+
+        session.status_changed.connect(self._set_status)
+
+    def _set_status(self, value: str) -> None:
+        self.status_label.setText(value)
+
+    def set_processing(self, count: int) -> None:
+        self.status_label.setText(f"รับแล้ว · กำลังส่งเข้า pipeline เดิม {count} ภาพ")
+
+    def copy_url(self) -> None:
+        QApplication.clipboard().setText(self.session.url)
+        self.status_label.setText("คัดลอก URL แล้ว · เปิดจากมือถือที่อยู่เครือข่ายเดียวกัน")
+
+    def closeEvent(self, event) -> None:
+        self.session.revoke(keep_staged=True)
+        super().closeEvent(event)
+
+
 class AssessmentIndicatorsDialog(QDialog):
     def __init__(self, database, exam_id: str, question_count: int, parent=None):
         super().__init__(parent)
@@ -369,6 +469,10 @@ class ExamDialog(QDialog):
         self.room_label = self.rooms[0].label
         self.review_service = ReviewService(application.exams.path, room_id=self.room_id)
         self.worker = None
+        self.mobile_upload_session: UploadSession | None = None
+        self.mobile_upload_dialog: MobileUploadDialog | None = None
+        self.mobile_upload_queue: list[Path] = []
+        self.mobile_upload_purpose: str | None = None
         self.output_root = application.exams.output_root(exam.id) or default_output_root()
         self.template_def = load_exam_template_def(application.exams.path, exam.id)
         self.student_sort_desc = False
@@ -428,6 +532,9 @@ class ExamDialog(QDialog):
         self.key_button = QPushButton("เพิ่ม/เปลี่ยนเฉลย")
         self.key_button.clicked.connect(self.pick_key)
         key_actions.addWidget(self.key_button)
+        self.key_mobile_button = self._make_qr_button("เพิ่มเฉลยผ่านมือถือ")
+        self.key_mobile_button.clicked.connect(lambda: self.open_mobile_upload("key"))
+        key_actions.addWidget(self.key_mobile_button)
         self.confirm_key_button = QPushButton("ตรวจและยืนยันเฉลย → นักเรียน")
         self.confirm_key_button.clicked.connect(self.review_key)
         key_actions.addWidget(self.confirm_key_button)
@@ -457,6 +564,9 @@ class ExamDialog(QDialog):
         student_menu.addAction("เลือกโฟลเดอร์…", self.pick_folder)
         self.student_button.setMenu(student_menu)
         student_actions.addWidget(self.student_button)
+        self.student_mobile_button = self._make_qr_button("เพิ่มกระดาษคำตอบผ่านมือถือ")
+        self.student_mobile_button.clicked.connect(lambda: self.open_mobile_upload("student"))
+        student_actions.addWidget(self.student_mobile_button)
         self.photo_guidance_button = QToolButton()
         self.photo_guidance_button.setText("ⓘ")
         self.photo_guidance_button.setProperty("kind", "icon")
@@ -627,7 +737,9 @@ class ExamDialog(QDialog):
         layout.addWidget(self.cancel)
         self.action_buttons = [
             self.key_button,
+            self.key_mobile_button,
             self.student_button,
+            self.student_mobile_button,
             self.review_button,
             self.retry_button,
             self.save_all_button,
@@ -655,6 +767,17 @@ class ExamDialog(QDialog):
             PHOTO_GUIDANCE_TEXT,
             button,
         )
+
+    @staticmethod
+    def _make_qr_button(accessible_name: str) -> QToolButton:
+        button = QToolButton()
+        button.setText("▦")
+        button.setProperty("kind", "icon")
+        button.setFixedSize(36, 36)
+        button.setAutoRaise(True)
+        button.setAccessibleName(accessible_name)
+        button.setToolTip(accessible_name)
+        return button
 
     def _update_template_badge(self) -> None:
         t_name = self.template_def.name if getattr(self, "template_def", None) else "Default #1"
@@ -1663,6 +1786,92 @@ class ExamDialog(QDialog):
             self.update_key_gate()
         self.cancel.setEnabled(value and isinstance(self.worker, BatchWorker))
 
+    def open_mobile_upload(self, purpose: str) -> None:
+        if self.mobile_upload_session and self.mobile_upload_session.is_active():
+            QMessageBox.information(self, "มี session อยู่แล้ว", "กรุณาปิด QR session เดิมก่อนเปิด session ใหม่")
+            return
+        if self.mobile_upload_session and self.worker and self.worker.isRunning():
+            QMessageBox.information(
+                self,
+                "กำลังนำเข้าไฟล์",
+                "กำลังนำเข้าไฟล์จาก session ก่อนหน้าอยู่\n"
+                "รอให้การนำเข้าเสร็จ แล้วค่อยเปิด QR session ใหม่",
+            )
+            return
+        self._cleanup_mobile_upload_session_if_idle()
+        if purpose == "student":
+            try:
+                self.flow.confirmed_key(self.exam.id)
+            except ValueError as error:
+                QMessageBox.information(self, "ยืนยันเฉลยก่อน", str(error))
+                self.tabs.setCurrentIndex(0)
+                return
+
+        session = UploadSession(purpose, self.exam.id, self.room_id if purpose == "student" else None)
+        try:
+            session.start()
+        except (LanUnavailableError, UploadSessionError) as error:
+            session.cleanup()
+            QMessageBox.warning(self, "เปิด QR upload ไม่ได้", str(error))
+            return
+
+        self.mobile_upload_session = session
+        self.mobile_upload_purpose = purpose
+        session.files_received.connect(self._on_mobile_upload_files)
+        dialog = MobileUploadDialog(session, self)
+        self.mobile_upload_dialog = dialog
+        dialog.exec()
+        self.mobile_upload_dialog = None
+        self._cleanup_mobile_upload_session_if_idle()
+
+    def _on_mobile_upload_files(self, paths: list[str]) -> None:
+        if self.mobile_upload_session is None:
+            for value in paths:
+                Path(value).unlink(missing_ok=True)
+            return
+        self.mobile_upload_queue.extend(Path(value) for value in paths)
+        if self.mobile_upload_dialog is not None:
+            self.mobile_upload_dialog.set_processing(len(self.mobile_upload_queue))
+        self._drain_mobile_upload_queue()
+        if (
+            self.mobile_upload_purpose == "key"
+            and self.mobile_upload_session is not None
+            and self.mobile_upload_session.counts()[0] >= 1
+            and self.mobile_upload_dialog is not None
+        ):
+            # A key session accepts exactly one image. Close it as soon as the
+            # file is handed to the existing import pipeline so the user can
+            # switch to Students and explicitly create a fresh multi-file QR
+            # session there.
+            self.mobile_upload_dialog.close()
+
+    def _drain_mobile_upload_queue(self) -> None:
+        if not self.mobile_upload_queue or (self.worker and self.worker.isRunning()):
+            return
+        purpose = self.mobile_upload_purpose
+        if purpose is None:
+            return
+        paths = list(self.mobile_upload_queue)
+        self.mobile_upload_queue.clear()
+        if self.mobile_upload_dialog is not None:
+            self.mobile_upload_dialog.set_processing(len(paths))
+        self.start_import(paths, purpose)
+
+    def _batch_worker_finished(self) -> None:
+        self.busy(False)
+        self._drain_mobile_upload_queue()
+        self._cleanup_mobile_upload_session_if_idle()
+
+    def _cleanup_mobile_upload_session_if_idle(self) -> None:
+        session = self.mobile_upload_session
+        if session is None:
+            return
+        if session.is_active() or self.mobile_upload_queue or (self.worker and self.worker.isRunning()):
+            return
+        session.cleanup()
+        self.mobile_upload_session = None
+        self.mobile_upload_purpose = None
+
     def pick_key(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "เลือกภาพเฉลย", "", "Images (*.png *.jpg *.jpeg)"
@@ -1704,7 +1913,7 @@ class ExamDialog(QDialog):
         )
         self.worker.progress.connect(self.on_progress)
         self.worker.completed.connect(self.import_done)
-        self.worker.finished.connect(lambda: self.busy(False))
+        self.worker.finished.connect(self._batch_worker_finished)
         self.busy(True)
         self.progress.setRange(0, len(paths))
         self.progress.setValue(0)
@@ -1842,10 +2051,22 @@ class ExamDialog(QDialog):
         if self.worker and self.worker.isRunning():
             QMessageBox.information(self, "กำลังทำงาน", "กรุณารอให้เสร็จ หรือหยุดการนำเข้าก่อนปิด")
             return
+        if self.mobile_upload_session and (
+            self.mobile_upload_session.is_active() or self.mobile_upload_queue
+        ):
+            QMessageBox.information(self, "ยังมี QR session", "กรุณากดปิด session ในหน้าต่าง QR ก่อนปิดข้อสอบ")
+            return
         super().reject()
 
     def closeEvent(self, event):
         if self.worker and self.worker.isRunning():
             event.ignore()
+        elif self.mobile_upload_session and (
+            self.mobile_upload_session.is_active() or self.mobile_upload_queue
+        ):
+            event.ignore()
         else:
+            if self.mobile_upload_session:
+                self.mobile_upload_session.cleanup()
+                self.mobile_upload_session = None
             event.accept()
