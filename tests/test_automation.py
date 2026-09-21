@@ -147,6 +147,26 @@ def test_identity_edit_does_not_refresh_stale_key(tmp_path):
         flow.snapshot(exam.id)
 
 
+def test_bulk_reuse_applies_previous_review_to_new_key(tmp_path):
+    flow, exam, source, service = setup_auto(tmp_path)
+    service.adopt_numbers(exam.id)
+    previous_key = flow.current_key(exam.id)
+    flow.review(source["id"], "1", ["A", "B", "C"], previous_key["id"])
+    flow.approve_key(exam.id, ["C", "C", "C"], previous_key["source_id"])
+
+    stale = [issue for issue in service.issues(exam.id) if issue["kind"] == "stale"]
+    assert len(stale) == 1
+    result = service.bulk_resolve(
+        exam.id,
+        [{"issue": stale[0], "value": "reuse"}],
+    )
+
+    assert result["applied"] == 1
+    assert result["applied_indexes"] == [0]
+    assert not any(issue["kind"] == "stale" for issue in service.issues(exam.id))
+    assert flow.snapshot(exam.id)["results"][0]["decision_origin"] == "teacher_reuse"
+
+
 def test_attendance_conflict_blocks_export_and_can_be_restored(tmp_path):
     flow, exam, source, service = setup_auto(tmp_path)
     service.set_attendance(exam.id, "1", "absent")

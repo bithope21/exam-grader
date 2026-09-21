@@ -7,14 +7,17 @@ from typing import cast
 import cv2
 import numpy as np
 import qrcode
-from PySide6.QtCore import QEvent, QPoint, QRect, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
+    QIcon,
     QImage,
     QKeyEvent,
     QMouseEvent,
     QPainter,
+    QPainterPath,
+    QPalette,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -23,6 +26,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QInputDialog,
@@ -37,6 +41,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QStyle,
     QStyledItemDelegate,
+    QStyleOptionToolButton,
     QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
@@ -67,6 +72,71 @@ PHOTO_GUIDANCE_TEXT = (
     "• หลีกเลี่ยงเงาและแสงสะท้อนแรง\n"
     "• ให้ตัวหนังสือและรอยกากบาทเห็นชัด"
 )
+
+
+class QrGlyphButton(QToolButton):
+    """Native tool button with a small, locally drawn QR glyph."""
+
+    def paintEvent(self, event):
+        option = QStyleOptionToolButton()
+        self.initStyleOption(option)
+        option.icon = QIcon()
+        option.text = ""
+        painter = QPainter(self)
+        self.style().drawComplexControl(QStyle.ComplexControl.CC_ToolButton, option, painter, self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        group = (
+            QPalette.ColorGroup.Disabled
+            if not self.isEnabled()
+            else QPalette.ColorGroup.Active
+        )
+        color = self.palette().color(group, QPalette.ColorRole.ButtonText)
+        size = min(20.0, max(16.0, min(self.width(), self.height()) - 14.0))
+        origin_x = (self.width() - size) / 2.0
+        origin_y = (self.height() - size) / 2.0
+        unit = size / 7.0
+
+        def rect(column: int, row: int, width: float = 1.0) -> QRectF:
+            return QRectF(
+                origin_x + column * unit,
+                origin_y + row * unit,
+                width * unit,
+                width * unit,
+            )
+
+        def finder(column: int, row: int) -> None:
+            path = QPainterPath()
+            path.setFillRule(Qt.FillRule.OddEvenFill)
+            path.addRoundedRect(rect(column, row, 3), unit * 0.55, unit * 0.55)
+            path.addRoundedRect(rect(column + 0.75, row + 0.75, 1.5), unit * 0.35, unit * 0.35)
+            painter.fillPath(path, color)
+            painter.setBrush(color)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(rect(column + 1, row + 1, 1), unit * 0.25, unit * 0.25)
+
+        finder(0, 0)
+        finder(4, 0)
+        finder(0, 4)
+        painter.setBrush(color)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for column, row in (
+            (3, 0),
+            (3, 1),
+            (4, 2),
+            (5, 2),
+            (6, 2),
+            (3, 3),
+            (5, 3),
+            (3, 4),
+            (4, 4),
+            (6, 4),
+            (2, 5),
+            (3, 6),
+            (4, 6),
+            (6, 6),
+        ):
+            painter.drawRoundedRect(rect(column, row, 0.82), unit * 0.22, unit * 0.22)
+        painter.end()
 
 
 def qr_pixmap(value: str, pixel_size: int = 7) -> QPixmap:
@@ -538,6 +608,12 @@ class ExamDialog(QDialog):
         self.confirm_key_button = QPushButton("ตรวจและยืนยันเฉลย → นักเรียน")
         self.confirm_key_button.clicked.connect(self.review_key)
         key_actions.addWidget(self.confirm_key_button)
+        self.delete_key_button = QPushButton("ลบเฉลย")
+        self.delete_key_button.setProperty("destructive", True)
+        self.delete_key_button.setToolTip("เก็บภาพเฉลยที่เลือกถาวรแบบกู้คืนได้ โดยไม่ลบกระดาษนักเรียน")
+        self.delete_key_button.setAccessibleName("ลบเฉลยแบบกู้คืนได้")
+        self.delete_key_button.clicked.connect(self.archive_key)
+        key_actions.addWidget(self.delete_key_button)
 
         key_actions.addSpacing(12)
         self.template_badge = QLabel()
@@ -603,18 +679,23 @@ class ExamDialog(QDialog):
         self.review_button.clicked.connect(self.review_selected)
         self.retry_button = QPushButton("ตรวจใหม่")
         self.retry_button.clicked.connect(self.retry_selected)
-        self.save_all_button = QPushButton("บันทึกที่แก้แล้วทั้งหมด")
+        self.save_all_button = QPushButton("บันทึกการแก้ไขทั้งหมด")
         self.save_all_button.clicked.connect(self.save_all_issues)
         review_actions.addWidget(self.review_button)
         review_actions.addWidget(self.retry_button)
-        review_actions.addWidget(self.save_all_button)
         review_actions.addStretch()
-        review_page.addWidget(QLabel("แก้เฉพาะข้อมูลที่มีปัญหา แล้วกดบันทึกที่แถวนั้น หรือเลือกหลายแถวแล้วบันทึกพร้อมกัน · เรียงเลขที่น้อย → มาก"))
+        review_page.addLayout(review_actions)
+        review_page.addWidget(
+            QLabel(
+                "แก้เฉพาะข้อมูลที่มีปัญหา แล้วกดบันทึกที่แถวนั้น หรือเลือกหลายแถวแล้วบันทึกพร้อมกัน · เรียงเลขที่น้อย → มาก"
+            )
+        )
         
         # Bulk Actions Toolbar
         self.bulk_bar_widget = QWidget()
         bulk_bar = QHBoxLayout(self.bulk_bar_widget)
         bulk_bar.setContentsMargins(0, 4, 0, 4)
+        bulk_bar.setSpacing(8)
         self.select_all_btn = QPushButton("เลือกทั้งหมด")
         self.select_all_btn.clicked.connect(self.select_all_issues)
         self.clear_selection_btn = QPushButton("ล้างการเลือก")
@@ -636,6 +717,7 @@ class ExamDialog(QDialog):
             self.bulk_combo.addItem(f"{thai} / {latin}", latin)
         self.bulk_combo.addItem("เว้นว่าง (blank)", "blank")
         self.bulk_combo.addItem("หลายคำตอบ (multiple)", "multiple")
+        self.bulk_combo.addItem("ใช้คำตอบเดิมกับเฉลยใหม่", "reuse")
         self.bulk_combo.addItem("ข้ามเลขที่นี้ (skipped)", "skipped")
         self.bulk_combo.addItem("ขาดสอบ (absent)", "absent")
         self.bulk_combo.addItem("ลา / ได้รับยกเว้น (excused)", "excused")
@@ -654,6 +736,12 @@ class ExamDialog(QDialog):
         bulk_bar.addWidget(self.bulk_combo)
         bulk_bar.addWidget(self.bulk_apply_btn)
         bulk_bar.addStretch()
+        self.review_save_separator = QFrame()
+        self.review_save_separator.setFrameShape(QFrame.Shape.VLine)
+        self.review_save_separator.setFrameShadow(QFrame.Shadow.Plain)
+        self.review_save_separator.setFixedHeight(24)
+        bulk_bar.addWidget(self.review_save_separator)
+        bulk_bar.addWidget(self.save_all_button)
         review_page.addWidget(self.bulk_bar_widget)
 
         self.issue_table = QTableWidget(0, 6)
@@ -738,6 +826,7 @@ class ExamDialog(QDialog):
         self.action_buttons = [
             self.key_button,
             self.key_mobile_button,
+            self.delete_key_button,
             self.student_button,
             self.student_mobile_button,
             self.review_button,
@@ -754,6 +843,8 @@ class ExamDialog(QDialog):
         self.issue_drafts = {}
         self.issue_dirty = set()
         self.selected_issue_keys: set[tuple] = set()
+        self.issue_save_buttons: list[QPushButton] = []
+        self._review_save_in_progress = False
         self.refresh()
         # Run the freshness check once after the initial widgets are visible.
         # Scheduling it from every refresh can accumulate zero-delay events
@@ -770,13 +861,12 @@ class ExamDialog(QDialog):
 
     @staticmethod
     def _make_qr_button(accessible_name: str) -> QToolButton:
-        button = QToolButton()
-        button.setText("▦")
+        button = QrGlyphButton()
         button.setProperty("kind", "icon")
         button.setFixedSize(36, 36)
         button.setAutoRaise(True)
         button.setAccessibleName(accessible_name)
-        button.setToolTip(accessible_name)
+        button.setToolTip("รับรูปจากมือถือผ่าน QR")
         return button
 
     def _update_template_badge(self) -> None:
@@ -1237,6 +1327,29 @@ class ExamDialog(QDialog):
             return
         self.archive_student(source)
 
+    def archive_key(self) -> None:
+        item = self.key_list.currentItem()
+        source = item.data(Qt.ItemDataRole.UserRole) if item else None
+        if not isinstance(source, dict) or source.get("purpose") != "key" or not source.get("id"):
+            QMessageBox.information(self, "ยังไม่ได้เลือก", "เลือกภาพเฉลยก่อน")
+            return
+        answer = QMessageBox.question(
+            self,
+            "ลบเฉลยแบบกู้คืนได้",
+            f"เก็บภาพเฉลย {source['original_name']} ออกจากข้อสอบหรือไม่?\n"
+            "กระดาษนักเรียน ต้นฉบับ และผลตรวจเดิมจะไม่ถูกลบ\n"
+            "แต่อาจต้องยืนยันเฉลยใหม่ก่อนตรวจต่อ",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.importer.archive_source(source["id"])
+            self.refresh()
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "ลบเฉลยไม่ได้", str(error))
+
     def archive_student(self, source):
         if not source or source.get("purpose") != "student" or not source.get("id"):
             QMessageBox.information(self, "ยังไม่ได้เลือก", "เลือกกระดาษนักเรียนก่อน")
@@ -1333,6 +1446,7 @@ class ExamDialog(QDialog):
     def populate_issues(self):
         self._capture_issue_drafts()
         self.issue_rows = self.review_service.issues(self.exam.id)
+        self.issue_save_buttons = []
         self.issue_table.blockSignals(True)
         self.issue_table.clearContents()
         self.skip_missing_button.setVisible(
@@ -1502,18 +1616,22 @@ class ExamDialog(QDialog):
                     editor.setCurrentIndex(max(0, editor.findData(draft)))
                 editor.blockSignals(False)
             if isinstance(editor, QLineEdit):
-                editor.textEdited.connect(lambda _value, key=issue_key: self.issue_dirty.add(key))
+                editor.textEdited.connect(lambda _value, key=issue_key: self._mark_issue_dirty(key))
             else:
                 editor.currentIndexChanged.connect(
-                    lambda _index, key=issue_key: self.issue_dirty.add(key)
+                    lambda _index, key=issue_key: self._mark_issue_dirty(key)
                 )
             self.issue_table.setCellWidget(row, 4, editor)
             button = QPushButton("บันทึก")
-            button.clicked.connect(lambda checked=False, i=issue, e=editor: self.save_issue(i, e))
+            button.clicked.connect(
+                lambda checked=False, i=issue, e=editor, b=button: self.save_issue(i, e, b)
+            )
+            self.issue_save_buttons.append(button)
             self.issue_table.setCellWidget(row, 5, button)
         self.issue_table.resizeRowsToContents()
         self.issue_table.blockSignals(False)
         self._update_bulk_selection_state()
+        self._update_save_all_state()
 
     @staticmethod
     def _issue_key(issue):
@@ -1542,6 +1660,35 @@ class ExamDialog(QDialog):
             key = self._issue_key(issue)
             if key in self.issue_dirty:
                 self.issue_drafts[key] = value
+
+    def _mark_issue_dirty(self, key) -> None:
+        self.issue_dirty.add(key)
+        self._update_save_all_state()
+
+    def _update_save_all_state(self) -> None:
+        worker_running = bool(self.worker and self.worker.isRunning())
+        self.save_all_button.setEnabled(
+            bool(self.issue_dirty) and not self._review_save_in_progress and not worker_running
+        )
+
+    def _set_review_save_busy(self, value: bool) -> None:
+        self._review_save_in_progress = value
+        controls = [
+            self.select_all_btn,
+            self.clear_selection_btn,
+            self.bulk_confirm_btn,
+            self.bulk_combo,
+            self.bulk_apply_btn,
+            self.save_all_button,
+        ]
+        for control in controls:
+            control.setEnabled(not value)
+        self.issue_table.setEnabled(not value and not (self.worker and self.worker.isRunning()))
+        for button in self.issue_save_buttons:
+            button.setEnabled(not value)
+        if not value:
+            self._update_bulk_selection_state()
+            self._update_save_all_state()
 
     def _save_issue_value(self, issue, value):
         if not value:
@@ -1574,7 +1721,12 @@ class ExamDialog(QDialog):
             )
         self.review_service.finalize(self.exam.id)
 
-    def save_issue(self, issue, editor):
+    def save_issue(self, issue, editor, button=None):
+        if self._review_save_in_progress:
+            return
+        self._set_review_save_busy(True)
+        if button is not None:
+            button.setText("กำลังบันทึก…")
         try:
             value = (
                 editor.text()
@@ -1602,8 +1754,12 @@ class ExamDialog(QDialog):
             self.refresh()
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "บันทึกไม่ได้", str(error))
+        finally:
+            self._set_review_save_busy(False)
 
     def save_all_issues(self):
+        if self._review_save_in_progress:
+            return
         self._capture_issue_drafts()
         pending = []
         for row, issue in enumerate(getattr(self, "issue_rows", [])):
@@ -1617,16 +1773,23 @@ class ExamDialog(QDialog):
                 else cast(QComboBox, editor).currentData()
             )
             pending.append((issue, value, key))
+        if not pending:
+            self._update_save_all_state()
+            return
+        self._set_review_save_busy(True)
         errors = []
-        for issue, value, key in pending:
-            try:
-                self._save_issue_value(issue, value)
-                self.issue_dirty.discard(key)
-                self.issue_drafts.pop(key, None)
-            except (ValueError, OSError) as error:
-                errors.append(f"{issue.get('label', 'รายการ')}: {error}")
-        self.review_service.finalize(self.exam.id)
-        self.refresh()
+        try:
+            for issue, value, key in pending:
+                try:
+                    self._save_issue_value(issue, value)
+                    self.issue_dirty.discard(key)
+                    self.issue_drafts.pop(key, None)
+                except (ValueError, OSError) as error:
+                    errors.append(f"{issue.get('label', 'รายการ')}: {error}")
+            self.review_service.finalize(self.exam.id)
+            self.refresh()
+        finally:
+            self._set_review_save_busy(False)
         if errors:
             QMessageBox.warning(self, "บันทึกได้บางรายการ", "\n".join(errors))
 
@@ -1646,15 +1809,21 @@ class ExamDialog(QDialog):
         count = len(self.selected_issue_keys)
         self.selection_label.setText(f"เลือก {count} รายการ")
         has_val = self.bulk_combo.currentData() is not None
-        self.bulk_apply_btn.setEnabled(count > 0 and has_val)
+        available = not self._review_save_in_progress and not (self.worker and self.worker.isRunning())
+        self.select_all_btn.setEnabled(available)
+        self.clear_selection_btn.setEnabled(available)
+        self.bulk_combo.setEnabled(available)
+        self.bulk_apply_btn.setEnabled(available and count > 0 and has_val)
         has_prefill = any(
             self._issue_key(issue) in self.selected_issue_keys
             and self.review_service.prefilled_value(issue) is not None
             for issue in getattr(self, "issue_rows", [])
         )
-        self.bulk_confirm_btn.setEnabled(has_prefill)
+        self.bulk_confirm_btn.setEnabled(available and has_prefill)
 
     def select_all_issues(self) -> None:
+        if self._review_save_in_progress or (self.worker and self.worker.isRunning()):
+            return
         for issue in self.issue_rows:
             self.selected_issue_keys.add(self._issue_key(issue))
         self.issue_table.blockSignals(True)
@@ -1666,6 +1835,8 @@ class ExamDialog(QDialog):
         self._update_bulk_selection_state()
 
     def clear_issue_selection(self) -> None:
+        if self._review_save_in_progress or (self.worker and self.worker.isRunning()):
+            return
         self.selected_issue_keys.clear()
         self.issue_table.blockSignals(True)
         for r in range(self.issue_table.rowCount()):
@@ -1676,6 +1847,8 @@ class ExamDialog(QDialog):
         self._update_bulk_selection_state()
 
     def apply_bulk_edit(self) -> None:
+        if self._review_save_in_progress:
+            return
         if not self.selected_issue_keys:
             QMessageBox.information(
                 self, "ยังไม่ได้เลือกรายการ", "กรุณาคลิกเลือกช่องหน้ารายการที่ต้องการแก้ไข"
@@ -1696,10 +1869,14 @@ class ExamDialog(QDialog):
         if not operations:
             return
 
+        self._set_review_save_busy(True)
         try:
             res = self.review_service.bulk_resolve(self.exam.id, operations)
             applied = res.get("applied", 0)
-            for op in operations:
+            applied_indexes = set(res.get("applied_indexes", []))
+            for index, op in enumerate(operations):
+                if index not in applied_indexes:
+                    continue
                 key = self._issue_key(op["issue"])
                 self.issue_dirty.discard(key)
                 self.issue_drafts.pop(key, None)
@@ -1712,8 +1889,12 @@ class ExamDialog(QDialog):
             )
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "บันทึกไม่สำเร็จ", str(error))
+        finally:
+            self._set_review_save_busy(False)
 
     def confirm_bulk_prefilled(self) -> None:
+        if self._review_save_in_progress:
+            return
         if not self.selected_issue_keys:
             QMessageBox.information(
                 self, "ยังไม่ได้เลือกรายการ", "กรุณาคลิกเลือกแถวที่ต้องการยืนยันก่อน"
@@ -1736,6 +1917,7 @@ class ExamDialog(QDialog):
                 "แถวที่เลือกยังไม่มีค่า prefill ที่วัดได้ชัดเจน · ใช้การแก้ไขรายแถวแทน",
             )
             return
+        self._set_review_save_busy(True)
         try:
             result = self.review_service.confirm_prefilled(self.exam.id, measurable)
             applied = result.get("applied", [])
@@ -1754,6 +1936,8 @@ class ExamDialog(QDialog):
             )
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "ยืนยันไม่สำเร็จ", str(error))
+        finally:
+            self._set_review_save_busy(False)
 
     def open_issue_source(self, row, column):
         if column == 0:
@@ -1777,7 +1961,7 @@ class ExamDialog(QDialog):
         self.key_list.setEnabled(not value)
         self.student_list.setEnabled(not value)
         self.review_list.setEnabled(not value)
-        self.issue_table.setEnabled(not value)
+        self.issue_table.setEnabled(not value and not self._review_save_in_progress)
         self.attendance_restore.setEnabled(not value)
         self.room_combo.setEnabled(not value)
         self.skip_missing_button.setEnabled(not value)
@@ -1785,6 +1969,10 @@ class ExamDialog(QDialog):
         if not value:
             self.update_key_gate()
         self.cancel.setEnabled(value and isinstance(self.worker, BatchWorker))
+        for button in self.issue_save_buttons:
+            button.setEnabled(not value and not self._review_save_in_progress)
+        self._update_bulk_selection_state()
+        self._update_save_all_state()
 
     def open_mobile_upload(self, purpose: str) -> None:
         if self.mobile_upload_session and self.mobile_upload_session.is_active():
@@ -1973,7 +2161,12 @@ class ExamDialog(QDialog):
             self.review_service.finalize(self.exam.id)
             self.refresh()
             if source["purpose"] == "key" and accepted:
-                self.tabs.setCurrentIndex(1)
+                # Re-read the gate after the append-only key approval. This keeps
+                # replacement-key confirmation from leaving the other tabs stale
+                # or disabled while the import worker is winding down.
+                self.update_key_gate()
+                if self.tabs.isTabEnabled(1):
+                    self.tabs.setCurrentIndex(1)
         except Exception as error:
             QMessageBox.warning(self, "เปิดภาพไม่ได้", str(error))
 

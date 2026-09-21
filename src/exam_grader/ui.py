@@ -4,7 +4,7 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -340,6 +340,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(create)
         self.exam_list = QListWidget()
         self.exam_list.itemDoubleClicked.connect(lambda _: self.open_exam())
+        self.exam_list.itemActivated.connect(lambda _: self.open_exam())
+        self.exam_list.installEventFilter(self)
+        self.exam_list.viewport().installEventFilter(self)
         layout.addWidget(self.exam_list)
         open_button = QPushButton("เปิดข้อสอบที่เลือก")
         open_button.clicked.connect(self.open_exam)
@@ -440,8 +443,35 @@ class MainWindow(QMainWindow):
             remove.setToolTip("ย้ายชุดนี้ไปที่ถังขยะ · สามารถกู้คืนหรือลบถาวรได้จากเมนูถังขยะ")
             remove.clicked.connect(lambda _checked=False, value=exam: self.archive_exam(value))
             row_layout.addWidget(remove)
+            row.installEventFilter(self)
             self.exam_list.setItemWidget(item, row)
             item.setSizeHint(QSize(0, 44))
+
+    def _exam_item_for_event(self, watched: QWidget, event: QEvent) -> QListWidgetItem | None:
+        if not hasattr(event, "position"):
+            return None
+        position = event.position().toPoint()
+        if watched is not self.exam_list.viewport():
+            position = watched.mapTo(self.exam_list.viewport(), position)
+        return self.exam_list.itemAt(position)
+
+    def eventFilter(self, watched: object, event: QEvent) -> bool:
+        if watched is self.exam_list or watched is self.exam_list.viewport() or isinstance(watched, QWidget):
+            if event.type() == QEvent.Type.MouseButtonPress:
+                button = getattr(event, "button", lambda: None)()
+                if button == Qt.MouseButton.LeftButton and isinstance(watched, QWidget):
+                    item = self._exam_item_for_event(watched, event)
+                    if item is not None:
+                        self.exam_list.setCurrentItem(item)
+            elif event.type() == QEvent.Type.MouseButtonDblClick:
+                button = getattr(event, "button", lambda: None)()
+                if button == Qt.MouseButton.LeftButton and isinstance(watched, QWidget):
+                    item = self._exam_item_for_event(watched, event)
+                    if item is not None:
+                        self.exam_list.setCurrentItem(item)
+                        QTimer.singleShot(0, self.open_exam)
+                        return True
+        return super().eventFilter(watched, event)
 
     def archive_exam(self, exam) -> None:
         details = exam.details

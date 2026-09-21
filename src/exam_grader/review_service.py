@@ -304,10 +304,12 @@ class ReviewService:
             return {"applied": 0, "total": 0}
         key = self.flow.confirmed_key(exam_id)
         room_id = self.flow.resolve_room_id(exam_id, self.room_id)
+        states = {state["source"]["id"]: state for state in self.states(exam_id)}
         now = datetime.now(timezone.utc).isoformat()
         applied = 0
+        applied_indexes: list[int] = []
         with self.flow.connection() as con:
-            for op in operations:
+            for index, op in enumerate(operations):
                 issue = op["issue"]
                 value = op["value"]
                 if not value:
@@ -326,6 +328,7 @@ class ReviewService:
                         (str(uuid4()), sid, key["id"], det_id, q, value, now),
                     )
                     applied += 1
+                    applied_indexes.append(index)
                 elif kind == "attendance":
                     if value not in {"pending", "absent", "excused", "skipped"}:
                         continue
@@ -345,6 +348,7 @@ class ReviewService:
                             (exam_id, room_id, num, value, now),
                         )
                     applied += 1
+                    applied_indexes.append(index)
                 elif kind == "number":
                     ident_num = normalize_number(value)
                     sid = issue["source"]["id"]
@@ -354,8 +358,43 @@ class ReviewService:
                         (str(uuid4()), sid, ident_num, det_id, "teacher", now),
                     )
                     applied += 1
+                    applied_indexes.append(index)
+                elif kind == "stale" and value == "reuse":
+                    sid = issue["source"]["id"]
+                    state = states.get(sid)
+                    previous = state.get("review") if state else None
+                    if (
+                        state is None
+                        or previous is None
+                        or previous["key_id"] == key["id"]
+                        or state["detection_id"] != issue.get("detection_id")
+                        or state["number"] is None
+                        or len(previous["answers"]) != len(key["answers"])
+                        or any(answer not in RESOLVED for answer in previous["answers"])
+                    ):
+                        continue
+                    con.execute(
+                        "INSERT INTO reviews (id,source_id,key_id,student_number,answers,created_at,detection_id,origin) "
+                        "VALUES (?,?,?,?,?,?,?,?)",
+                        (
+                            str(uuid4()),
+                            sid,
+                            key["id"],
+                            state["number"],
+                            json.dumps(previous["answers"]),
+                            now,
+                            issue.get("detection_id"),
+                            "teacher_reuse",
+                        ),
+                    )
+                    applied += 1
+                    applied_indexes.append(index)
         self.finalize(exam_id)
-        return {"applied": applied, "total": len(operations)}
+        return {
+            "applied": applied,
+            "total": len(operations),
+            "applied_indexes": applied_indexes,
+        }
 
     @staticmethod
     def prefilled_value(issue: dict) -> str | None:

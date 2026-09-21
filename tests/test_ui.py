@@ -5,8 +5,17 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QComboBox, QDialog, QLineEdit, QMessageBox, QPushButton
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDialog,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QWidget,
+)
 
+import exam_grader.exam_ui as exam_ui
 import exam_grader.imaging as imaging
 import exam_grader.review_ui as review_ui
 from exam_grader.app import initialize
@@ -56,6 +65,38 @@ def test_desktop_shell_displays_persisted_exam(tmp_path):
     assert window.exam_list.item(0).sizeHint().height() == 44
     window.close()
     dialog.close()
+
+
+def test_exam_row_double_click_opens_selected_exam(tmp_path, monkeypatch):
+    qt = QApplication.instance() or QApplication([])
+    application = initialize(tmp_path)
+    exam = application.exams.create(ExamDetails("กลางภาค", "2569", "ม.4", "1", "คณิตศาสตร์", 3))
+    window = MainWindow(application)
+    window.refresh()
+    window.show()
+    qt.processEvents()
+    opened = []
+
+    class FakeExamDialog:
+        def __init__(self, _application, selected_exam, _parent):
+            opened.append(selected_exam.id)
+
+        def exec(self):
+            return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr("exam_grader.exam_ui.ExamDialog", FakeExamDialog)
+    item = window.exam_list.item(0)
+    row = window.exam_list.itemWidget(item)
+    assert isinstance(row, QWidget)
+    QTest.mouseDClick(
+        row,
+        Qt.MouseButton.LeftButton,
+        pos=row.rect().center(),
+        delay=50,
+    )
+    qt.processEvents()
+    assert opened == [exam.id]
+    window.close()
 
 
 def test_key_review_prefills_clear_multi_answer_for_teacher_confirmation(tmp_path):
@@ -455,6 +496,102 @@ def test_student_list_action_is_compact_and_unclipped(tmp_path):
     dialog.close()
 
 
+def test_qr_button_and_answer_key_archive_are_scoped(tmp_path, monkeypatch):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("สอบ", "2569", "ป.1", "1", "วิชา", 1))
+    importer = ImportService(application.exams.path)
+    key_path = tmp_path / "key.png"
+    student_path = tmp_path / "student.png"
+    for path, color in ((key_path, 0xFFFFFFFF), (student_path, 0xFFF0F0F0)):
+        image = QImage(100, 100, QImage.Format.Format_RGB32)
+        image.fill(color)
+        assert image.save(str(path))
+    key_source = importer.import_file(exam.id, key_path, "key")
+    student_source = importer.import_file(exam.id, student_path, "student")
+    flow = Workflow(application.exams.path)
+    detection = {
+        "pipeline_version": OMR_PIPELINE_VERSION,
+        "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+        "answers": [{"classification": "single_mark", "selected": ["A"], "auto_resolved": True}],
+    }
+    flow.save_detection(key_source["id"], detection)
+    flow.approve_key(exam.id, ["A"], key_source["id"])
+
+    dialog = ExamDialog(application, exam)
+    try:
+        assert dialog.key_mobile_button.text() == ""
+        assert dialog.key_mobile_button.toolTip() == "รับรูปจากมือถือผ่าน QR"
+        assert dialog.key_mobile_button.size().width() == 36
+        assert dialog.delete_key_button.property("destructive") is True
+        dialog.key_list.setCurrentRow(0)
+        monkeypatch.setattr(QMessageBox, "question", lambda *args, **kwargs: QMessageBox.StandardButton.Yes)
+        dialog.archive_key()
+        active = importer.list_sources(exam.id)
+        assert not any(source["purpose"] == "key" for source in active)
+        assert any(source["id"] == student_source["id"] for source in active)
+        assert dialog.key_list.count() == 0
+        assert not dialog.tabs.isTabEnabled(1)
+    finally:
+        dialog.close()
+
+
+def test_replacing_key_and_confirming_restores_student_tab(tmp_path, monkeypatch):
+    from exam_grader.exam_ui import ExamDialog
+    from exam_grader.review_service import ReviewService
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("เปลี่ยนเฉลย", "2569", "ป.1", "1", "วิชา", 1))
+    importer = ImportService(application.exams.path)
+    flow = Workflow(application.exams.path)
+    paths = [tmp_path / "key-1.png", tmp_path / "key-2.png"]
+    sources = []
+    for index, path in enumerate(paths):
+        image = QImage(100, 100, QImage.Format.Format_RGB32)
+        image.fill(0xFFFFFFFF if index == 0 else 0xFFF0F0F0)
+        assert image.save(str(path))
+        sources.append(importer.import_file(exam.id, path, "key"))
+    detection = {
+        "pipeline_version": OMR_PIPELINE_VERSION,
+        "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+        "answers": [{"classification": "single_mark", "selected": ["A"], "auto_resolved": True}],
+    }
+    flow.save_detection(sources[0]["id"], detection)
+    flow.approve_key(exam.id, ["A"], sources[0]["id"])
+    flow.save_detection(sources[1]["id"], detection)
+
+    class AcceptedReplacement:
+        normalization_updated = False
+        skip_remaining_completed = False
+
+        def __init__(self, database, source, _parent):
+            self.flow = Workflow(database)
+            self.source = source
+            self.detection_id = ReviewService(database).state(source)["detection_id"]
+
+        def exec(self):
+            self.flow.approve_key(
+                self.source["exam_id"],
+                ["B"],
+                self.source["id"],
+                detection_id=self.detection_id,
+            )
+            return QDialog.DialogCode.Accepted
+
+    monkeypatch.setattr(exam_ui, "ReviewDialog", AcceptedReplacement)
+    dialog = ExamDialog(application, exam)
+    try:
+        assert not dialog.tabs.isTabEnabled(1)
+        dialog.open_source(sources[1])
+        assert dialog.tabs.isTabEnabled(1)
+        assert dialog.tabs.currentIndex() == 1
+    finally:
+        dialog.close()
+
+
 def test_settings_controls_open_and_stale_detection_requests_current_pipeline(tmp_path, monkeypatch):
     from exam_grader import settings_ui
     from exam_grader.exam_ui import ExamDialog
@@ -618,6 +755,19 @@ def test_review_tab_bulk_edit_ui(tmp_path):
     # 1. Verify 6 columns
     assert dialog.issue_table.columnCount() == 6
     assert dialog.issue_table.horizontalHeaderItem(0).text() == "เลือก"
+    assert not dialog.save_all_button.isEnabled()
+    first_editor = dialog.issue_table.cellWidget(0, 4)
+    first_row_save = dialog.issue_table.cellWidget(0, 5)
+    assert first_editor is not None
+    assert first_row_save is not None
+    first_editor.setCurrentIndex(first_editor.findData("blank"))
+    assert dialog.save_all_button.isEnabled()
+    dialog._set_review_save_busy(True)
+    assert not dialog.save_all_button.isEnabled()
+    assert not dialog.bulk_apply_btn.isEnabled()
+    assert not first_row_save.isEnabled()
+    dialog._set_review_save_busy(False)
+    assert dialog.save_all_button.isEnabled()
     print(
         "Issues in dialog:",
         [(i.get("kind"), i.get("question"), i.get("label")) for i in dialog.issue_rows],
