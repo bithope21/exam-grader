@@ -49,16 +49,10 @@ from exam_grader.calibration_model import (
     CalibrationDraft,
     append_choice,
     append_row,
-    auto_detect_template,
     cell_box_for_block,
     compile_draft,
-    nudge_all_blocks,
-    nudge_block,
-    nudge_roi,
-    remove_choice,
     remove_choice_at_end,
     remove_grid_line,
-    remove_row,
     remove_row_at_end,
     renumber_blocks,
     resize_block_from_origin,
@@ -67,6 +61,11 @@ from exam_grader.calibration_model import (
     set_boundary_position,
     split_cell,
     translate_block,
+)
+from exam_grader.numeric_widgets import (
+    NumericSpinBox,
+    attach_digit_normalizer,
+    normalize_digits,
 )
 from exam_grader.imaging import analyze
 from exam_grader.local_upload import LanUnavailableError, UploadSession, UploadSessionError
