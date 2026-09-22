@@ -189,7 +189,7 @@ jobs:
           fi
           if [ "$tag" = "main" ] || [ "$tag" = "master" ] || [ -z "$tag" ]; then
             version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
-            tag="v${version:-1.2.0}"
+            tag="v${version:-1.2.1}"
           fi
           echo "Target Release Tag: $tag"
           files=(dist/Exam-Grader-*-macOS-Apple-Silicon.dmg*)
