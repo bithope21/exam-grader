@@ -4,8 +4,8 @@ import sqlite3
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -50,6 +50,7 @@ HOME_CAMERA_GUIDANCE_TEXT = (
     "• ถือกล้องขนานกับกระดาษ และหลีกเลี่ยงเงาหรือแสงสะท้อน\n"
     "• ไม่ต้องครอปภาพ ระบบจะจัดแนวจากมุมกระดาษ"
 )
+EXAM_GRADER_DONATION_URL = "https://bithope.app/exam-grader#donate"
 
 
 class NewExamDialog(QDialog):
@@ -306,6 +307,8 @@ class MainWindow(QMainWindow):
             "รูปแบบกระดาษคำตอบ (เพิ่ม/ปรับเทียบ/จัดการแม่แบบ)…", self.open_template_settings
         )
         settings_popup.addAction("สีรอยตรวจและสัญลักษณ์…", self.open_color_settings)
+        donation_action = settings_popup.addAction("สนับสนุนการพัฒนา", self.open_donation_page)
+        donation_action.setIcon(self._donation_icon())
         settings_popup.addSeparator()
 
         appearance_submenu = settings_popup.addMenu("ธีมการแสดงผล (Appearance)")
@@ -355,6 +358,8 @@ class MainWindow(QMainWindow):
         settings_menu.addAction("ตำแหน่งบันทึกผลลัพธ์…", self.choose_output_root)
         settings_menu.addAction("รูปแบบกระดาษคำตอบ…", self.open_template_settings)
         settings_menu.addAction("สีรอยตรวจและสัญลักษณ์…", self.open_color_settings)
+        donation_action = settings_menu.addAction("สนับสนุนการพัฒนา", self.open_donation_page)
+        donation_action.setIcon(self._donation_icon())
         bar_appearance = settings_menu.addMenu("ธีมการแสดงผล…")
         self._populate_appearance_menu(bar_appearance)
         self.menuBar().addAction("ถังขยะ…", self.show_trash)
@@ -402,6 +407,15 @@ class MainWindow(QMainWindow):
         from exam_grader.settings_ui import AnnotationColorSettingsDialog
 
         AnnotationColorSettingsDialog(self).exec()
+
+    @staticmethod
+    def _donation_icon() -> QIcon:
+        icon_path = Path(__file__).resolve().parent / "resources" / "heart-support.svg"
+        return QIcon(str(icon_path)) if icon_path.exists() else QIcon()
+
+    def open_donation_page(self) -> None:
+        if not QDesktopServices.openUrl(QUrl(EXAM_GRADER_DONATION_URL)):
+            QMessageBox.warning(self, "เปิดหน้าสนับสนุนไม่ได้", "ไม่สามารถเปิดหน้า donation ในเบราว์เซอร์ได้")
 
     def choose_output_root(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "เลือกโฟลเดอร์ผลลัพธ์")

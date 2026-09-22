@@ -24,7 +24,7 @@ from exam_grader.imaging import OMR_PIPELINE_VERSION
 from exam_grader.imports import ImportService
 from exam_grader.preferences import apply_appearance_theme
 from exam_grader.review_ui import ReviewDialog
-from exam_grader.ui import MainWindow, NewExamDialog
+from exam_grader.ui import EXAM_GRADER_DONATION_URL, MainWindow, NewExamDialog
 from exam_grader.workflow import Workflow
 
 
@@ -405,6 +405,10 @@ def test_settings_and_template_buttons_visibility(tmp_path):
     actions_text = [a.text() for a in menu.actions()]
     assert any("กระดาษคำตอบ" in t for t in actions_text)
     assert any("สีรอยตรวจ" in t for t in actions_text)
+    donation_actions = [a for a in menu.actions() if "สนับสนุนการพัฒนา" in a.text()]
+    assert len(donation_actions) == 1
+    assert not donation_actions[0].icon().isNull()
+    assert EXAM_GRADER_DONATION_URL == "https://bithope.app/exam-grader#donate"
 
     # 2. NewExamDialog manage templates button
     dialog = NewExamDialog(window)
