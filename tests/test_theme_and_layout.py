@@ -120,6 +120,7 @@ def test_calibration_dialog_containment_and_controls(tmp_path):
     assert dlg.canvas is not None
     assert dlg.save_btn is not None
     assert dlg.test_btn is not None
+    assert dlg.mobile_load_btn.accessibleName() == "เพิ่มภาพแม่แบบผ่านมือถือ"
 
     # Default #3 has 3 blocks
     assert len(dlg.current_template_def.answer_blocks) == 3

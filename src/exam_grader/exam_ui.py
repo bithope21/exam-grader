@@ -57,7 +57,12 @@ from exam_grader.geometry_resolution import geometry_from_detection
 from exam_grader.identity import observe as observe_student_number
 from exam_grader.imaging import OMR_PIPELINE_VERSION, RegistrationError, analyze, decode
 from exam_grader.imports import ImportService
-from exam_grader.local_upload import LanUnavailableError, UploadSession, UploadSessionError
+from exam_grader.local_upload import (
+    LanUnavailableError,
+    UploadSession,
+    UploadSessionError,
+    upload_purpose_label,
+)
 from exam_grader.preferences import default_output_root
 from exam_grader.review_service import ReviewService
 from exam_grader.review_ui import ReviewDialog
@@ -376,7 +381,7 @@ class MobileUploadDialog(QDialog):
     def __init__(self, session: UploadSession, parent=None):
         super().__init__(parent)
         self.session = session
-        purpose = "เฉลย" if session.purpose == "key" else "กระดาษคำตอบนักเรียน"
+        purpose = upload_purpose_label(session.purpose)
         self.setWindowTitle(f"เพิ่ม{purpose}ผ่านมือถือ")
         self.setModal(True)
         self.setMinimumWidth(520)

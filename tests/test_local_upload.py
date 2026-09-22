@@ -13,6 +13,7 @@ from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
 from exam_grader.app import initialize
+from exam_grader.calibration_ui import CalibrationDialog
 from exam_grader.domain import ExamDetails
 from exam_grader.exam_ui import BatchWorker, ExamDialog, MobileUploadDialog, qr_pixmap
 from exam_grader.imports import ImportService
@@ -128,6 +129,38 @@ def test_session_rejects_invalid_file_and_expired_token(tmp_path):
         session.cleanup()
 
 
+def test_template_session_is_single_image_and_uses_template_label(tmp_path):
+    session = UploadSession("template", "template-calibration")
+    session.start(host="127.0.0.1")
+    try:
+        with urllib.request.urlopen(session.url, timeout=5) as response:
+            page = response.read().decode("utf-8")
+        assert "ภาพแม่แบบ" in page
+        assert " multiple>" not in page
+        assert session.max_files == 1
+    finally:
+        session.cleanup()
+
+
+def test_template_upload_enters_calibration_discovery_with_received_bytes(tmp_path):
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    dialog = CalibrationDialog(application)
+    session = UploadSession("template", "template-calibration")
+    staged = tmp_path / "template.png"
+    staged.write_bytes(_image_bytes(tmp_path))
+    dialog.mobile_upload_session = session
+    dialog._start_discovery_from_bytes = Mock()
+    session.files_received.connect(dialog._on_mobile_upload_files)
+    try:
+        session.accept(staged, staged.stat().st_size)
+        dialog._start_discovery_from_bytes.assert_called_once_with(_image_bytes(tmp_path))
+        assert dialog.mobile_upload_session is None
+    finally:
+        session.cleanup()
+        dialog.close()
+
+
 def test_upload_page_and_desktop_qr_controls_are_local_and_mobile_ready(tmp_path):
     session = UploadSession("student", "exam-id")
     key_session = UploadSession("key", "exam-id")
@@ -164,6 +197,11 @@ def test_upload_page_and_desktop_qr_controls_are_local_and_mobile_ready(tmp_path
         assert "กระดาษคำตอบนักเรียน" in student_dialog.status_label.text()
         student_dialog.close()
         student_session.cleanup()
+        template_session = UploadSession("template", exam.id)
+        template_dialog = MobileUploadDialog(template_session, dialog)
+        assert template_dialog.windowTitle() == "เพิ่มภาพแม่แบบผ่านมือถือ"
+        template_dialog.close()
+        template_session.cleanup()
     finally:
         dialog.close()
 

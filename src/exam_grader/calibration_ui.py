@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import uuid
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import cv2
@@ -62,6 +63,7 @@ from exam_grader.calibration_model import (
     translate_block,
 )
 from exam_grader.imaging import analyze
+from exam_grader.local_upload import LanUnavailableError, UploadSession, UploadSessionError
 from exam_grader.template_discovery import (
     DiscoveryResult,
     discover_template,
@@ -1065,6 +1067,8 @@ class CalibrationDialog(QDialog):
         self._geometry_dirty = False
         self._geometry_warnings: list[str] = []
         self._close_pending = False
+        self.mobile_upload_session: UploadSession | None = None
+        self.mobile_upload_dialog: QDialog | None = None
         self.canvas = CalibrationCanvas()
         self.canvas.roi_updated.connect(self._on_canvas_roi_updated)
         self.canvas.block_updated.connect(self._on_canvas_block_updated)
@@ -1129,6 +1133,15 @@ class CalibrationDialog(QDialog):
         self.load_img_btn.setToolTip("เลือกไฟล์ภาพกระดาษคำตอบ (JPG, PNG) เพื่อใช้ในการปรับเทียบ")
         self.load_img_btn.clicked.connect(self._select_image)
         toolbar_row1.addWidget(self.load_img_btn)
+
+        from exam_grader.exam_ui import QrGlyphButton
+
+        self.mobile_load_btn = QrGlyphButton()
+        self.mobile_load_btn.setFixedSize(42, 36)
+        self.mobile_load_btn.setAccessibleName("เพิ่มภาพแม่แบบผ่านมือถือ")
+        self.mobile_load_btn.setToolTip("รับภาพแม่แบบจากมือถือผ่าน QR")
+        self.mobile_load_btn.clicked.connect(self._open_mobile_upload)
+        toolbar_row1.addWidget(self.mobile_load_btn)
 
         self.redetect_btn = QPushButton("ตรวจหาใหม่")
         self.redetect_btn.setToolTip("ตรวจหาตำแหน่งและโครงสร้างตารางคำตอบจากภาพปัจจุบันใหม่อีกครั้ง")
@@ -1539,16 +1552,8 @@ class CalibrationDialog(QDialog):
             QMessageBox.warning(self, "โหลดภาพอ้างอิงไม่สำเร็จ", str(err))
 
     def _select_image(self) -> None:
-        if self._geometry_dirty:
-            answer = QMessageBox.question(
-                self,
-                "ยืนยันตรวจหาใหม่",
-                "การโหลดภาพใหม่จะแทนที่การแก้ไขตารางปัจจุบัน ต้องการตรวจหาโครงสร้างจากภาพอื่นหรือไม่?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if answer != QMessageBox.StandardButton.Yes:
-                return
+        if not self._confirm_image_replacement():
+            return
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "เลือกภาพกระดาษคำตอบเปล่าเพื่อปรับเทียบ",
@@ -1560,26 +1565,91 @@ class CalibrationDialog(QDialog):
 
         try:
             data = open(file_path, "rb").read()
-            self.raw_image_bytes = data
-            self.progress_bar.setVisible(True)
-            self.summary_lbl.setText("กำลังประมวลผลและตรวจหาโครงสร้างตารางคำตอบ...")
-            self._discovery_generation += 1
-            generation = self._discovery_generation
-            revision = self._draft_revision
-            worker = DiscoveryWorker(data)
-            self.discovery_worker = worker
-            self._track_worker(worker)
-            worker.completed.connect(
-                lambda result, gen=generation, rev=revision: self._handle_discovery_finished(
-                    result, gen, rev
-                )
-            )
-            worker.failed.connect(
-                lambda message, gen=generation: self._handle_discovery_failed(message, gen)
-            )
-            worker.start()
+            self._start_discovery_from_bytes(data)
         except Exception as err:
             QMessageBox.critical(self, "อ่านไฟล์ไม่ได้", str(err))
+
+    def _confirm_image_replacement(self) -> bool:
+        if not self._geometry_dirty:
+            return True
+        answer = QMessageBox.question(
+            self,
+            "ยืนยันตรวจหาใหม่",
+            "การโหลดภาพใหม่จะแทนที่การแก้ไขตารางปัจจุบัน ต้องการตรวจหาโครงสร้างจากภาพอื่นหรือไม่?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _start_discovery_from_bytes(self, data: bytes) -> None:
+        self.raw_image_bytes = data
+        self.progress_bar.setVisible(True)
+        self.summary_lbl.setText("กำลังประมวลผลและตรวจหาโครงสร้างตารางคำตอบ...")
+        self._discovery_generation += 1
+        generation = self._discovery_generation
+        revision = self._draft_revision
+        worker = DiscoveryWorker(data)
+        self.discovery_worker = worker
+        self._track_worker(worker)
+        worker.completed.connect(
+            lambda result, gen=generation, rev=revision: self._handle_discovery_finished(
+                result, gen, rev
+            )
+        )
+        worker.failed.connect(
+            lambda message, gen=generation: self._handle_discovery_failed(message, gen)
+        )
+        worker.start()
+
+    def _open_mobile_upload(self) -> None:
+        if not self._confirm_image_replacement():
+            return
+        if self.mobile_upload_session and self.mobile_upload_session.is_active():
+            QMessageBox.information(self, "มี session อยู่แล้ว", "กรุณาปิด QR session เดิมก่อนเปิด session ใหม่")
+            return
+        self._cleanup_mobile_upload_session()
+
+        session = UploadSession("template", "template-calibration")
+        try:
+            session.start()
+        except (LanUnavailableError, UploadSessionError) as error:
+            session.cleanup()
+            QMessageBox.warning(self, "เปิด QR upload ไม่ได้", str(error))
+            return
+
+        from exam_grader.exam_ui import MobileUploadDialog
+
+        self.mobile_upload_session = session
+        dialog = MobileUploadDialog(session, self)
+        self.mobile_upload_dialog = dialog
+        session.files_received.connect(self._on_mobile_upload_files)
+        dialog.exec()
+        self.mobile_upload_dialog = None
+        self._cleanup_mobile_upload_session()
+
+    def _on_mobile_upload_files(self, paths: list[str]) -> None:
+        if self.mobile_upload_session is None:
+            for value in paths:
+                Path(value).unlink(missing_ok=True)
+            return
+        path = Path(paths[0]) if paths else None
+        if path is None:
+            return
+        try:
+            self._start_discovery_from_bytes(path.read_bytes())
+            if self.mobile_upload_dialog is not None:
+                self.mobile_upload_dialog.close()
+        except OSError as error:
+            QMessageBox.critical(self, "อ่านไฟล์จากมือถือไม่ได้", str(error))
+        finally:
+            self._cleanup_mobile_upload_session()
+
+    def _cleanup_mobile_upload_session(self) -> None:
+        session = self.mobile_upload_session
+        if session is None:
+            return
+        session.cleanup()
+        self.mobile_upload_session = None
 
     def _track_worker(self, worker: QThread) -> None:
         self._active_workers.append(worker)
@@ -1737,6 +1807,7 @@ class CalibrationDialog(QDialog):
     def closeEvent(self, event: Any) -> None:
         self._discovery_generation += 1
         self._grid_generation += 1
+        self._cleanup_mobile_upload_session()
         running = [worker for worker in self._active_workers if worker.isRunning()]
         if running:
             # Never block the GUI thread waiting for OpenCV.  QThread completion

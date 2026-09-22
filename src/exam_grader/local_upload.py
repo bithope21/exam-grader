@@ -31,6 +31,20 @@ from PySide6.QtCore import QObject, Signal
 ALLOWED_SUFFIXES = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
 MIME_SUFFIXES = {value: key for key, value in ALLOWED_SUFFIXES.items()}
 MAX_FILENAME_LENGTH = 160
+UPLOAD_PURPOSE_LABELS = {
+    "key": "เฉลย",
+    "student": "กระดาษคำตอบนักเรียน",
+    "template": "ภาพแม่แบบ",
+}
+
+
+def upload_purpose_label(purpose: str) -> str:
+    """Return the user-facing label for a supported mobile-upload purpose."""
+
+    try:
+        return UPLOAD_PURPOSE_LABELS[purpose]
+    except KeyError as error:
+        raise ValueError("ประเภท upload ไม่ถูกต้อง") from error
 
 
 @dataclass(frozen=True)
@@ -107,7 +121,7 @@ def _image_signature_matches(path: Path, suffix: str) -> bool:
 
 
 def _upload_page(session: "UploadSession") -> bytes:
-    purpose = "เฉลย" if session.purpose == "key" else "กระดาษคำตอบนักเรียน"
+    purpose = upload_purpose_label(session.purpose)
     multiple = " multiple" if session.purpose == "student" else ""
     max_files = session.max_files
     max_mb = session.limits.max_file_bytes // (1024 * 1024)
@@ -300,13 +314,12 @@ class UploadSession(QObject):
         parent: QObject | None = None,
     ):
         super().__init__(parent)
-        if purpose not in {"key", "student"}:
-            raise ValueError("ประเภท upload ไม่ถูกต้อง")
+        upload_purpose_label(purpose)
         self.purpose = purpose
         self.exam_id = exam_id
         self.room_id = room_id
         self.limits = limits or UploadLimits()
-        self.max_files = 1 if purpose == "key" else self.limits.max_files_per_session
+        self.max_files = 1 if purpose in {"key", "template"} else self.limits.max_files_per_session
         self.token = secrets.token_urlsafe(32)
         self.endpoint_path = f"/upload/{self.token}"
         self._lock = threading.RLock()
