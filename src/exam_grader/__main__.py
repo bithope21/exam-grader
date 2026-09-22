@@ -58,6 +58,7 @@ def main() -> int:
         return 0
     from PySide6.QtWidgets import QApplication
 
+    from exam_grader.numeric_widgets import ensure_arabic_numeric_locale
     from exam_grader.preferences import apply_appearance_theme
     from exam_grader.ui import MainWindow
 
@@ -71,6 +72,7 @@ def main() -> int:
         except Exception:
             pass
 
+    ensure_arabic_numeric_locale()
     qt = QApplication(sys.argv[:1])
     resources_dir = Path(__file__).resolve().parent / "resources"
     icon_ico = resources_dir / "icon.ico"

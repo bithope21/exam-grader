@@ -43,6 +43,9 @@ def _ensure_render_application() -> None:
     global _RENDER_APPLICATION
     if QApplication.instance() is not None:
         return
+    from exam_grader.numeric_widgets import ensure_arabic_numeric_locale
+
+    ensure_arabic_numeric_locale()
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     _RENDER_APPLICATION = QApplication([])
 

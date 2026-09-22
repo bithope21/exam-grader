@@ -31,6 +31,12 @@ from PySide6.QtWidgets import (
 
 from exam_grader.app import Application
 from exam_grader.domain import ExamDetails
+from exam_grader.numeric_widgets import (
+    NumericSpinBox,
+    attach_digit_normalizer,
+    ensure_arabic_numeric_locale,
+    normalize_digits,
+)
 from exam_grader.preferences import (
     appearance_mode,
     apply_appearance_theme,
@@ -99,6 +105,8 @@ class NewExamDialog(QDialog):
                 line = field.lineEdit()
                 if line:
                     line.setMaxLength(200)
+                    if key in {"academic_year", "grade", "room"}:
+                        attach_digit_normalizer(line)
             else:
                 field = QLineEdit()
                 field.setMaxLength(200)
@@ -116,7 +124,7 @@ class NewExamDialog(QDialog):
         template_row.addWidget(self.manage_template_button)
         layout.addRow("รูปแบบกระดาษคำตอบ", template_row)
 
-        self.question_count = QSpinBox()
+        self.question_count = NumericSpinBox()
         self.question_count.setRange(1, 60)
         self.question_count.setValue(60)
         layout.addRow("จำนวนข้อของข้อสอบ", self.question_count)
@@ -124,7 +132,7 @@ class NewExamDialog(QDialog):
         self._load_templates_list()
         self.template_combo.currentIndexChanged.connect(self._on_template_changed)
 
-        self.expected_number_max = QSpinBox()
+        self.expected_number_max = NumericSpinBox()
         self.expected_number_max.setRange(0, 9999)
         self.expected_number_max.setSpecialValueText("ไม่กำหนด")
         self.expected_number_max.setMinimumWidth(110)
@@ -206,9 +214,9 @@ class NewExamDialog(QDialog):
 
             self.details = ExamDetails(
                 name=values.get("name", ""),
-                academic_year=values.get("academic_year", ""),
-                grade=values.get("grade", ""),
-                room=values.get("room", ""),
+                academic_year=normalize_digits(values.get("academic_year", "")),
+                grade=normalize_digits(values.get("grade", "")),
+                room=normalize_digits(values.get("room", "")),
                 subject=values.get("subject", ""),
                 question_count=self.question_count.value(),
                 expected_number_max=self.expected_number_max.value() or None,

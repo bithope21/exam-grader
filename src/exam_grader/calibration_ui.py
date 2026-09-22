@@ -49,10 +49,16 @@ from exam_grader.calibration_model import (
     CalibrationDraft,
     append_choice,
     append_row,
+    auto_detect_template,
     cell_box_for_block,
     compile_draft,
+    nudge_all_blocks,
+    nudge_block,
+    nudge_roi,
+    remove_choice,
     remove_choice_at_end,
     remove_grid_line,
+    remove_row,
     remove_row_at_end,
     renumber_blocks,
     resize_block_from_origin,
@@ -1281,14 +1287,15 @@ class CalibrationDialog(QDialog):
         self.id_input = QLineEdit()
         self.id_input.setPlaceholderText("เช่น custom-final-30q")
         self.id_input.setMinimumWidth(180)
+        attach_digit_normalizer(self.id_input)
         form.addRow("รหัส (ID):", self.id_input)
 
-        self.q_count_spin = QSpinBox()
+        self.q_count_spin = NumericSpinBox()
         self.q_count_spin.setRange(1, 60)
         self.q_count_spin.setValue(30)
         form.addRow("จำนวนข้อรวม:", self.q_count_spin)
 
-        self.choice_count_spin = QSpinBox()
+        self.choice_count_spin = NumericSpinBox()
         self.choice_count_spin.setRange(2, 5)
         self.choice_count_spin.setValue(4)
         self.choice_count_spin.valueChanged.connect(self._on_choice_count_changed)
@@ -1298,7 +1305,7 @@ class CalibrationDialog(QDialog):
         self.header_style_combo.addItems(["ภาษาไทย (ก, ข, ค, ง, จ)", "ภาษาอังกฤษ (A, B, C, D, E)"])
         form.addRow("รูปแบบหัวตัวเลือก:", self.header_style_combo)
 
-        self.inset_spin = QSpinBox()
+        self.inset_spin = NumericSpinBox()
         self.inset_spin.setRange(1, 12)
         self.inset_spin.setValue(6)
         self.inset_spin.setToolTip("ระยะเว้นขอบกรอบดำของแต่ละช่อง (พิกเซล)")
@@ -1379,7 +1386,7 @@ class CalibrationDialog(QDialog):
 
         row_count_row = QHBoxLayout()
         row_count_row.addWidget(QLabel("จำนวนแถว (ข้อ):"))
-        self.block_row_spin = QSpinBox()
+        self.block_row_spin = NumericSpinBox()
         self.block_row_spin.setRange(1, 60)
         self.block_row_spin.setValue(10)
         self.block_row_spin.setEnabled(False)
@@ -1421,7 +1428,7 @@ class CalibrationDialog(QDialog):
 
         line_position_row = QHBoxLayout()
         line_position_row.addWidget(QLabel("พิกัดเส้น (px):"))
-        self.line_position_spin = QSpinBox()
+        self.line_position_spin = NumericSpinBox()
         self.line_position_spin.setRange(0, 100000)
         self.line_position_spin.setEnabled(False)
         line_position_row.addWidget(self.line_position_spin, 1)

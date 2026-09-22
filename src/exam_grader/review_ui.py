@@ -35,6 +35,11 @@ from exam_grader.document_normalization_ui import ManualCropDialog
 from exam_grader.geometry_resolution import GeometryResolutionError, geometry_from_detection
 from exam_grader.imaging import decode
 from exam_grader.imports import ImportService
+from exam_grader.numeric_widgets import (
+    NumericSpinBox,
+    attach_digit_normalizer,
+    normalize_digits,
+)
 from exam_grader.review_service import ReviewService
 from exam_grader.workflow import Workflow
 
@@ -322,6 +327,7 @@ class ReviewDialog(QDialog):
         controls.setContentsMargins(8, 0, 0, 0)
         self.number = QLineEdit()
         self.number.setPlaceholderText("เลขที่นักเรียน")
+        attach_digit_normalizer(self.number, digits_only=True)
         suggested_candidate = None
         if not self.key_mode:
             controls.addWidget(QLabel("เลขที่ (ตรวจจากภาพต้นฉบับ)"))
@@ -352,7 +358,7 @@ class ReviewDialog(QDialog):
                 )
                 hint.setProperty("role", "warning")
                 controls.addWidget(hint)
-        self.count = QSpinBox()
+        self.count = NumericSpinBox()
         self.count.setRange(1, 60)
         self.count.setValue(
             self.flow.question_count(source["exam_id"])
@@ -746,7 +752,7 @@ class ReviewDialog(QDialog):
             else:
                 self.flow.review(
                     self.source["id"],
-                    self.number.text(),
+                    normalize_digits(self.number.text()).strip(),
                     student_answers,
                     (self.key or {})["id"],
                     detection_id=self.observed_detection,

@@ -63,6 +63,12 @@ from exam_grader.local_upload import (
     UploadSessionError,
     upload_purpose_label,
 )
+from exam_grader.numeric_widgets import (
+    NumericSpinBox,
+    attach_digit_normalizer,
+    normalize_digits,
+    parse_int_safe,
+)
 from exam_grader.preferences import default_output_root
 from exam_grader.review_service import ReviewService
 from exam_grader.review_ui import ReviewDialog
@@ -470,7 +476,7 @@ class AssessmentIndicatorsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-        self.rows: list[tuple[QWidget, QLineEdit, QSpinBox, QSpinBox]] = []
+        self.rows: list[tuple[QWidget, QLineEdit, NumericSpinBox, NumericSpinBox]] = []
         existing = Workflow(database).list_assessment_indicators(exam_id)
         try:
             validate_assessment_indicators(existing, question_count)
@@ -484,14 +490,16 @@ class AssessmentIndicatorsDialog(QDialog):
         container = QWidget(self)
         row = QHBoxLayout(container)
         row.setContentsMargins(0, 0, 0, 0)
-        identifier = QLineEdit(str((item or {}).get("identifier", "")))
+        raw_identifier = str((item or {}).get("identifier", ""))
+        identifier = QLineEdit(normalize_digits(raw_identifier))
         identifier.setPlaceholderText("เช่น 2.1, การอ่าน, ว 2.1")
         identifier.setMaxLength(120)
-        from_question = QSpinBox()
-        to_question = QSpinBox()
+        attach_digit_normalizer(identifier)
+        from_question = NumericSpinBox()
+        to_question = NumericSpinBox()
         for control, key in ((from_question, "from_question"), (to_question, "to_question")):
             control.setRange(1, 9999)
-            control.setValue(int((item or {}).get(key, 1)))
+            control.setValue(parse_int_safe((item or {}).get(key, 1), 1))
             control.setToolTip(f"ต้องอยู่ในช่วง 1 ถึง {self.question_count}")
         remove = QPushButton("ลบ")
         remove.setProperty("destructive", True)
@@ -517,7 +525,7 @@ class AssessmentIndicatorsDialog(QDialog):
     def accept(self) -> None:
         values = [
             {
-                "identifier": identifier.text(),
+                "identifier": normalize_digits(identifier.text()).strip(),
                 "from_question": from_question.value(),
                 "to_question": to_question.value(),
             }
@@ -902,6 +910,7 @@ class ExamDialog(QDialog):
         label, accepted = QInputDialog.getText(self, "เพิ่มห้อง", "ชื่อห้อง / ชั้นเรียน:")
         if not accepted:
             return
+        label = normalize_digits(label).strip()
         try:
             room = self.application.exams.create_room(self.exam.id, label)
         except ValueError as error:
@@ -1591,6 +1600,7 @@ class ExamDialog(QDialog):
                     issue.get("prefill") or issue.get("candidate") or issue["number"] or ""
                 )
                 editor.setPlaceholderText("เลขที่")
+                attach_digit_normalizer(editor, digits_only=True)
             else:
                 editor = QComboBox()
                 options: list[tuple[str, str | None]] = [("— เลือก —", None)]
@@ -1704,6 +1714,7 @@ class ExamDialog(QDialog):
         if not value:
             raise ValueError("เลือกข้อมูลก่อนบันทึก")
         if issue["kind"] == "number":
+            value = normalize_digits(str(value)).strip()
             self.review_service.set_number(
                 issue["source"], value, expected_detection=issue["detection_id"]
             )
