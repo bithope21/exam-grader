@@ -1092,7 +1092,11 @@ def observe(
             sequence_model = _load_sequence_model(
                 str(sequence_model_path.resolve()), str(sequence_metadata_path.resolve())
             )
-            sequence_crop = cleaned_sequence_crop(processed)
+            # Keep the original grayscale stroke intensity for recognition.
+            # The binary form-cleaned image is still used for segmentation and
+            # diagnostics, but it can erase the distinctions the sequence
+            # recognizer needs for handwritten 7/9 and 2/7 shapes.
+            sequence_crop = cleaned_sequence_crop(gray)
             sequence_observation = _constrain_sequence_observation(
                 sequence_model.predict(sequence_crop),
                 StudentNumberConstraint("", student_number_max, "room")
@@ -1119,6 +1123,22 @@ def observe(
             diagnostics["candidate_votes"] = {
                 candidate: 1 for candidate in sequence_observation["candidates"]
             }
+            sequence_segmentation_complete = bool(boxes) and len(boxes) <= 6
+            selective_auto_accept = _selective_auto_accept_allowed(
+                sequence_model,
+                sequence_observation["candidate"],
+                sequence_observation["candidates"],
+                sequence_observation["confidence"],
+                sequence_observation["confidence_margin"],
+                segmentation_complete=sequence_segmentation_complete,
+                # The sequence model is the calibrated primary recognizer for
+                # this path; no competing recognizer is allowed to override it.
+                independent_agreement=True,
+                merged_component_suspected=merged_geometry_suspected,
+            )
+            diagnostics["merged_component_suspected"] = merged_geometry_suspected
+            diagnostics["segmentation_complete"] = sequence_segmentation_complete
+            diagnostics["selective_auto_accept"] = selective_auto_accept
             return {
                 **base,
                 "pipeline_version": sequence_model.version,
@@ -1126,11 +1146,16 @@ def observe(
                 "candidates": sequence_observation["candidates"],
                 "confidence": sequence_observation["confidence"],
                 "confidence_margin": sequence_observation["confidence_margin"],
+                "requires_review": not selective_auto_accept,
                 "diagnostics": diagnostics,
                 "review_reason": (
-                    "sequence candidate constrained to room range; teacher confirmation required"
-                    if student_number_max is not None
-                    else "sequence model candidate; teacher confirmation required"
+                    "selective confidence gate passed; no review required"
+                    if selective_auto_accept
+                    else (
+                        "sequence candidate constrained to room range; teacher confirmation required"
+                        if student_number_max is not None
+                        else "sequence model candidate; teacher confirmation required"
+                    )
                 ),
             }
 

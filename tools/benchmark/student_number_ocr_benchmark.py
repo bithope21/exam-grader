@@ -59,8 +59,8 @@ def _normalize_digits(value: Any) -> str | None:
 
 def _clean_sequence_crop(crop: np.ndarray) -> tuple[np.ndarray, list[list[int]]]:
     """Return a tight, form-cleaned sequence crop and diagnostic boxes."""
-    processed, boxes, _gray = preprocess(crop)
-    return cleaned_sequence_crop(processed), boxes
+    _processed, boxes, gray = preprocess(crop)
+    return cleaned_sequence_crop(gray), boxes
 
 
 def _directory_size(path: Path) -> int | None:

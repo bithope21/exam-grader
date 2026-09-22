@@ -1,6 +1,6 @@
 import numpy as np
 
-from exam_grader.identity import _constrain_sequence_observation
+from exam_grader.identity import _constrain_sequence_observation, _selective_auto_accept_allowed
 from exam_grader.student_number_constraints import StudentNumberConstraint
 from exam_grader.student_number_ocr import decode_digit_logits
 
@@ -48,3 +48,23 @@ def test_known_room_max_filters_impossible_sequence_candidate_before_selection()
     assert result["raw_candidate"] == "111"
     assert result["candidate"] == "14"
     assert result["candidates"] == ["14", "11"]
+
+
+def test_sequence_gate_accepts_only_the_calibrated_high_confidence_band():
+    class CalibratedModel:
+        calibration = {
+            "auto_accept_enabled": True,
+            "auto_accept_min_confidence": 0.90,
+            "auto_accept_min_margin": 0.45,
+        }
+
+    assert _selective_auto_accept_allowed(
+        CalibratedModel(), "26", ["26", "21"], 0.95, 0.63,
+        segmentation_complete=True,
+        independent_agreement=True,
+    )
+    assert not _selective_auto_accept_allowed(
+        CalibratedModel(), "12", ["12", "2"], 0.20, 0.11,
+        segmentation_complete=True,
+        independent_agreement=True,
+    )

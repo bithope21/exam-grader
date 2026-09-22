@@ -201,6 +201,7 @@ class OnnxStudentNumberRecognizer:
         self.version = str(metadata.get("version", "student-number-ppocrv6-small-onnx-v1"))
         mapping = metadata.get("digit_class_indices", DEFAULT_DIGIT_CLASS_INDICES)
         self.digit_class_indices = {str(key): int(value) for key, value in mapping.items()}
+        self.calibration = dict(metadata.get("calibration", {}))
         self.expected_sha256 = metadata.get("model_sha256")
         self._session = None
 
