@@ -319,6 +319,48 @@ def _constrain_sequence_observation(
     }
 
 
+def _select_sequence_variant_observation(
+    processed_observation: dict[str, Any],
+    gray_observation: dict[str, Any],
+    *,
+    gray_disagreement_min_confidence: float = 0.25,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Choose between form-cleaned and grayscale views without hiding disagreement.
+
+    The form-cleaned view removes printed rules and labels; the grayscale view
+    preserves stroke intensity that can distinguish similar handwritten digits.
+    Grayscale is the primary view when both agree, or when it has enough
+    evidence during a disagreement. A weak grayscale result falls back to the
+    form-cleaned view, while diagnostics retain both complete observations.
+    """
+    processed_candidate = processed_observation.get("candidate")
+    gray_candidate = gray_observation.get("candidate")
+    agreement = bool(processed_candidate and processed_candidate == gray_candidate)
+    gray_confidence = gray_observation.get("confidence")
+    gray_is_strong_enough = (
+        isinstance(gray_confidence, (int, float))
+        and math.isfinite(float(gray_confidence))
+        and float(gray_confidence) >= gray_disagreement_min_confidence
+    )
+    if agreement:
+        return gray_observation, {
+            "selected_variant": "gray-tight",
+            "variant_agreement": True,
+            "selection_reason": "views_agree",
+        }
+    if gray_is_strong_enough or not processed_candidate:
+        return gray_observation, {
+            "selected_variant": "gray-tight",
+            "variant_agreement": False,
+            "selection_reason": "gray_disagreement_evidence_passed",
+        }
+    return processed_observation, {
+        "selected_variant": "processed-tight",
+        "variant_agreement": False,
+        "selection_reason": "gray_disagreement_evidence_weak",
+    }
+
+
 def _digit_model_observation(model: Any, gray: np.ndarray, boxes: list[list[int]]) -> dict[str, Any] | None:
     if not 1 <= len(boxes) <= 6:
         return None
@@ -977,6 +1019,8 @@ def observe(
     crop = number_roi(data, matrix, template_def=template_def, image=image)
     scale = max(1.0, min(4.0, max(raw_img.shape[:2]) / max(canonical_width, canonical_height)))
     processed, boxes, gray = preprocess(crop, reference_crop=ref_crop)
+    sequence_base_crop = crop.copy()
+    sequence_base_gray = gray
     boxes = _filter_boxes_to_number_field(
         boxes,
         configured_roi=configured_roi,
@@ -1073,13 +1117,23 @@ def observe(
     if diagnostics_dir is not None:
         diagnostics_dir.mkdir(parents=True, exist_ok=True)
         (diagnostics_dir / "number_roi_original.png").write_bytes(encoded)
+        if top_padding:
+            cv2.imwrite(str(diagnostics_dir / "number_roi_pre_padding.png"), sequence_base_crop)
         cv2.imwrite(str(diagnostics_dir / "number_roi_processed.png"), processed)
         boxed = crop.copy()
         for x, y, w, h in boxes:
             cv2.rectangle(boxed, (x, y), (x + w, y + h), (0, 0, 220), 1)
         cv2.imwrite(str(diagnostics_dir / "segmented_digits.png"), boxed)
 
-    if use_bundled_sequence_model and digit_model_path is None and boxes:
+    gray_stroke_evidence = int(np.count_nonzero(gray < 120)) >= max(
+        200, round(gray.size * 0.01)
+    )
+    diagnostics["gray_stroke_evidence"] = gray_stroke_evidence
+    if (
+        use_bundled_sequence_model
+        and digit_model_path is None
+        and (boxes or gray_stroke_evidence)
+    ):
         from exam_grader.student_number_ocr import (
             bundled_student_number_metadata_path,
             bundled_student_number_model_path,
@@ -1092,36 +1146,114 @@ def observe(
             sequence_model = _load_sequence_model(
                 str(sequence_model_path.resolve()), str(sequence_metadata_path.resolve())
             )
-            # Keep the original grayscale stroke intensity for recognition.
-            # The binary form-cleaned image is still used for segmentation and
-            # diagnostics, but it can erase the distinctions the sequence
-            # recognizer needs for handwritten 7/9 and 2/7 shapes.
-            sequence_crop = cleaned_sequence_crop(gray)
-            sequence_observation = _constrain_sequence_observation(
-                sequence_model.predict(sequence_crop),
+            # Run the same recognizer on two complementary views. The
+            # form-cleaned view prevents dotted rules/printed labels from
+            # dominating, while grayscale retains stroke intensity useful for
+            # handwriting. Keep both observations for diagnostics and use a
+            # calibrated, conservative selector during disagreement.
+            constraint = (
                 StudentNumberConstraint("", student_number_max, "room")
                 if student_number_max is not None
-                else None,
+                else None
             )
+            processed_sequence_crop = cleaned_sequence_crop(processed)
+            gray_sequence_crop = cleaned_sequence_crop(gray)
+            processed_observation = _constrain_sequence_observation(
+                sequence_model.predict(processed_sequence_crop), constraint
+            )
+            gray_observation = _constrain_sequence_observation(
+                sequence_model.predict(gray_sequence_crop), constraint
+            )
+            gray_disagreement_min_confidence = float(
+                sequence_model.calibration.get(
+                    "ensemble_gray_disagreement_min_confidence", 0.25
+                )
+            )
+            sequence_observation, variant_selection = _select_sequence_variant_observation(
+                processed_observation,
+                gray_observation,
+                gray_disagreement_min_confidence=gray_disagreement_min_confidence,
+            )
+            variant_observations = {
+                "processed-tight": processed_observation,
+                "gray-tight": gray_observation,
+            }
+            variant_crops = {
+                "processed-tight": processed_sequence_crop,
+                "gray-tight": gray_sequence_crop,
+            }
+            # The top-padding recovery window can change the recognizer's
+            # aspect ratio enough to hurt a clipped single digit. Keep the
+            # original registered window as a third, safe view when recovery
+            # was activated; never use a per-image exception.
+            if top_padding:
+                original_gray_crop = cleaned_sequence_crop(sequence_base_gray)
+                original_gray_observation = _constrain_sequence_observation(
+                    sequence_model.predict(original_gray_crop), constraint
+                )
+                variant_observations["gray-original-tight"] = original_gray_observation
+                variant_crops["gray-original-tight"] = original_gray_crop
+                original_confidence = original_gray_observation.get("confidence")
+                current_confidence = gray_observation.get("confidence")
+                if (
+                    original_gray_observation.get("candidate")
+                    and isinstance(original_confidence, (int, float))
+                    and float(original_confidence) >= gray_disagreement_min_confidence
+                    and (
+                        variant_selection["selected_variant"] == "processed-tight"
+                        or not isinstance(current_confidence, (int, float))
+                        or float(original_confidence) > float(current_confidence)
+                    )
+                ):
+                    sequence_observation = original_gray_observation
+                    variant_selection = {
+                        **variant_selection,
+                        "selected_variant": "gray-original-tight",
+                        "selection_reason": "original_window_evidence_passed",
+                    }
             diagnostics["model"] = sequence_model.version
             diagnostics["sequence_model"] = {
                 "path": str(sequence_model_path.resolve()),
                 "version": sequence_model.version,
-                "input_shape": list(sequence_crop.shape),
+                "input_shape": list(
+                    variant_crops[variant_selection["selected_variant"]].shape
+                ),
                 "constraint_max": student_number_max,
                 "constraint_source": sequence_observation["constraint_source"],
+                "views": {
+                    variant: {
+                        "input_shape": list(variant_crops[variant].shape),
+                        "candidate": observation["candidate"],
+                        "candidates": observation["candidates"],
+                        "candidate_scores": observation["candidate_scores"],
+                        "confidence": observation["confidence"],
+                        "confidence_margin": observation["confidence_margin"],
+                    }
+                    for variant, observation in variant_observations.items()
+                },
+                **variant_selection,
+                "gray_disagreement_min_confidence": gray_disagreement_min_confidence,
             }
             diagnostics["recognizer_runs"] = [
                 {
-                    "variant": "onnx-sequence-digits-only",
+                    "variant": f"onnx-sequence-digits-only:{variant}",
                     "candidate": candidate,
                     "raw_score": score,
                 }
-                for candidate, score in sequence_observation["raw_candidate_scores"].items()
+                for variant, observation in variant_observations.items()
+                for candidate, score in observation["raw_candidate_scores"].items()
             ]
             diagnostics["candidate_scores"] = sequence_observation["candidate_scores"]
             diagnostics["candidate_votes"] = {
-                candidate: 1 for candidate in sequence_observation["candidates"]
+                candidate: sum(
+                    candidate == observation.get("candidate")
+                    for observation in variant_observations.values()
+                )
+                for candidate in {
+                    observation.get("candidate")
+                    for observation in variant_observations.values()
+                }
+                if candidate
             }
             sequence_segmentation_complete = bool(boxes) and len(boxes) <= 6
             selective_auto_accept = _selective_auto_accept_allowed(
@@ -1138,6 +1270,8 @@ def observe(
             )
             diagnostics["merged_component_suspected"] = merged_geometry_suspected
             diagnostics["segmentation_complete"] = sequence_segmentation_complete
+            diagnostics["sequence_variant_agreement"] = variant_selection["variant_agreement"]
+            diagnostics["sequence_selected_variant"] = variant_selection["selected_variant"]
             diagnostics["selective_auto_accept"] = selective_auto_accept
             return {
                 **base,

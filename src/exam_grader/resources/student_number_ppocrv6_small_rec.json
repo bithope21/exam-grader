@@ -5,14 +5,16 @@
   "model_sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634",
   "model_size_bytes": 21159378,
   "calibration": {
-    "status": "held_out_screening_gate_v1",
-    "scope": "Vol.8-Vol.11 held-out benchmark",
+    "status": "regression_screening_gate_v2",
+    "scope": "Vol.8-Vol.11 Student Number regression corpus",
     "records": 74,
     "wrong_auto_accept": 0,
     "generalization_claim_allowed": false,
     "auto_accept_enabled": true,
     "auto_accept_min_confidence": 0.9,
     "auto_accept_min_margin": 0.45,
+    "ensemble_gray_disagreement_min_confidence": 0.25,
+    "ensemble_views": ["processed-tight", "gray-tight", "gray-original-tight"],
     "requires_recalibration_on_preprocessing_change": true
   },
   "input": {

@@ -11,6 +11,7 @@ from exam_grader.identity import (
     _direct_segmented_alternatives,
     _group_digit_boxes,
     _rank_identity_candidates,
+    _select_sequence_variant_observation,
     _selective_auto_accept_allowed,
     _shape_segmented_suggestion,
     _supported_segmented_number,
@@ -226,6 +227,41 @@ def test_selective_auto_accept_requires_independent_agreement_and_clean_geometry
     assert not _selective_auto_accept_allowed(
         FakeModel(), "7", ["7"], 110.0, 100.0, **{**kwargs, "merged_component_suspected": True}
     )
+
+
+def test_sequence_variant_selector_prefers_cleaned_view_when_gray_evidence_is_weak():
+    processed = {"candidate": "7", "confidence": 0.99}
+    gray = {"candidate": "9", "confidence": 0.21}
+
+    selected, diagnostics = _select_sequence_variant_observation(processed, gray)
+
+    assert selected is processed
+    assert diagnostics == {
+        "selected_variant": "processed-tight",
+        "variant_agreement": False,
+        "selection_reason": "gray_disagreement_evidence_weak",
+    }
+
+
+def test_sequence_variant_selector_keeps_gray_view_when_disagreement_has_evidence():
+    processed = {"candidate": "1", "confidence": 0.98}
+    gray = {"candidate": "19", "confidence": 0.77}
+
+    selected, diagnostics = _select_sequence_variant_observation(processed, gray)
+
+    assert selected is gray
+    assert diagnostics["selected_variant"] == "gray-tight"
+    assert diagnostics["variant_agreement"] is False
+
+
+def test_sequence_variant_selector_marks_matching_views_as_agreement():
+    processed = {"candidate": "26", "confidence": 0.91}
+    gray = {"candidate": "26", "confidence": 0.82}
+
+    selected, diagnostics = _select_sequence_variant_observation(processed, gray)
+
+    assert selected is gray
+    assert diagnostics["variant_agreement"] is True
 
 
 def test_bounded_single_stroke_correction_only_handles_narrow_open_nine_pair():
