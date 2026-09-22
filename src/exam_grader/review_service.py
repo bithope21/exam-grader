@@ -177,6 +177,9 @@ class ReviewService:
             choices = observation.get("candidates") or []
             confidence = observation.get("confidence")
             margin = observation.get("confidence_margin")
+            calibrated_auto_accept = bool(
+                (observation.get("diagnostics") or {}).get("selective_auto_accept")
+            )
             # Recognizer evidence comes first: adopt if it is either the sole
             # candidate or has strong evidence (high confidence >= 80 and clear margin >= 15).
             is_unambiguous = candidate and choices == [candidate]
@@ -186,7 +189,7 @@ class ReviewService:
                 and confidence >= 80.0
                 and (margin is None or margin >= 15.0)
             )
-            if is_unambiguous or is_confident:
+            if calibrated_auto_accept or is_unambiguous or is_confident:
                 proposed[state["source"]["id"]] = candidate
         observations = {
             s["source"]["id"]: s["detection"].get("student_number_observation", {}) for s in states

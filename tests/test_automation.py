@@ -73,6 +73,25 @@ def test_bulk_adoption_never_adopts_a_review_required_student_number(tmp_path):
     assert service.state(source)["number"] is None
 
 
+def test_bulk_adoption_accepts_only_the_student_number_gate_result(tmp_path):
+    flow, exam, source, service = setup_auto(tmp_path)
+    gated = observation(number="26")
+    gated["student_number_observation"] = {
+        "candidate": "26",
+        "candidates": ["26", "21"],
+        "confidence": 0.95,
+        "confidence_margin": 0.63,
+        "requires_review": False,
+        "diagnostics": {"selective_auto_accept": True},
+    }
+    flow.save_detection(source["id"], gated)
+
+    result = service.adopt_numbers(exam.id)
+
+    assert result["applied"] == [source["id"]]
+    assert service.state(source)["number"] == "26"
+
+
 def test_bulk_adoption_cannot_resolve_review_required_number_from_roster_gaps(tmp_path):
     flow, exam, source, service = setup_auto(tmp_path)
     other = another_student(flow, exam, tmp_path)
