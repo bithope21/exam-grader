@@ -1,0 +1,27 @@
+{
+  "version": "student-number-ppocrv6-small-onnx-v1",
+  "source_model": "PaddlePaddle/PP-OCRv6_small_rec_onnx",
+  "license": "Apache-2.0",
+  "model_sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634",
+  "model_size_bytes": 21159378,
+  "input": {
+    "height": 48,
+    "width": 320,
+    "channels": 3,
+    "color_order": "BGR",
+    "normalization": "(pixel / 255 - 0.5) / 0.5",
+    "padding": "zero after normalization"
+  },
+  "digit_class_indices": {
+    "0": 33,
+    "1": 34,
+    "2": 35,
+    "3": 36,
+    "4": 37,
+    "5": 38,
+    "6": 39,
+    "7": 40,
+    "8": 41,
+    "9": 42
+  }
+}

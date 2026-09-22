@@ -56,6 +56,7 @@ class ExamRoom:
     sort_order: int
     created_at: str
     updated_at: str
+    expected_number_max: int | None = None
 
     def __post_init__(self) -> None:
         label = self.label.strip()
@@ -64,3 +65,5 @@ class ExamRoom:
         if len(label) > 200:
             raise ValueError("ชื่อห้องต้องไม่เกิน 200 ตัวอักษร")
         object.__setattr__(self, "label", label)
+        if self.expected_number_max is not None and not 1 <= self.expected_number_max <= 9999:
+            raise ValueError("เลขที่คาดหวังต้องอยู่ระหว่าง 1 ถึง 9999")

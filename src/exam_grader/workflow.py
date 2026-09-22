@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from exam_grader.student_number_constraints import resolve_student_number_constraint
+
 CHOICES = ("A", "B", "C", "D", "E")
 RESOLVED = (*CHOICES, "blank", "multiple", "boundary_cross")
 POLICY = "one-point-first-n-v2-accepted-set-boundary-v1"
@@ -340,6 +342,9 @@ class Workflow:
             if room is None:
                 raise ValueError("ไม่พบห้องเรียน")
             active_room_id = room["id"]
+            student_number_constraint = resolve_student_number_constraint(
+                connection, exam_id, active_room_id
+            )
             raw_indicators = [
                 dict(row)
                 for row in connection.execute(
@@ -386,7 +391,7 @@ class Workflow:
                         if not identity_text.isascii() or not identity_text.isdigit():
                             raise ValueError("ผลตรวจบางส่วนมีเลขที่ที่ยืนยันไม่ถูกต้อง")
                         identity = int(identity_text)
-                        if exam["expected_number_max"] and identity > exam["expected_number_max"]:
+                        if not student_number_constraint.allows(identity):
                             raise ValueError("เลขที่เกินช่วงที่กำหนด กรุณาแก้ก่อนออกผล")
                         if identity in identities:
                             raise ValueError(f"เลขที่ซ้ำ: {identity_text} กรุณาแก้ไขก่อนออกผล")
@@ -441,7 +446,7 @@ class Workflow:
                 ):
                     raise ValueError("เลขที่เปลี่ยนแล้ว กรุณาแก้รายการที่ยังมีปัญหาก่อนออกผล")
                 identity = int(review["student_number"])
-                if exam["expected_number_max"] and identity > exam["expected_number_max"]:
+                if not student_number_constraint.allows(identity):
                     raise ValueError("เลขที่เกินช่วงที่กำหนด กรุณาแก้ก่อนออกผล")
                 attendance = connection.execute(
                     "SELECT status FROM attendance WHERE room_id=? AND student_number=?",
@@ -516,6 +521,10 @@ class Workflow:
                 "schema_version": 2,
                 "exam": dict(exam),
                 "room": dict(room),
+                "student_number_constraint": {
+                    "maximum": student_number_constraint.maximum,
+                    "source": student_number_constraint.source,
+                },
                 "key": key,
                 "assessment_indicators": {
                     "valid": indicator_error is None,
@@ -571,7 +580,7 @@ class Workflow:
             for item in snapshot["results"]
             if str(item["student_number"]).isascii() and str(item["student_number"]).isdigit()
         )
-        expected_max = snapshot["exam"].get("expected_number_max")
+        expected_max = snapshot["student_number_constraint"]["maximum"]
         if not observed:
             return {
                 "observed": [],

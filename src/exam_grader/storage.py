@@ -20,7 +20,7 @@ class ExamStore:
         if self.path.exists() and self.path.stat().st_size > 0:
             with closing(sqlite3.connect(self.path)) as check_conn:
                 v = check_conn.execute("PRAGMA user_version").fetchone()[0]
-                if 0 < v < 15:
+                if 0 < v < 16:
                     backup_path = self.path.with_name(f"{self.path.name}.v{v}.bak")
                     if not backup_path.exists():
                         with closing(sqlite3.connect(backup_path)) as bck_conn:
@@ -28,7 +28,7 @@ class ExamStore:
         with closing(sqlite3.connect(self.path)) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 15:
+            if version > 16:
                 raise RuntimeError("ฐานข้อมูลเป็นรุ่นใหม่กว่าแอปนี้ กรุณาใช้แอปรุ่นใหม่")
             if version == 0:
                 connection.execute("""
@@ -265,6 +265,15 @@ class ExamStore:
                     UNIQUE(exam_id, position)
                 )""")
                 connection.execute("PRAGMA user_version = 15")
+            if version < 16:
+                connection.execute("ALTER TABLE exam_rooms ADD COLUMN expected_number_max INTEGER")
+                connection.execute(
+                    "UPDATE exam_rooms SET expected_number_max=("
+                    "SELECT expected_number_max FROM exams WHERE exams.id=exam_rooms.exam_id) "
+                    "WHERE id=(SELECT first_room.id FROM exam_rooms AS first_room "
+                    "WHERE first_room.exam_id=exam_rooms.exam_id ORDER BY sort_order,id LIMIT 1)"
+                )
+                connection.execute("PRAGMA user_version = 16")
 
     def create(self, details: ExamDetails) -> Exam:
         room_label = details.room.strip() or "ห้อง 1"
@@ -292,8 +301,9 @@ class ExamStore:
                 ),
             )
             connection.execute(
-                "INSERT INTO exam_rooms (id,exam_id,room_label,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?)",
-                (str(uuid4()), exam.id, room_label, 0, now, now),
+                "INSERT INTO exam_rooms (id,exam_id,room_label,sort_order,created_at,updated_at,expected_number_max) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (str(uuid4()), exam.id, room_label, 0, now, now, details.expected_number_max),
             )
         return exam
 
@@ -304,7 +314,7 @@ class ExamStore:
     def list_rooms(self, exam_id: str) -> list[ExamRoom]:
         with closing(sqlite3.connect(self.path)) as connection:
             rows = connection.execute(
-                "SELECT id,exam_id,room_label,sort_order,created_at,updated_at FROM exam_rooms "
+                "SELECT id,exam_id,room_label,sort_order,created_at,updated_at,expected_number_max FROM exam_rooms "
                 "WHERE exam_id=? ORDER BY sort_order,id",
                 (exam_id,),
             ).fetchall()
@@ -313,20 +323,24 @@ class ExamStore:
     def get_room(self, room_id: str) -> ExamRoom:
         with closing(sqlite3.connect(self.path)) as connection:
             row = connection.execute(
-                "SELECT id,exam_id,room_label,sort_order,created_at,updated_at FROM exam_rooms WHERE id=?",
+                "SELECT id,exam_id,room_label,sort_order,created_at,updated_at,expected_number_max FROM exam_rooms WHERE id=?",
                 (room_id,),
             ).fetchone()
         if row is None:
             raise ValueError("ไม่พบห้องเรียน")
         return ExamRoom(*row)
 
-    def create_room(self, exam_id: str, label: str) -> ExamRoom:
+    def create_room(
+        self, exam_id: str, label: str, expected_number_max: int | None = None
+    ) -> ExamRoom:
         label = unicodedata.normalize("NFKC", label).strip()
         label = " ".join(label.split())
         if not label:
             raise ValueError("กรุณาระบุชื่อห้องเรียน")
         if len(label) > 200:
             raise ValueError("ชื่อห้องต้องไม่เกิน 200 ตัวอักษร")
+        if expected_number_max is not None and not 1 <= expected_number_max <= 9999:
+            raise ValueError("เลขที่คาดหวังต้องอยู่ระหว่าง 1 ถึง 9999")
         with closing(sqlite3.connect(self.path)) as connection, connection:
             if not connection.execute("SELECT 1 FROM exams WHERE id=?", (exam_id,)).fetchone():
                 raise ValueError("ไม่พบข้อสอบ")
@@ -342,8 +356,9 @@ class ExamStore:
                 (exam_id,),
             ).fetchone()[0]
             connection.execute(
-                "INSERT INTO exam_rooms (id,exam_id,room_label,sort_order,created_at,updated_at) VALUES (?,?,?,?,?,?)",
-                (room_id, exam_id, label, sort_order, now, now),
+                "INSERT INTO exam_rooms (id,exam_id,room_label,sort_order,created_at,updated_at,expected_number_max) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (room_id, exam_id, label, sort_order, now, now, expected_number_max),
             )
         return self.get_room(room_id)
 
@@ -406,6 +421,22 @@ class ExamStore:
             connection.execute(
                 "UPDATE exams SET expected_number_max=? WHERE id=?", (maximum, exam_id)
             )
+            connection.execute(
+                "UPDATE exam_rooms SET expected_number_max=? WHERE id=("
+                "SELECT id FROM exam_rooms WHERE exam_id=? ORDER BY sort_order,id LIMIT 1)",
+                (maximum, exam_id),
+            )
+
+    def set_room_expected_number_max(self, room_id: str, maximum: int | None) -> None:
+        if maximum is not None and not 1 <= maximum <= 9999:
+            raise ValueError("เลขที่คาดหวังต้องอยู่ระหว่าง 1 ถึง 9999")
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            changed = connection.execute(
+                "UPDATE exam_rooms SET expected_number_max=?,updated_at=? WHERE id=?",
+                (maximum, datetime.now(timezone.utc).isoformat(), room_id),
+            ).rowcount
+            if not changed:
+                raise ValueError("ไม่พบห้องเรียน")
 
     def get(self, exam_id: str) -> Exam:
         with closing(sqlite3.connect(self.path)) as connection:

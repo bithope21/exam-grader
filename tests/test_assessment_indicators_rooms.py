@@ -5,6 +5,7 @@ from openpyxl import load_workbook
 from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 
+import exam_grader.exam_ui as exam_ui
 from exam_grader.app import initialize
 from exam_grader.domain import ExamDetails
 from exam_grader.exporting import export_results
@@ -227,7 +228,7 @@ def test_v14_exam_room_data_migrates_without_loss(tmp_path):
                 PRIMARY KEY(exam_id, student_number)
             );
             INSERT INTO exams VALUES
-                ('exam-1','สอบ','2569','ป.1','ป.1/1','คณิต',4,NULL,NULL,NULL,'default-1',1,'2026');
+                ('exam-1','สอบ','2569','ป.1','ป.1/1','คณิต',4,30,NULL,NULL,'default-1',1,'2026');
             INSERT INTO sources VALUES
                 ('key-1','exam-1','key-hash','key.png','input/key',30,40,'2026','key',NULL),
                 ('student-1','exam-1','student-hash','student.png','input/student',30,40,'2026','student',NULL);
@@ -248,7 +249,7 @@ def test_v14_exam_room_data_migrates_without_loss(tmp_path):
     room = store.list_rooms("exam-1")[0]
     with sqlite3.connect(database) as connection:
         connection.row_factory = sqlite3.Row
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 15
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
         assert connection.execute(
             "SELECT room_id FROM sources WHERE id='student-1'"
         ).fetchone()[0] == room.id
@@ -261,6 +262,32 @@ def test_v14_exam_room_data_migrates_without_loss(tmp_path):
         assert connection.execute(
             "SELECT room_id FROM export_runs WHERE id='export-1'"
         ).fetchone()[0] == room.id
+        assert room.expected_number_max == 30
+
+
+def test_student_number_max_is_room_scoped_and_unknown_rooms_do_not_inherit(tmp_path):
+    app = initialize(tmp_path / "data")
+    exam = app.exams.create(
+        ExamDetails("สอบ", "2569", "ม.4", "ป.1/1", "วิชา", 4, expected_number_max=30)
+    )
+    first_room = app.exams.list_rooms(exam.id)[0]
+    second_room = app.exams.create_room(exam.id, "ป.1/2", expected_number_max=40)
+    third_room = app.exams.create_room(exam.id, "ป.1/3")
+
+    from exam_grader.student_number_constraints import resolve_student_number_constraint
+
+    with sqlite3.connect(app.exams.path) as connection:
+        connection.row_factory = sqlite3.Row
+        first = resolve_student_number_constraint(connection, exam.id, first_room.id)
+        second = resolve_student_number_constraint(connection, exam.id, second_room.id)
+        third = resolve_student_number_constraint(connection, exam.id, third_room.id)
+
+    assert (first.maximum, first.source) == (30, "room")
+    assert (second.maximum, second.source) == (40, "room")
+    assert (third.maximum, third.source) == (None, "unknown")
+    assert first.allows(30) and not first.allows(31)
+    assert second.allows(40) and not second.allows(41)
+    assert third.allows(9999)
 
 
 def test_indicator_dialog_and_optional_room_creation(tmp_path):
@@ -292,4 +319,20 @@ def test_indicator_dialog_and_optional_room_creation(tmp_path):
     new_dialog = NewExamDialog(application=app)
     assert new_dialog.fields["room"].currentText() == ""
     new_dialog.close()
+    qt.processEvents()
+
+
+def test_added_room_accepts_optional_expected_number_max(tmp_path, monkeypatch):
+    qt = QApplication.instance() or QApplication([])
+    app = initialize(tmp_path / "data")
+    exam = app.exams.create(ExamDetails("สอบ", "2569", "ป.1", "", "คณิต", 4))
+    dialog = exam_ui.ExamDialog(app, exam)
+    monkeypatch.setattr(exam_ui.QInputDialog, "getText", lambda *args: ("ป.1/2", True))
+    monkeypatch.setattr(exam_ui.QInputDialog, "getInt", lambda *args: (40, True))
+
+    dialog._add_room()
+
+    room = app.exams.list_rooms(exam.id)[1]
+    assert room.expected_number_max == 40
+    dialog.close()
     qt.processEvents()

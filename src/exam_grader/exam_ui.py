@@ -38,7 +38,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
-    QSpinBox,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionToolButton,
@@ -72,6 +71,7 @@ from exam_grader.numeric_widgets import (
 from exam_grader.preferences import default_output_root
 from exam_grader.review_service import ReviewService
 from exam_grader.review_ui import ReviewDialog
+from exam_grader.student_number_constraints import resolve_student_number_constraint
 from exam_grader.template_manager import load_exam_template_def
 from exam_grader.workflow import Workflow, validate_assessment_indicators
 
@@ -288,6 +288,12 @@ class BatchWorker(QThread):
         from exam_grader.template_manager import load_exam_template_def
 
         template_def = load_exam_template_def(self.database, self.exam_id)
+        student_number_max = None
+        if self.purpose == "student":
+            with flow.connection() as connection:
+                student_number_max = resolve_student_number_constraint(
+                    connection, self.exam_id, self.room_id
+                ).maximum
 
         for index, path in enumerate(self.paths):
             if self.isInterruptionRequested():
@@ -333,6 +339,7 @@ class BatchWorker(QThread):
                                 template_def=template_def,
                                 app_data_dir=getattr(self.database, "parent", None),
                                 image=decoded,
+                                student_number_max=student_number_max,
                             )
                         except (ValueError, OSError):
                             observation["student_number_observation"] = {
@@ -911,8 +918,21 @@ class ExamDialog(QDialog):
         if not accepted:
             return
         label = normalize_digits(label).strip()
+        expected_max, max_accepted = QInputDialog.getInt(
+            self,
+            "เพิ่มห้อง",
+            "เลขที่คาดหวังถึง (ไม่บังคับ):",
+            0,
+            0,
+            9999,
+            1,
+        )
         try:
-            room = self.application.exams.create_room(self.exam.id, label)
+            room = self.application.exams.create_room(
+                self.exam.id,
+                label,
+                expected_number_max=expected_max if max_accepted and expected_max else None,
+            )
         except ValueError as error:
             QMessageBox.warning(self, "เพิ่มห้องไม่ได้", str(error))
             return

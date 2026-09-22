@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from exam_grader.imaging import OMR_PIPELINE_VERSION
 from exam_grader.imports import ImportService
+from exam_grader.student_number_constraints import resolve_student_number_constraint
 from exam_grader.workflow import RESOLVED, Workflow
 
 
@@ -125,16 +126,16 @@ class ReviewService:
         states = self.states(exam_id)
         numbers = [int(s["number"]) for s in states if s["number"]]
         with self.flow.connection() as con:
-            maximum = con.execute(
-                "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
-            ).fetchone()[0]
+            maximum = resolve_student_number_constraint(
+                con, exam_id, self.room_id
+            ).maximum
         for state in states:
             review = state["review"]
             if review and review["key_id"] != key["id"]:
                 continue  # identity-only edits cannot refresh stale answers
             if not state["number"] or numbers.count(int(state["number"])) != 1:
                 continue
-            if maximum and int(state["number"]) > maximum:
+            if maximum is not None and int(state["number"]) > maximum:
                 continue
             answers = self.answers(state, key)
             if any(a not in RESOLVED for a in answers):
@@ -416,9 +417,9 @@ class ReviewService:
         }
         maximum = None
         with self.flow.connection() as con:
-            maximum = con.execute(
-                "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
-            ).fetchone()[0]
+            maximum = resolve_student_number_constraint(
+                con, exam_id, self.room_id
+            ).maximum
 
         applied: list[dict] = []
         skipped: list[dict] = []
@@ -516,9 +517,7 @@ class ReviewService:
         numbers = [int(s["number"]) for s in states if s["number"]]
         room_id = self.flow.resolve_room_id(exam_id, self.room_id)
         with self.flow.connection() as con:
-            maximum = con.execute(
-                "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
-            ).fetchone()[0]
+            maximum = resolve_student_number_constraint(con, exam_id, room_id).maximum
             attendance = {
                 r["student_number"]: r["status"]
                 for r in con.execute("SELECT * FROM attendance WHERE room_id=?", (room_id,))
@@ -544,7 +543,11 @@ class ReviewService:
             candidate = (state["detection"].get("student_number_observation") or {}).get(
                 "candidate"
             )
-            if not number or numbers.count(int(number)) > 1 or (maximum and int(number) > maximum):
+            if (
+                not number
+                or numbers.count(int(number)) > 1
+                or (maximum is not None and int(number) > maximum)
+            ):
                 if not number:
                     status = "uncertain"
                     reason = "ยังไม่ยืนยันเลขที่"
@@ -683,9 +686,9 @@ class ReviewService:
                 counts[value] = counts.get(value, 0) + 1
 
         with self.flow.connection() as con:
-            maximum = con.execute(
-                "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
-            ).fetchone()[0]
+            maximum = resolve_student_number_constraint(
+                con, exam_id, self.room_id
+            ).maximum
 
         unknown_ids: set[str] = set()
         unclear_questions: set[tuple[str, int]] = set()
@@ -822,9 +825,7 @@ class ReviewService:
                         ),
                     )
 
-            maximum = con.execute(
-                "SELECT expected_number_max FROM exams WHERE id=?", (exam_id,)
-            ).fetchone()[0]
+            maximum = resolve_student_number_constraint(con, exam_id, room_id).maximum
             attendance = {
                 int(row["student_number"]): row["status"]
                 for row in con.execute(
@@ -868,7 +869,11 @@ class ReviewService:
                 identity_conflict = bool(
                     identity_value and number_counts.get(identity_value, 0) > 1
                 )
-                out_of_range = bool(identity_value and maximum and int(identity_value) > maximum)
+                out_of_range = bool(
+                    identity_value
+                    and maximum is not None
+                    and int(identity_value) > maximum
+                )
                 current_review = state["review"]
                 reviewed_key = bool(current_review and current_review["key_id"] == key["id"])
                 is_teacher_review = bool(reviewed_key and current_review["origin"] == "teacher")

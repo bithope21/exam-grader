@@ -18,10 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 
 from exam_grader.identity import number_roi, preprocess
+from exam_grader.student_number_ocr import cleaned_sequence_crop
 from exam_grader.template_manager import TemplateDefinition
 
 DEFAULT_MODELS = [
@@ -60,17 +60,7 @@ def _normalize_digits(value: Any) -> str | None:
 def _clean_sequence_crop(crop: np.ndarray) -> tuple[np.ndarray, list[list[int]]]:
     """Return a tight, form-cleaned sequence crop and diagnostic boxes."""
     processed, boxes, _gray = preprocess(crop)
-    ink_y, ink_x = np.where(processed == 0)
-    if len(ink_x) == 0:
-        return cv2.cvtColor(processed, cv2.COLOR_GRAY2BGR), boxes
-
-    pad = max(8, round(crop.shape[0] * 0.05))
-    x1 = max(0, int(ink_x.min()) - pad)
-    y1 = max(0, int(ink_y.min()) - pad)
-    x2 = min(processed.shape[1], int(ink_x.max()) + pad + 1)
-    y2 = min(processed.shape[0], int(ink_y.max()) + pad + 1)
-    tight = processed[y1:y2, x1:x2]
-    return cv2.cvtColor(tight, cv2.COLOR_GRAY2BGR), boxes
+    return cleaned_sequence_crop(processed), boxes
 
 
 def _directory_size(path: Path) -> int | None:

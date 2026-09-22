@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSpinBox,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -41,6 +40,7 @@ from exam_grader.numeric_widgets import (
     normalize_digits,
 )
 from exam_grader.review_service import ReviewService
+from exam_grader.student_number_constraints import resolve_student_number_constraint
 from exam_grader.workflow import Workflow
 
 
@@ -601,12 +601,19 @@ class ReviewDialog(QDialog):
             )
             if not self.key_mode:
                 try:
+                    with self.flow.connection() as connection:
+                        student_number_max = resolve_student_number_constraint(
+                            connection,
+                            self.source["exam_id"],
+                            self.source.get("room_id"),
+                        ).maximum
                     observation["student_number_observation"] = observe_student_number(
                         self.source_bytes,
                         observation.get("registration", {}).get("matrix"),
                         template_def=self.template_def,
                         app_data_dir=getattr(self.database, "parent", None),
                         image=self.original_image,
+                        student_number_max=student_number_max,
                     )
                 except (ValueError, OSError, cv2.error):
                     observation["student_number_observation"] = {

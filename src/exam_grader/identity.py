@@ -26,9 +26,10 @@ import cv2
 import numpy as np
 
 from exam_grader.imaging import decode, template
+from exam_grader.student_number_constraints import StudentNumberConstraint
 from exam_grader.template_manager import TemplateDefinition
 
-IDENTITY_PIPELINE_VERSION = "student-number-adaptive-roi-v6"
+IDENTITY_PIPELINE_VERSION = "student-number-ppocrv6-small-onnx-v1"
 NUMBER_SEARCH_X_FRACTION = 0.25
 NUMBER_SEARCH_Y_FRACTION = 0.40
 
@@ -274,6 +275,48 @@ def _load_digit_model(path: str):
     from exam_grader.digit_model import DigitModel
 
     return DigitModel.load(Path(path))
+
+
+@lru_cache(maxsize=2)
+def _load_sequence_model(model_path: str, metadata_path: str):
+    from exam_grader.student_number_ocr import OnnxStudentNumberRecognizer
+
+    return OnnxStudentNumberRecognizer(Path(model_path), Path(metadata_path))
+
+
+def _constrain_sequence_observation(
+    observation: dict[str, Any], constraint: StudentNumberConstraint | None
+) -> dict[str, Any]:
+    raw_candidates = [
+        candidate for candidate in observation.get("candidates", []) if isinstance(candidate, str)
+    ]
+    raw_scores = {
+        str(candidate): float(score)
+        for candidate, score in (observation.get("candidate_scores") or {}).items()
+        if isinstance(score, (int, float)) and math.isfinite(float(score))
+    }
+    candidates = (
+        constraint.filter_candidates(raw_candidates, raw_scores)
+        if constraint is not None
+        else sorted(set(raw_candidates), key=lambda value: (-raw_scores.get(value, 0.0), value))
+    )
+    candidate = candidates[0] if candidates else None
+    confidence = raw_scores.get(candidate) if candidate else None
+    margin = None
+    if candidate is not None and len(candidates) > 1:
+        margin = round(confidence - raw_scores.get(candidates[1], 0.0), 8)
+    return {
+        **observation,
+        "candidate": candidate,
+        "candidates": candidates,
+        "confidence": confidence,
+        "confidence_margin": margin,
+        "raw_candidate": observation.get("candidate"),
+        "raw_candidates": raw_candidates,
+        "raw_candidate_scores": raw_scores,
+        "constraint_max": constraint.maximum if constraint is not None else None,
+        "constraint_source": constraint.source if constraint is not None else "none",
+    }
 
 
 def _digit_model_observation(model: Any, gray: np.ndarray, boxes: list[list[int]]) -> dict[str, Any] | None:
@@ -890,6 +933,8 @@ def observe(
     image: np.ndarray | None = None,
     digit_model_path: Path | None = None,
     use_bundled_digit_model: bool = True,
+    student_number_max: int | None = None,
+    use_bundled_sequence_model: bool = True,
 ) -> dict:
     base: dict = {
         "pipeline_version": IDENTITY_PIPELINE_VERSION,
@@ -1033,6 +1078,62 @@ def observe(
         for x, y, w, h in boxes:
             cv2.rectangle(boxed, (x, y), (x + w, y + h), (0, 0, 220), 1)
         cv2.imwrite(str(diagnostics_dir / "segmented_digits.png"), boxed)
+
+    if use_bundled_sequence_model and digit_model_path is None and boxes:
+        from exam_grader.student_number_ocr import (
+            bundled_student_number_metadata_path,
+            bundled_student_number_model_path,
+            cleaned_sequence_crop,
+        )
+
+        sequence_model_path = bundled_student_number_model_path()
+        sequence_metadata_path = bundled_student_number_metadata_path()
+        if sequence_model_path.is_file():
+            sequence_model = _load_sequence_model(
+                str(sequence_model_path.resolve()), str(sequence_metadata_path.resolve())
+            )
+            sequence_crop = cleaned_sequence_crop(processed)
+            sequence_observation = _constrain_sequence_observation(
+                sequence_model.predict(sequence_crop),
+                StudentNumberConstraint("", student_number_max, "room")
+                if student_number_max is not None
+                else None,
+            )
+            diagnostics["model"] = sequence_model.version
+            diagnostics["sequence_model"] = {
+                "path": str(sequence_model_path.resolve()),
+                "version": sequence_model.version,
+                "input_shape": list(sequence_crop.shape),
+                "constraint_max": student_number_max,
+                "constraint_source": sequence_observation["constraint_source"],
+            }
+            diagnostics["recognizer_runs"] = [
+                {
+                    "variant": "onnx-sequence-digits-only",
+                    "candidate": candidate,
+                    "raw_score": score,
+                }
+                for candidate, score in sequence_observation["raw_candidate_scores"].items()
+            ]
+            diagnostics["candidate_scores"] = sequence_observation["candidate_scores"]
+            diagnostics["candidate_votes"] = {
+                candidate: 1 for candidate in sequence_observation["candidates"]
+            }
+            return {
+                **base,
+                "pipeline_version": sequence_model.version,
+                "candidate": sequence_observation["candidate"],
+                "candidates": sequence_observation["candidates"],
+                "confidence": sequence_observation["confidence"],
+                "confidence_margin": sequence_observation["confidence_margin"],
+                "diagnostics": diagnostics,
+                "review_reason": (
+                    "sequence candidate constrained to room range; teacher confirmation required"
+                    if student_number_max is not None
+                    else "sequence model candidate; teacher confirmation required"
+                ),
+            }
+
     model_runs = []
     model_candidate = None
     model_candidates: list[tuple[str, float]] = []
