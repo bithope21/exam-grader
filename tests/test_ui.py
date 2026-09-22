@@ -408,6 +408,17 @@ def test_settings_and_template_buttons_visibility(tmp_path):
     donation_actions = [a for a in menu.actions() if "สนับสนุนการพัฒนา" in a.text()]
     assert len(donation_actions) == 1
     assert not donation_actions[0].icon().isNull()
+    icon_labels = {
+        "กระดาษคำตอบ": "template-settings.svg",
+        "สีรอยตรวจ": "color-settings.svg",
+        "ธีมการแสดงผล": "appearance-settings.svg",
+        "ตำแหน่งบันทึกผลลัพธ์": "output-settings.svg",
+        "ถังขยะ": "trash-settings.svg",
+    }
+    for label in icon_labels:
+        actions = [a for a in menu.actions() if label in a.text()]
+        assert len(actions) == 1
+        assert not actions[0].icon().isNull()
     assert EXAM_GRADER_DONATION_URL == "https://bithope.app/exam-grader#donate"
 
     # 2. NewExamDialog manage templates button

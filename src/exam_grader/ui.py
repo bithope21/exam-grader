@@ -303,20 +303,25 @@ class MainWindow(QMainWindow):
         self.settings_button.setToolTip("ตั้งค่าแม่แบบกระดาษคำตอบ, สีรอยตรวจ และโฟลเดอร์ผลลัพธ์")
 
         settings_popup = QMenu(self)
-        settings_popup.addAction(
+        template_action = settings_popup.addAction(
             "รูปแบบกระดาษคำตอบ (เพิ่ม/ปรับเทียบ/จัดการแม่แบบ)…", self.open_template_settings
         )
-        settings_popup.addAction("สีรอยตรวจและสัญลักษณ์…", self.open_color_settings)
+        template_action.setIcon(self._settings_icon("template-settings.svg"))
+        color_action = settings_popup.addAction("สีรอยตรวจและสัญลักษณ์…", self.open_color_settings)
+        color_action.setIcon(self._settings_icon("color-settings.svg"))
         donation_action = settings_popup.addAction("สนับสนุนการพัฒนา", self.open_donation_page)
         donation_action.setIcon(self._donation_icon())
         settings_popup.addSeparator()
 
         appearance_submenu = settings_popup.addMenu("ธีมการแสดงผล (Appearance)")
+        appearance_submenu.menuAction().setIcon(self._settings_icon("appearance-settings.svg"))
         self._populate_appearance_menu(appearance_submenu)
 
         settings_popup.addSeparator()
-        settings_popup.addAction("ตำแหน่งบันทึกผลลัพธ์…", self.choose_output_root)
-        settings_popup.addAction("ถังขยะ…", self.show_trash)
+        output_action = settings_popup.addAction("ตำแหน่งบันทึกผลลัพธ์…", self.choose_output_root)
+        output_action.setIcon(self._settings_icon("output-settings.svg"))
+        trash_action = settings_popup.addAction("ถังขยะ…", self.show_trash)
+        trash_action.setIcon(self._settings_icon("trash-settings.svg"))
         self.settings_button.setMenu(settings_popup)
         header_layout.addWidget(self.settings_button)
 
@@ -355,14 +360,19 @@ class MainWindow(QMainWindow):
         layout.addWidget(location)
         self.setCentralWidget(container)
         settings_menu = self.menuBar().addMenu("ตั้งค่า")
-        settings_menu.addAction("ตำแหน่งบันทึกผลลัพธ์…", self.choose_output_root)
-        settings_menu.addAction("รูปแบบกระดาษคำตอบ…", self.open_template_settings)
-        settings_menu.addAction("สีรอยตรวจและสัญลักษณ์…", self.open_color_settings)
+        output_action = settings_menu.addAction("ตำแหน่งบันทึกผลลัพธ์…", self.choose_output_root)
+        output_action.setIcon(self._settings_icon("output-settings.svg"))
+        template_action = settings_menu.addAction("รูปแบบกระดาษคำตอบ…", self.open_template_settings)
+        template_action.setIcon(self._settings_icon("template-settings.svg"))
+        color_action = settings_menu.addAction("สีรอยตรวจและสัญลักษณ์…", self.open_color_settings)
+        color_action.setIcon(self._settings_icon("color-settings.svg"))
         donation_action = settings_menu.addAction("สนับสนุนการพัฒนา", self.open_donation_page)
         donation_action.setIcon(self._donation_icon())
         bar_appearance = settings_menu.addMenu("ธีมการแสดงผล…")
+        bar_appearance.menuAction().setIcon(self._settings_icon("appearance-settings.svg"))
         self._populate_appearance_menu(bar_appearance)
-        self.menuBar().addAction("ถังขยะ…", self.show_trash)
+        trash_action = self.menuBar().addAction("ถังขยะ…", self.show_trash)
+        trash_action.setIcon(self._settings_icon("trash-settings.svg"))
         self.refresh()
 
     def _show_camera_help(self) -> None:
@@ -407,6 +417,11 @@ class MainWindow(QMainWindow):
         from exam_grader.settings_ui import AnnotationColorSettingsDialog
 
         AnnotationColorSettingsDialog(self).exec()
+
+    @staticmethod
+    def _settings_icon(filename: str) -> QIcon:
+        icon_path = Path(__file__).resolve().parent / "resources" / filename
+        return QIcon(str(icon_path)) if icon_path.exists() else QIcon()
 
     @staticmethod
     def _donation_icon() -> QIcon:
