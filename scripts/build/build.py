@@ -8,6 +8,12 @@ from pathlib import Path
 root = Path(__file__).resolve().parents[2]
 environment = os.environ.copy()
 environment["PYINSTALLER_CONFIG_DIR"] = str(root / "build" / "pyinstaller-cache")
+source_path = str(root / "src")
+environment["PYTHONPATH"] = os.pathsep.join(
+    [source_path, environment["PYTHONPATH"]]
+    if environment.get("PYTHONPATH")
+    else [source_path]
+)
 cmd = [
     sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed",
     "--name", "ExamGrader", "--paths", str(root / "src"),
