@@ -31,7 +31,10 @@ from exam_grader.template_manager import TemplateDefinition
 
 # Student Number has its own version because it can be refreshed in-place on a
 # persisted detection without rerunning the OMR/answer pipeline.
-STUDENT_NUMBER_PIPELINE_VERSION = "student-number-ppocrv6-small-onnx-v4"
+# v5 intentionally invalidates v3/v4 persisted observations after the final
+# static-print hardening pass.  The recognizer weights are unchanged; opening
+# an exam with this build must re-run Student Number only on older records.
+STUDENT_NUMBER_PIPELINE_VERSION = "student-number-ppocrv6-small-onnx-v5"
 # Compatibility alias for diagnostics and older callers that imported this name.
 IDENTITY_PIPELINE_VERSION = STUDENT_NUMBER_PIPELINE_VERSION
 NUMBER_SEARCH_X_FRACTION = 0.25

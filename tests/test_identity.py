@@ -322,6 +322,32 @@ def test_sequence_variant_selector_uses_strong_reference_cleaned_focus_against_g
     assert diagnostics["length_consistency"]["reference_suppressed"] is True
 
 
+def test_sequence_variant_selector_keeps_genuine_17_when_gray_is_11():
+    """A weaker grayscale disagreement must not rewrite a genuine 17."""
+    processed = {"candidate": "17", "confidence": 0.999}
+    gray = {
+        "candidate": "11",
+        "confidence": 0.80,
+        "confidence_margin": 0.37,
+    }
+    handwriting = {
+        "candidate": "19",
+        "confidence": 0.748,
+        "confidence_margin": 0.108,
+    }
+
+    selected, diagnostics = _select_sequence_variant_observation(
+        processed,
+        gray,
+        handwriting_observation=handwriting,
+        static_print_suppression={"reference_applied": True},
+    )
+
+    assert selected["candidate"] == "17"
+    assert diagnostics["selected_variant"] == "processed-tight"
+    assert diagnostics["length_consistency"]["applied"] is False
+
+
 def test_handwriting_focus_crop_keeps_vertical_margin_and_limits_static_left_form():
     crop = np.zeros((40, 200, 3), dtype=np.uint8)
     focused, bounds = _handwriting_focus_crop(

@@ -14,6 +14,7 @@ from exam_grader.exporting import export_results
 from exam_grader.identity import STUDENT_NUMBER_PIPELINE_VERSION
 from exam_grader.imaging import OMR_PIPELINE_VERSION, cell_rect, reference_image
 from exam_grader.imports import ImportService
+from exam_grader.review_service import ReviewService
 from exam_grader.review_ui import ReviewDialog
 from exam_grader.workflow import Workflow
 
@@ -79,6 +80,41 @@ def test_batch_worker_refreshes_only_stale_student_number(tmp_path, monkeypatch)
     assert updated["registration"] == original["registration"]
     assert updated["answers"] == original["answers"]
     assert updated["student_number_observation"]["candidate"] == "17"
+
+
+def test_batch_worker_refresh_preserves_teacher_confirmed_number(tmp_path, monkeypatch):
+    app, exam, source, flow = prepare_processed_student(
+        tmp_path,
+        student_observation={
+            "pipeline_version": "student-number-ppocrv6-small-onnx-v3",
+            "candidate": "18",
+        },
+    )
+    service = ReviewService(app.exams.path)
+    service.set_number(
+        source,
+        "8",
+        expected_detection=service.state(source)["detection_id"],
+    )
+
+    monkeypatch.setattr(
+        exam_ui,
+        "observe_student_number",
+        lambda *_args, **_kwargs: {
+            "pipeline_version": STUDENT_NUMBER_PIPELINE_VERSION,
+            "candidate": "8",
+            "candidates": ["8"],
+            "requires_review": True,
+            "review_reason": "test refresh",
+        },
+    )
+    worker = BatchWorker(app.exams.path, exam.id, [tmp_path / "student.png"], "student")
+    worker.start()
+    assert worker.wait(15000)
+
+    updated = flow.latest_detection(source["id"])
+    assert updated["student_number_observation"]["candidate"] == "8"
+    assert ReviewService(app.exams.path).state(source)["number"] == "8"
 
 
 def test_batch_worker_does_not_rerun_current_student_number(tmp_path, monkeypatch):
