@@ -31,7 +31,7 @@ from exam_grader.template_manager import TemplateDefinition
 
 # Student Number has its own version because it can be refreshed in-place on a
 # persisted detection without rerunning the OMR/answer pipeline.
-STUDENT_NUMBER_PIPELINE_VERSION = "student-number-ppocrv6-small-onnx-v2"
+STUDENT_NUMBER_PIPELINE_VERSION = "student-number-ppocrv6-small-onnx-v3"
 # Compatibility alias for diagnostics and older callers that imported this name.
 IDENTITY_PIPELINE_VERSION = STUDENT_NUMBER_PIPELINE_VERSION
 NUMBER_SEARCH_X_FRACTION = 0.25
@@ -341,6 +341,7 @@ def _select_sequence_variant_observation(
     *,
     gray_disagreement_min_confidence: float = 0.25,
     prefer_processed_on_confidence_dominance: bool = True,
+    handwriting_observation: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Choose between form-cleaned and grayscale views without hiding disagreement.
 
@@ -373,28 +374,87 @@ def _select_sequence_variant_observation(
         and float(processed_confidence) - float(gray_confidence) >= 0.1
     )
     if agreement:
-        return gray_observation, {
+        selected, diagnostics = gray_observation, {
             "selected_variant": "gray-tight",
             "variant_agreement": True,
             "selection_reason": "views_agree",
         }
-    if processed_dominates:
-        return processed_observation, {
+    elif processed_dominates:
+        selected, diagnostics = processed_observation, {
             "selected_variant": "processed-tight",
             "variant_agreement": False,
             "selection_reason": "processed_confidence_dominates",
         }
-    if gray_is_strong_enough or not processed_candidate:
-        return gray_observation, {
+    elif gray_is_strong_enough or not processed_candidate:
+        selected, diagnostics = gray_observation, {
             "selected_variant": "gray-tight",
             "variant_agreement": False,
             "selection_reason": "gray_disagreement_evidence_passed",
         }
-    return processed_observation, {
-        "selected_variant": "processed-tight",
-        "variant_agreement": False,
-        "selection_reason": "gray_disagreement_evidence_weak",
-    }
+    else:
+        selected, diagnostics = processed_observation, {
+            "selected_variant": "processed-tight",
+            "variant_agreement": False,
+            "selection_reason": "gray_disagreement_evidence_weak",
+        }
+
+    # A broad grayscale crop can turn a printed Thai label or dotted rule into
+    # a leading/trailing ``1``. Only accept the shorter focus read when three
+    # independent pieces of evidence agree: the broad read has exactly one
+    # extra 1, the form-cleaned read is the shorter value, and the
+    # template-focused grayscale read repeats that shorter value. This is a
+    # length-consistency prior, not a one-component-per-digit rule.
+    if handwriting_observation is not None:
+        focus_candidate = handwriting_observation.get("candidate")
+        processed_candidate = processed_observation.get("candidate")
+        selected_candidate = selected.get("candidate")
+        processed_confidence = processed_observation.get("confidence")
+        focus_confidence = handwriting_observation.get("confidence")
+        strong_shorter_evidence = (
+            isinstance(focus_candidate, str)
+            and isinstance(processed_candidate, str)
+            and focus_candidate == processed_candidate
+            and isinstance(selected_candidate, str)
+            and len(selected_candidate) == len(focus_candidate) + 1
+            and (
+                selected_candidate == "1" + focus_candidate
+                or selected_candidate == focus_candidate + "1"
+            )
+            and isinstance(processed_confidence, (int, float))
+            and math.isfinite(float(processed_confidence))
+            and float(processed_confidence) >= 0.55
+            and isinstance(focus_confidence, (int, float))
+            and math.isfinite(float(focus_confidence))
+            and float(focus_confidence) >= 0.55
+        )
+        if strong_shorter_evidence:
+            return handwriting_observation, {
+                **diagnostics,
+                "selected_variant": "handwriting-tight",
+                "variant_agreement": False,
+                "selection_reason": "handwriting_focus_removed_form_artifact",
+                "length_consistency": {
+                    "applied": True,
+                    "broad_candidate": selected_candidate,
+                    "shorter_candidate": focus_candidate,
+                    "extra_digit": "leading-1"
+                    if selected_candidate.startswith("1")
+                    else "trailing-1",
+                    "processed_candidate": processed_candidate,
+                    "handwriting_candidate": focus_candidate,
+                    "requires_review": True,
+                },
+            }
+        diagnostics = {
+            **diagnostics,
+            "length_consistency": {
+                "applied": False,
+                "broad_candidate": selected_candidate,
+                "processed_candidate": processed_candidate,
+                "handwriting_candidate": focus_candidate,
+            },
+        }
+    return selected, diagnostics
 
 
 def _digit_model_observation(model: Any, gray: np.ndarray, boxes: list[list[int]]) -> dict[str, Any] | None:
@@ -544,6 +604,34 @@ def _expanded_number_roi(
         min(width, x2 + pad_x),
         min(height, y2 + pad_y),
     )
+
+
+def _handwriting_focus_crop(
+    crop: np.ndarray,
+    *,
+    configured_roi: tuple[int, int, int, int],
+    search_roi: tuple[int, int, int, int],
+    scale: float,
+) -> tuple[np.ndarray, dict[str, int]]:
+    """Derive a registration-tolerant handwriting window from the broad ROI.
+
+    The broad search window remains the source of truth for diagnostics and
+    recovery. This secondary view keeps the configured Student Number field,
+    with a small horizontal tolerance, while excluding the static left-side
+    label and most of the form margin. Vertical content is deliberately kept
+    broad so tall/thin handwriting and clipped strokes are not cut off.
+    """
+    configured_x1, _configured_y1, configured_x2, _configured_y2 = configured_roi
+    search_x1, _search_y1, _search_x2, _search_y2 = search_roi
+    field_x1 = (configured_x1 - search_x1) * scale
+    field_x2 = (configured_x2 - search_x1) * scale
+    field_width = max(1.0, field_x2 - field_x1)
+    tolerance = max(8.0, round(field_width * 0.04))
+    x1 = max(0, int(round(field_x1 - tolerance)))
+    x2 = min(crop.shape[1], int(round(field_x2 + tolerance)))
+    if x2 <= x1:
+        return crop, {"x1": 0, "x2": int(crop.shape[1])}
+    return crop[:, x1:x2], {"x1": x1, "x2": x2}
 
 
 def number_roi(
@@ -1194,11 +1282,21 @@ def observe(
             )
             processed_sequence_crop = cleaned_sequence_crop(processed)
             gray_sequence_crop = cleaned_sequence_crop(gray)
+            handwriting_gray, handwriting_bounds = _handwriting_focus_crop(
+                gray,
+                configured_roi=configured_roi,
+                search_roi=search_roi,
+                scale=scale,
+            )
+            handwriting_sequence_crop = cleaned_sequence_crop(handwriting_gray)
             processed_observation = _constrain_sequence_observation(
                 sequence_model.predict(processed_sequence_crop), constraint
             )
             gray_observation = _constrain_sequence_observation(
                 sequence_model.predict(gray_sequence_crop), constraint
+            )
+            handwriting_observation = _constrain_sequence_observation(
+                sequence_model.predict(handwriting_sequence_crop), constraint
             )
             gray_disagreement_min_confidence = float(
                 sequence_model.calibration.get(
@@ -1212,15 +1310,23 @@ def observe(
                 prefer_processed_on_confidence_dominance=(
                     configured_roi[2] - configured_roi[0] >= 200
                 ),
+                handwriting_observation=handwriting_observation,
             )
             variant_observations = {
                 "processed-tight": processed_observation,
                 "gray-tight": gray_observation,
+                "handwriting-tight": handwriting_observation,
             }
             variant_crops = {
                 "processed-tight": processed_sequence_crop,
                 "gray-tight": gray_sequence_crop,
+                "handwriting-tight": handwriting_sequence_crop,
             }
+            if diagnostics_dir is not None:
+                cv2.imwrite(
+                    str(diagnostics_dir / "number_roi_handwriting_tight.png"),
+                    handwriting_sequence_crop,
+                )
             # The top-padding recovery window can change the recognizer's
             # aspect ratio enough to hurt a clipped single digit. Keep the
             # original registered window as a third, safe view when recovery
@@ -1272,6 +1378,7 @@ def observe(
                 },
                 **variant_selection,
                 "gray_disagreement_min_confidence": gray_disagreement_min_confidence,
+                "handwriting_focus_bounds": handwriting_bounds,
             }
             diagnostics["recognizer_runs"] = [
                 {
@@ -1326,6 +1433,9 @@ def observe(
                 segmentation_complete=sequence_segmentation_complete,
                 # The sequence model is the calibrated primary recognizer for
                 # this path; no competing recognizer is allowed to override it.
+                candidate_disagreement=bool(
+                    (variant_selection.get("length_consistency") or {}).get("applied")
+                ),
                 independent_agreement=True,
                 merged_component_suspected=merged_geometry_suspected,
             )
@@ -1361,6 +1471,8 @@ def observe(
                 "review_reason": (
                     "selective confidence gate passed; no review required"
                     if selective_auto_accept
+                    else "handwriting-focused crop removed static form artifact; teacher confirmation required"
+                    if (variant_selection.get("length_consistency") or {}).get("applied")
                     else (
                         "sequence candidate constrained to room range; teacher confirmation required"
                         if student_number_max is not None

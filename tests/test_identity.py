@@ -10,6 +10,7 @@ from exam_grader.identity import (
     _digit_model_observation,
     _direct_segmented_alternatives,
     _group_digit_boxes,
+    _handwriting_focus_crop,
     _rank_identity_candidates,
     _select_sequence_variant_observation,
     _selective_auto_accept_allowed,
@@ -263,6 +264,54 @@ def test_sequence_variant_selector_marks_matching_views_as_agreement():
 
     assert selected is gray
     assert diagnostics["variant_agreement"] is True
+
+
+def test_sequence_variant_selector_removes_form_leading_one_only_with_three_view_agreement():
+    processed = {"candidate": "6", "confidence": 0.98}
+    gray = {"candidate": "16", "confidence": 0.77}
+    handwriting = {"candidate": "6", "confidence": 0.91}
+
+    selected, diagnostics = _select_sequence_variant_observation(
+        processed,
+        gray,
+        prefer_processed_on_confidence_dominance=False,
+        handwriting_observation=handwriting,
+    )
+
+    assert selected is handwriting
+    assert diagnostics["selected_variant"] == "handwriting-tight"
+    assert diagnostics["selection_reason"] == "handwriting_focus_removed_form_artifact"
+    assert diagnostics["length_consistency"]["extra_digit"] == "leading-1"
+    assert diagnostics["length_consistency"]["requires_review"] is True
+
+
+def test_sequence_variant_selector_does_not_shorten_legitimate_two_digit_read():
+    processed = {"candidate": "1", "confidence": 0.98}
+    gray = {"candidate": "16", "confidence": 0.91}
+    handwriting = {"candidate": "16", "confidence": 0.95}
+
+    selected, diagnostics = _select_sequence_variant_observation(
+        processed,
+        gray,
+        handwriting_observation=handwriting,
+    )
+
+    assert selected is gray
+    assert diagnostics["selected_variant"] == "gray-tight"
+    assert diagnostics["length_consistency"]["applied"] is False
+
+
+def test_handwriting_focus_crop_keeps_vertical_margin_and_limits_static_left_form():
+    crop = np.zeros((40, 200, 3), dtype=np.uint8)
+    focused, bounds = _handwriting_focus_crop(
+        crop,
+        configured_roi=(100, 10, 160, 30),
+        search_roi=(80, 5, 180, 35),
+        scale=2.0,
+    )
+
+    assert bounds == {"x1": 32, "x2": 168}
+    assert focused.shape == (40, 136, 3)
 
 
 def test_bounded_single_stroke_correction_only_handles_narrow_open_nine_pair():
