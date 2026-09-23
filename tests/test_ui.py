@@ -1,4 +1,5 @@
 import os
+from unittest.mock import Mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -912,6 +913,7 @@ def test_confirmed_student_number_refreshes_students_without_answer_confirmation
     before = dialog.student_list.item(0).text()
     assert "ต้องตรวจทาน" in before
     assert "เลขที่ 7 · ต้องตรวจทาน" in before
+    assert "ต้องตรวจทาน · เลขที่" not in before
     assert "17" not in before
     assert "เลขที่อาจเป็น" not in before
     assert [issue["kind"] for issue in dialog.issue_rows] == ["number"]
@@ -934,6 +936,92 @@ def test_confirmed_student_number_refreshes_students_without_answer_confirmation
     assert "เลขที่ 7" in after
     assert flow.latest_review(student_source["id"]) is not None
     assert ReviewService(flow.database).state(student_source)["number"] == "7"
+    dialog.close()
+
+
+def test_student_review_state_does_not_repeat_review_wording(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("เลขที่สถานะ", "2569", "ป.1", "1", "วิชา", 1))
+    importer = ImportService(application.exams.path)
+    flow = Workflow(application.exams.path)
+
+    key_path = tmp_path / "key.png"
+    student_path = tmp_path / "student.png"
+    image = QImage(100, 100, QImage.Format.Format_RGB32)
+    image.fill(0xFFFFFFFF)
+    image.save(str(key_path))
+    image.fill(0xFFFEFEFE)
+    image.save(str(student_path))
+    key_source = importer.import_file(exam.id, key_path, "key")
+    flow.approve_key(exam.id, ["A"], key_source["id"])
+    student_source = importer.import_file(exam.id, student_path, "student")
+    flow.save_detection(
+        student_source["id"],
+        {
+            "pipeline_version": OMR_PIPELINE_VERSION,
+            "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+            "student_number_observation": {
+                "pipeline_version": STUDENT_NUMBER_PIPELINE_VERSION,
+                "candidate": "4",
+                "candidates": ["4"],
+            },
+            "answers": [
+                {"classification": "uncertain", "selected": [], "auto_resolved": False}
+            ],
+        },
+    )
+
+    dialog = ExamDialog(application, exam)
+    text = dialog.student_list.item(0).text()
+    assert "เลขที่ 4 · ต้องตรวจทาน" in text
+    assert text.count("ต้องตรวจทาน") == 1
+    dialog.close()
+
+
+def test_student_batch_focuses_review_only_at_completion_boundary(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("batch", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    dialog.tabs.setCurrentIndex(0)
+    dialog.worker = Mock()
+    dialog.worker.isRunning.return_value = False
+    dialog._review_focus_pending = True
+    dialog.issue_rows = [{"kind": "number"}]
+    dialog.mobile_upload_dialog = object()
+
+    dialog._maybe_focus_review_after_batch()
+    assert dialog.tabs.currentIndex() == 0
+    assert dialog._review_focus_pending is True
+
+    dialog.mobile_upload_dialog = None
+    dialog._maybe_focus_review_after_batch()
+    assert dialog.tabs.currentIndex() == 2
+    assert dialog._review_focus_pending is False
+    dialog.close()
+
+
+def test_exam_tabs_expose_distinct_semantic_active_styles(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("tabs", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    tab_bar = dialog.tabs.tabBar()
+    assert tab_bar.objectName() == "examSemanticTabs"
+    for index in range(4):
+        dialog._update_exam_tab_style(index)
+        assert tab_bar.property("activeTab") == str(index)
+    apply_appearance_theme(QApplication.instance(), "light")
+    stylesheet = QApplication.instance().styleSheet()
+    assert 'QTabBar#examSemanticTabs[activeTab="0"]::tab:selected' in stylesheet
+    assert 'QTabBar#examSemanticTabs[activeTab="3"]::tab:selected' in stylesheet
     dialog.close()
 
 

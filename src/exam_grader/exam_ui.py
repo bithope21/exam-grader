@@ -601,6 +601,7 @@ class ExamDialog(QDialog):
         self.mobile_upload_dialog: MobileUploadDialog | None = None
         self.mobile_upload_queue: list[Path] = []
         self.mobile_upload_purpose: str | None = None
+        self._review_focus_pending = False
         self.output_root = application.exams.output_root(exam.id) or default_output_root()
         self.template_def = load_exam_template_def(application.exams.path, exam.id)
         self.student_sort_desc = False
@@ -647,6 +648,8 @@ class ExamDialog(QDialog):
         layout.addLayout(room_actions)
 
         self.tabs = QTabWidget()
+        self.tabs.tabBar().setObjectName("examSemanticTabs")
+        self.tabs.currentChanged.connect(self._update_exam_tab_style)
         self.key_list = QListWidget()
         self.key_list.itemDoubleClicked.connect(lambda _: self.review_key())
         self.student_list = QListWidget()
@@ -908,6 +911,7 @@ class ExamDialog(QDialog):
         self.issue_save_buttons: list[QPushButton] = []
         self._review_save_in_progress = False
         self.refresh()
+        self._update_exam_tab_style(self.tabs.currentIndex())
         # Run the freshness check once after the initial widgets are visible.
         # Scheduling it from every refresh can accumulate zero-delay events
         # while other dialogs/tests are being torn down.
@@ -920,6 +924,14 @@ class ExamDialog(QDialog):
             PHOTO_GUIDANCE_TEXT,
             button,
         )
+
+    def _update_exam_tab_style(self, index: int) -> None:
+        """Refresh the semantic pastel selected-tab styling after navigation."""
+        tab_bar = self.tabs.tabBar()
+        tab_bar.setProperty("activeTab", str(index))
+        tab_bar.style().unpolish(tab_bar)
+        tab_bar.style().polish(tab_bar)
+        tab_bar.update()
 
     @staticmethod
     def _make_qr_button(accessible_name: str) -> QToolButton:
@@ -1233,14 +1245,22 @@ class ExamDialog(QDialog):
                 state = f"อ่านไม่ได้ · {detection['failure']}"
             identity_state = identity_states.get(source["id"], {})
             if not review and identity_state.get("number"):
-                state += f" · เลขที่ {identity_state['number']} · ต้องตรวจทาน"
+                number = identity_state["number"]
+                state = (
+                    f"เลขที่ {number} · ต้องตรวจทาน"
+                    if state == "ต้องตรวจทาน"
+                    else f"{state} · เลขที่ {number} · ต้องตรวจทาน"
+                )
             elif not review:
                 recommendation = ReviewService.student_number_recommendation(identity_state)
-                state += (
-                    f" · เลขที่ {recommendation} · ต้องตรวจทาน"
-                    if recommendation
-                    else " · ยังไม่ยืนยันเลขที่ · ต้องตรวจทาน"
-                )
+                if recommendation:
+                    state = (
+                        f"เลขที่ {recommendation} · ต้องตรวจทาน"
+                        if state == "ต้องตรวจทาน"
+                        else f"{state} · เลขที่ {recommendation} · ต้องตรวจทาน"
+                    )
+                else:
+                    state = f"{state} · ยังไม่ยืนยันเลขที่ · ต้องตรวจทาน"
             if review and reviewed_numbers.get(int(review["student_number"]), 0) > 1:
                 state = f"เลขที่ซ้ำ · {review['student_number']} · {state}"
             self._add_student_item(f"{source['original_name']}\n{state}", source)
@@ -2107,6 +2127,7 @@ class ExamDialog(QDialog):
         dialog.exec()
         self.mobile_upload_dialog = None
         self._cleanup_mobile_upload_session_if_idle()
+        self._maybe_focus_review_after_batch()
 
     def _on_mobile_upload_files(self, paths: list[str]) -> None:
         if self.mobile_upload_session is None:
@@ -2145,6 +2166,21 @@ class ExamDialog(QDialog):
         self.busy(False)
         self._drain_mobile_upload_queue()
         self._cleanup_mobile_upload_session_if_idle()
+        self._maybe_focus_review_after_batch()
+
+    def _maybe_focus_review_after_batch(self) -> None:
+        """Move to Review once a student batch has a stable completion boundary."""
+        if not self._review_focus_pending:
+            return
+        if self.worker and self.worker.isRunning():
+            return
+        if self.mobile_upload_queue or self.mobile_upload_dialog is not None:
+            # An open QR dialog still owns an active, potentially multi-file
+            # session. Closing it is the user's clear batch boundary.
+            return
+        self._review_focus_pending = False
+        if self.issue_rows:
+            self.tabs.setCurrentIndex(2)
 
     def _cleanup_mobile_upload_session_if_idle(self) -> None:
         session = self.mobile_upload_session
@@ -2211,6 +2247,8 @@ class ExamDialog(QDialog):
 
     def import_done(self, failures):
         self.refresh()
+        if isinstance(self.worker, BatchWorker) and self.worker.purpose == "student":
+            self._review_focus_pending = True
         # The worker emits completed before QThread.finished. Defer the stale
         # check one event-loop turn so a key refresh can be followed by students.
         QTimer.singleShot(0, self._ensure_current_pipeline)

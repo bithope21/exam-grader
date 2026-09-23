@@ -581,6 +581,22 @@ def get_theme_stylesheet(mode: str) -> str:
                 color: #FFFFFF;
                 font-weight: 600;
             }
+            QTabBar#examSemanticTabs[activeTab="0"]::tab:selected {
+                background-color: #DBEAFE;
+                color: #1E3A8A;
+            }
+            QTabBar#examSemanticTabs[activeTab="1"]::tab:selected {
+                background-color: #D1FAE5;
+                color: #065F46;
+            }
+            QTabBar#examSemanticTabs[activeTab="2"]::tab:selected {
+                background-color: #FEF3C7;
+                color: #92400E;
+            }
+            QTabBar#examSemanticTabs[activeTab="3"]::tab:selected {
+                background-color: #EDE9FE;
+                color: #5B21B6;
+            }
             QTabBar::tab:hover:!selected {
                 background-color: #E2E8F0;
                 color: #0F172A;
@@ -1045,6 +1061,22 @@ def get_theme_stylesheet(mode: str) -> str:
                 background-color: #2563EB;
                 color: #FFFFFF;
                 font-weight: 600;
+            }
+            QTabBar#examSemanticTabs[activeTab="0"]::tab:selected {
+                background-color: #1E3A5F;
+                color: #BFDBFE;
+            }
+            QTabBar#examSemanticTabs[activeTab="1"]::tab:selected {
+                background-color: #164E3B;
+                color: #A7F3D0;
+            }
+            QTabBar#examSemanticTabs[activeTab="2"]::tab:selected {
+                background-color: #78350F;
+                color: #FDE68A;
+            }
+            QTabBar#examSemanticTabs[activeTab="3"]::tab:selected {
+                background-color: #4C1D95;
+                color: #DDD6FE;
             }
             QTabBar::tab:hover:!selected {
                 background-color: #334155;
