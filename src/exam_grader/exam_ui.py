@@ -1679,7 +1679,11 @@ class ExamDialog(QDialog):
                     options += [
                         (f"{thai} / {latin}", latin) for thai, latin in zip("กขคงจ", "ABCDE")
                     ]
-                    options += [("เว้นว่าง", "blank"), ("หลายคำตอบ", "multiple")]
+                    options += [
+                        ("เว้นว่าง (0 คะแนน)", "blank"),
+                        ("หลายคำตอบ (0 คะแนน)", "multiple"),
+                        ("คาบเส้นสองช่อง (0 คะแนน)", "boundary_cross"),
+                    ]
                 elif issue["kind"] == "attendance":
                     options += [
                         ("รอกระดาษ / ยกเลิกขาดสอบ", "pending"),

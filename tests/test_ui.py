@@ -993,8 +993,12 @@ def test_review_tab_checkbox_delegate_ux_and_state_preservation(tmp_path):
     assert dialog.issue_table.rowCount() == 3
     multiple_editor = dialog.issue_table.cellWidget(0, 4)
     assert isinstance(multiple_editor, QComboBox)
+    assert dialog.issue_rows[0]["status"] == "multiple"
     assert multiple_editor.currentData() == "multiple"
-    assert multiple_editor.currentText() == "หลายคำตอบ"
+    assert multiple_editor.currentText() == "หลายคำตอบ (0 คะแนน)"
+    assert multiple_editor.findText("เว้นว่าง (0 คะแนน)") >= 0
+    assert multiple_editor.findText("คาบเส้นสองช่อง (0 คะแนน)") >= 0
+    assert multiple_editor.findText("ก / A") >= 0
     assert "อ่านหลายคำตอบ (A, E)" in dialog.issue_table.item(0, 2).text()
     assert dialog.issue_table.columnWidth(0) == 52
 
