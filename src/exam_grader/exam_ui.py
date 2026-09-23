@@ -283,6 +283,7 @@ class BatchWorker(QThread):
             purpose,
             room_id,
         )
+        self.processed_count = 0
 
     def run(self):
         failures = []
@@ -395,6 +396,7 @@ class BatchWorker(QThread):
                     self.exam_id, path, self.purpose, str(error), room_id=self.room_id
                 )
                 failures.append(f"{path.name}: {error}")
+            self.processed_count += 1
             self.progress.emit(index + 1, len(self.paths), path.name)
         if full_pipeline_processed:
             try:
@@ -613,10 +615,14 @@ class ExamDialog(QDialog):
         self.mobile_upload_session: UploadSession | None = None
         self.mobile_upload_dialog: MobileUploadDialog | None = None
         self.mobile_upload_queue: list[Path] = []
+        self._mobile_upload_seen_paths: set[str] = set()
         self.mobile_upload_purpose: str | None = None
         self._review_focus_pending = False
         self._mobile_upload_received_count = 0
         self._mobile_upload_completed_count = 0
+        self._qr_batch_total = 0
+        self._qr_batch_completed = 0
+        self._qr_stop_requested = False
         self.output_root = application.exams.output_root(exam.id) or default_output_root()
         self.template_def = load_exam_template_def(application.exams.path, exam.id)
         self.student_sort_desc = False
@@ -801,6 +807,7 @@ class ExamDialog(QDialog):
         self.bulk_combo.addItem("ข้ามเลขที่นี้ (skipped)", "skipped")
         self.bulk_combo.addItem("ขาดสอบ (absent)", "absent")
         self.bulk_combo.addItem("ลา / ได้รับยกเว้น (excused)", "excused")
+        self.bulk_combo.addItem("ลบรายการนี้ออก", "dismiss")
         self.bulk_combo.currentIndexChanged.connect(lambda _: self._update_bulk_selection_state())
 
         self.bulk_apply_btn = QPushButton("นำไปใช้และบันทึกที่เลือก")
@@ -1536,11 +1543,12 @@ class ExamDialog(QDialog):
             student_number_stale = (
                 source["purpose"] == "student"
                 and detection is not None
+                and not detection.get("failure")
                 and not student_number_observation_is_current(
                     detection.get("student_number_observation")
                 )
             )
-            if not omr_stale and not detection.get("alignment_needs_review") and not student_number_stale:
+            if not omr_stale and not student_number_stale:
                 continue
             stale_by_purpose[source["purpose"]].append(
                 self.application.exams.path.parent / source["relative_path"]
@@ -1839,7 +1847,11 @@ class ExamDialog(QDialog):
         elif issue["kind"] == "attendance":
             self.review_service.set_attendance(self.exam.id, issue["number"], value)
         elif issue["kind"] in {"image", "import"}:
-            raise ValueError("กู้คืนภาพต้องกดจากรายการนั้นโดยตรง")
+            if value != "dismiss":
+                raise ValueError("เลือกคำสั่งลบรายการก่อนบันทึก")
+            result = self.review_service.bulk_dismiss(self.exam.id, [issue])
+            if result.get("errors"):
+                raise ValueError("; ".join(result["errors"]))
         else:
             state = self.review_service.state(issue["source"])
             self.flow.review(
@@ -1907,8 +1919,50 @@ class ExamDialog(QDialog):
         if not pending:
             self._update_save_all_state()
             return
+        dismiss_pending = [
+            (issue, key)
+            for issue, value, key in pending
+            if value == "dismiss" and issue.get("kind") in {"image", "import"}
+        ]
+        bulk_errors = []
+        if dismiss_pending:
+            answer = QMessageBox.question(
+                self,
+                "ยืนยันการลบรายการที่เลือก",
+                f"นำรายการที่เลือกออก {len(dismiss_pending)} รายการหรือไม่?\n"
+                "ต้นฉบับและข้อมูลของห้องอื่นจะไม่ถูกลบ",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._set_review_save_busy(True)
+                try:
+                    result = self.review_service.bulk_dismiss(
+                        self.exam.id, [issue for issue, _key in dismiss_pending]
+                    )
+                    applied_indexes = set(result.get("applied_indexes", []))
+                    for index, (issue, key) in enumerate(dismiss_pending):
+                        if index in applied_indexes:
+                            self.issue_dirty.discard(key)
+                            self.issue_drafts.pop(key, None)
+                            self.selected_issue_keys.discard(key)
+                    bulk_errors.extend(result.get("errors", []))
+                except (ValueError, OSError) as error:
+                    bulk_errors.append(str(error))
+                finally:
+                    self._set_review_save_busy(False)
+            pending = [
+                item
+                for item in pending
+                if not (item[1] == "dismiss" and item[0].get("kind") in {"image", "import"})
+            ]
+        if not pending:
+            self.refresh()
+            if bulk_errors:
+                QMessageBox.warning(self, "ลบได้บางรายการ", "\n".join(bulk_errors[:5]))
+            return
         self._set_review_save_busy(True)
-        errors = []
+        errors = list(bulk_errors)
         try:
             for issue, value, key in pending:
                 try:
@@ -1998,6 +2052,61 @@ class ExamDialog(QDialog):
                 operations.append({"issue": issue, "value": val})
 
         if not operations:
+            return
+
+        if val == "dismiss":
+            dismissible = [
+                operation["issue"]
+                for operation in operations
+                if operation["issue"].get("kind") in {"image", "import"}
+            ]
+            if len(dismissible) != len(operations):
+                QMessageBox.information(
+                    self,
+                    "ลบรายการแบบกลุ่มไม่ได้",
+                    "เลือกเฉพาะรายการนำเข้าหรือรายการภาพที่อ่านไม่ได้เพื่อใช้คำสั่งนี้",
+                )
+                return
+            answer = QMessageBox.question(
+                self,
+                "ยืนยันการลบรายการที่เลือก",
+                f"นำรายการที่เลือกออก {len(dismissible)} รายการหรือไม่?\n"
+                "ต้นฉบับและข้อมูลของห้องอื่นจะไม่ถูกลบ",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            self._set_review_save_busy(True)
+            try:
+                result = self.review_service.bulk_dismiss(self.exam.id, dismissible)
+                applied_indexes = set(result.get("applied_indexes", []))
+                for index, issue in enumerate(dismissible):
+                    if index not in applied_indexes:
+                        continue
+                    key = self._issue_key(issue)
+                    self.issue_dirty.discard(key)
+                    self.issue_drafts.pop(key, None)
+                    self.selected_issue_keys.discard(key)
+                self.refresh()
+                errors = result.get("errors", [])
+                if errors:
+                    QMessageBox.warning(
+                        self,
+                        "ลบได้บางรายการ",
+                        f"นำออกแล้ว {result.get('applied', 0)} จาก {len(dismissible)} รายการ\n"
+                        + "\n".join(errors[:5]),
+                    )
+                else:
+                    QMessageBox.information(
+                        self,
+                        "นำรายการออกแล้ว",
+                        f"นำรายการออกแล้ว {result.get('applied', 0)} รายการ",
+                    )
+            except (ValueError, OSError) as error:
+                QMessageBox.warning(self, "ลบรายการไม่สำเร็จ", str(error))
+            finally:
+                self._set_review_save_busy(False)
             return
 
         self._set_review_save_busy(True)
@@ -2109,15 +2218,27 @@ class ExamDialog(QDialog):
         if self.mobile_upload_session and self.mobile_upload_session.is_active():
             QMessageBox.information(self, "มี session อยู่แล้ว", "กรุณาปิด QR session เดิมก่อนเปิด session ใหม่")
             return
-        if self.mobile_upload_session and self.worker and self.worker.isRunning():
+        if self.worker and self.worker.isRunning():
             QMessageBox.information(
                 self,
                 "กำลังนำเข้าไฟล์",
-                "กำลังนำเข้าไฟล์จาก session ก่อนหน้าอยู่\n"
-                "รอให้การนำเข้าเสร็จ แล้วค่อยเปิด QR session ใหม่",
+                "กำลังนำเข้าไฟล์อยู่\nรอให้การนำเข้าเสร็จ แล้วค่อยเปิด QR session ใหม่",
             )
             return
-        self._cleanup_mobile_upload_session_if_idle()
+        # A closed/inactive session may still own transient staged files while
+        # a cancelled queue is being discarded.  Clean that owner explicitly
+        # before replacing it with a new session so stale staging cannot leak.
+        previous_session = self.mobile_upload_session
+        if previous_session is not None:
+            try:
+                previous_session.files_received.disconnect(self._on_mobile_upload_files)
+            except (TypeError, RuntimeError):
+                pass
+            previous_session.cleanup()
+            self.mobile_upload_session = None
+            self.mobile_upload_purpose = None
+        self.mobile_upload_queue.clear()
+        self._mobile_upload_seen_paths.clear()
         if purpose == "student":
             try:
                 self.flow.confirmed_key(self.exam.id)
@@ -2138,6 +2259,9 @@ class ExamDialog(QDialog):
         self.mobile_upload_purpose = purpose
         self._mobile_upload_received_count = 0
         self._mobile_upload_completed_count = 0
+        self._qr_batch_total = 0
+        self._qr_batch_completed = 0
+        self._qr_stop_requested = False
         session.files_received.connect(self._on_mobile_upload_files)
         dialog = MobileUploadDialog(session, self)
         self.mobile_upload_dialog = dialog
@@ -2153,9 +2277,18 @@ class ExamDialog(QDialog):
                 Path(value).unlink(missing_ok=True)
             return
         paths = [str(path) for path in self._filter_system_import_artifacts(paths)]
+        fresh_paths = []
+        for value in paths:
+            identity = str(Path(value).absolute())
+            if identity in self._mobile_upload_seen_paths:
+                continue
+            self._mobile_upload_seen_paths.add(identity)
+            fresh_paths.append(value)
+        paths = fresh_paths
         if not paths:
             self._update_qr_batch_progress()
             return
+        self._qr_stop_requested = False
         self.mobile_upload_queue.extend(Path(value) for value in paths)
         self._mobile_upload_received_count += len(paths)
         if self.mobile_upload_dialog is not None:
@@ -2175,13 +2308,19 @@ class ExamDialog(QDialog):
             self.mobile_upload_dialog.close()
 
     def _drain_mobile_upload_queue(self) -> None:
-        if not self.mobile_upload_queue or (self.worker and self.worker.isRunning()):
+        if (
+            self._qr_stop_requested
+            or not self.mobile_upload_queue
+            or (self.worker and self.worker.isRunning())
+        ):
             return
         purpose = self.mobile_upload_purpose
         if purpose is None:
             return
         paths = list(self.mobile_upload_queue)
         self.mobile_upload_queue.clear()
+        self._qr_batch_total = len(paths)
+        self._qr_batch_completed = 0
         if self.mobile_upload_dialog is not None:
             self.mobile_upload_dialog.set_processing(len(paths))
         self.start_import(paths, purpose)
@@ -2193,9 +2332,22 @@ class ExamDialog(QDialog):
             and finished_worker.purpose == "student"
             and self.mobile_upload_session is not None
         ):
-            self._mobile_upload_completed_count += len(finished_worker.paths)
+            self._mobile_upload_completed_count += finished_worker.processed_count
+            self._qr_batch_completed = finished_worker.processed_count
         self.busy(False)
-        self._drain_mobile_upload_queue()
+        cancelled = self._qr_stop_requested or (
+            isinstance(finished_worker, BatchWorker)
+            and finished_worker.isInterruptionRequested()
+        )
+        if cancelled:
+            self.mobile_upload_queue.clear()
+            self._qr_batch_total = 0
+            self._qr_batch_completed = 0
+        else:
+            self._drain_mobile_upload_queue()
+            if not self.mobile_upload_queue and not (self.worker and self.worker.isRunning()):
+                self._qr_batch_total = 0
+                self._qr_batch_completed = 0
         self._cleanup_mobile_upload_session_if_idle()
         self._update_qr_batch_progress()
         self._maybe_focus_review_after_batch()
@@ -2222,13 +2374,23 @@ class ExamDialog(QDialog):
             return
         processing = bool(self.worker and self.worker.isRunning())
         pending = len(self.mobile_upload_queue)
-        self.progress.setRange(0, 0)
-        self.progress_label.setText(
-            f"QR: รับแล้ว {self._mobile_upload_received_count} ภาพ · "
-            f"อ่านเสร็จ {self._mobile_upload_completed_count} ภาพ"
-            f" · {'กำลังอ่าน' if processing else 'รอภาพถัดไป'}"
-            + (f" · รอคิว {pending}" if pending else "")
-        )
+        if self._qr_batch_total:
+            self.progress.setRange(0, self._qr_batch_total)
+            self.progress.setValue(min(self._qr_batch_completed, self._qr_batch_total))
+            state = "กำลังอ่าน" if processing else "อ่านชุดนี้เสร็จแล้ว"
+            self.progress_label.setText(
+                f"QR: อ่านชุดปัจจุบัน {self._qr_batch_completed} จาก {self._qr_batch_total} · "
+                f"รับแล้ว {self._mobile_upload_received_count} ภาพ · {state}"
+                + (f" · รอคิว {pending}" if pending else "")
+            )
+        else:
+            self.progress.setRange(0, 1)
+            self.progress.setValue(0)
+            state = "หยุดแล้ว" if self._qr_stop_requested else "พร้อมรับภาพถัดไป"
+            self.progress_label.setText(
+                f"QR: รับแล้ว {self._mobile_upload_received_count} ภาพ · "
+                f"อ่านเสร็จ {self._mobile_upload_completed_count} ภาพ · {state}"
+            )
         if self.mobile_upload_dialog is not None:
             self.mobile_upload_dialog.set_batch_status(
                 self._mobile_upload_received_count,
@@ -2253,6 +2415,10 @@ class ExamDialog(QDialog):
             return
         if session.is_active() or self.mobile_upload_queue or (self.worker and self.worker.isRunning()):
             return
+        try:
+            session.files_received.disconnect(self._on_mobile_upload_files)
+        except (TypeError, RuntimeError):
+            pass
         session.cleanup()
         self.mobile_upload_session = None
         self.mobile_upload_purpose = None
@@ -2319,6 +2485,7 @@ class ExamDialog(QDialog):
 
     def on_progress(self, done, total, filename):
         if self.mobile_upload_session is not None and self.mobile_upload_purpose == "student":
+            self._qr_batch_completed = done
             self._update_qr_batch_progress()
             return
         self.progress.setMaximum(total)
@@ -2327,11 +2494,14 @@ class ExamDialog(QDialog):
 
     def import_done(self, failures):
         self.refresh()
-        if isinstance(self.worker, BatchWorker) and self.worker.purpose == "student":
+        worker = self.worker
+        cancelled = isinstance(worker, BatchWorker) and worker.isInterruptionRequested()
+        if isinstance(worker, BatchWorker) and worker.purpose == "student":
             self._review_focus_pending = True
         # The worker emits completed before QThread.finished. Defer the stale
         # check one event-loop turn so a key refresh can be followed by students.
-        QTimer.singleShot(0, self._ensure_current_pipeline)
+        if isinstance(worker, BatchWorker) and worker.purpose == "key" and not cancelled:
+            QTimer.singleShot(0, self._ensure_current_pipeline)
         if failures:
             self.progress_label.setText(
                 f"นำเข้าเสร็จ · มี {len(failures)} ไฟล์ที่ต้องตรวจทาน "
@@ -2341,7 +2511,8 @@ class ExamDialog(QDialog):
             self.review_key()
 
     def cancel_batch(self):
-        if self.worker:
+        if self.worker and self.worker.isRunning():
+            self._qr_stop_requested = self.mobile_upload_session is not None
             self.worker.requestInterruption()
 
     def review_key(self):

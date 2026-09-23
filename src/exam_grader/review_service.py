@@ -400,6 +400,54 @@ class ReviewService:
             "applied_indexes": applied_indexes,
         }
 
+    def bulk_dismiss(self, exam_id: str, issues: list[dict]) -> dict:
+        """Resolve selected failed rows without deleting any original bytes."""
+
+        if not issues:
+            return {"applied": 0, "total": 0, "errors": []}
+        now = datetime.now(timezone.utc).isoformat()
+        applied = 0
+        applied_indexes: list[int] = []
+        errors: list[str] = []
+        with self.flow.connection() as con:
+            for index, issue in enumerate(issues):
+                label = issue.get("label", "รายการ")
+                if issue.get("kind") == "import":
+                    failure = issue.get("failure") or {}
+                    failure_id = failure.get("id")
+                    if not failure_id:
+                        errors.append(f"{label}: ไม่พบรหัสรายการนำเข้า")
+                        continue
+                    changed = con.execute(
+                        "UPDATE import_failures SET resolved_at=? "
+                        "WHERE id=? AND exam_id=? AND resolved_at IS NULL "
+                        "AND (room_id IS ? OR room_id=?)",
+                        (now, failure_id, exam_id, self.room_id, self.room_id),
+                    ).rowcount
+                elif issue.get("kind") == "image":
+                    source = issue.get("source") or {}
+                    changed = con.execute(
+                        "UPDATE sources SET archived_at=? "
+                        "WHERE id=? AND exam_id=? AND purpose='student' "
+                        "AND archived_at IS NULL AND (room_id IS ? OR room_id=?)",
+                        (now, source.get("id"), exam_id, self.room_id, self.room_id),
+                    ).rowcount
+                else:
+                    errors.append(f"{label}: รายการนี้ลบแบบกลุ่มไม่ได้")
+                    continue
+                if changed:
+                    applied += 1
+                    applied_indexes.append(index)
+                else:
+                    errors.append(f"{label}: รายการถูกแก้ไขไปแล้วหรือไม่พบรายการ")
+        self.finalize(exam_id)
+        return {
+            "applied": applied,
+            "total": len(issues),
+            "applied_indexes": applied_indexes,
+            "errors": errors,
+        }
+
     @staticmethod
     def prefilled_value(issue: dict) -> str | None:
         """Return only a measured value or known status for this review row."""

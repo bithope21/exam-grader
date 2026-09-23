@@ -1023,14 +1023,17 @@ def test_qr_batch_progress_stays_open_ended_until_session_closes(tmp_path):
     dialog.mobile_upload_purpose = "student"
     dialog._mobile_upload_received_count = 2
     dialog._mobile_upload_completed_count = 1
+    dialog._qr_batch_total = 2
+    dialog._qr_batch_completed = 0
     dialog.worker = Mock()
     dialog.worker.isRunning.return_value = True
 
     dialog._update_qr_batch_progress()
 
     assert dialog.progress.minimum() == 0
-    assert dialog.progress.maximum() == 0
-    assert "QR: รับแล้ว 2 ภาพ" in dialog.progress_label.text()
+    assert dialog.progress.maximum() == 2
+    assert dialog.progress.value() == 0
+    assert "อ่านชุดปัจจุบัน 0 จาก 2" in dialog.progress_label.text()
     assert "100%" not in dialog.progress_label.text()
 
     dialog.mobile_upload_session = None
@@ -1039,6 +1042,168 @@ def test_qr_batch_progress_stays_open_ended_until_session_closes(tmp_path):
     assert dialog.progress.maximum() == 1
     assert "ปิด QR session แล้ว" in dialog.progress_label.text()
     dialog.close()
+
+
+def test_qr_queue_uses_callback_delta_and_deduplicates_repeated_event(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("qr-queue", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    dialog.mobile_upload_session = Mock()
+    dialog.mobile_upload_purpose = "student"
+    dialog.mobile_upload_dialog = Mock()
+    dialog.worker = Mock()
+    dialog.worker.isRunning.return_value = True
+    dialog.start_import = Mock()
+    try:
+        dialog._on_mobile_upload_files(["/tmp/qr/new-a.jpg"])
+        dialog._on_mobile_upload_files(["/tmp/qr/new-a.jpg"])
+        assert dialog._mobile_upload_received_count == 1
+        assert dialog.mobile_upload_queue == [Path("/tmp/qr/new-a.jpg")]
+
+        dialog.worker.isRunning.return_value = False
+        dialog._batch_worker_finished()
+        dialog.start_import.assert_called_once_with([Path("/tmp/qr/new-a.jpg")], "student")
+    finally:
+        dialog.close()
+
+
+def test_qr_stop_discards_pending_queue_without_restart(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("qr-stop", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    dialog.mobile_upload_session = Mock()
+    dialog.mobile_upload_purpose = "student"
+    dialog.mobile_upload_queue = [Path("/tmp/qr/queued.jpg")]
+    dialog.worker = Mock()
+    dialog.worker.isRunning.return_value = True
+    dialog.start_import = Mock()
+    try:
+        dialog.cancel_batch()
+        dialog.worker.requestInterruption.assert_called_once_with()
+        dialog.worker.isRunning.return_value = False
+        dialog._batch_worker_finished()
+        assert dialog.mobile_upload_queue == []
+        dialog.start_import.assert_not_called()
+    finally:
+        dialog.close()
+
+
+def test_failed_review_detection_is_not_requeued_by_stale_pipeline_scan(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("stale-failure", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    dialog.importer.list_sources = Mock(
+        return_value=[
+            {
+                "id": "failed-sheet",
+                "purpose": "student",
+                "relative_path": "input/originals/failed-sheet",
+            }
+        ]
+    )
+    dialog.flow.latest_detection = Mock(
+        return_value={
+            "pipeline_version": "draft-omr-local-ink-v2",
+            "failure": "จัดแนวภาพไม่ได้",
+            "alignment_needs_review": True,
+        }
+    )
+    dialog.start_import = Mock()
+    try:
+        dialog._ensure_current_pipeline()
+        dialog.start_import.assert_not_called()
+    finally:
+        dialog.close()
+
+
+def test_bulk_dismiss_import_failures_confirms_once_and_preserves_originals(tmp_path, monkeypatch):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(
+        ExamDetails("bulk-dismiss", "2569", "ป.1", "1", "วิชา", question_count=1)
+    )
+    importer = ImportService(application.exams.path)
+    key_path = tmp_path / "key.png"
+    original_paths = [tmp_path / f"failed-{index}.jpg" for index in range(3)]
+    image = QImage(100, 100, QImage.Format.Format_RGB32)
+    image.fill(0xFFFFFFFF)
+    assert image.save(str(key_path))
+    key = importer.import_file(exam.id, key_path, "key")
+    Workflow(application.exams.path).approve_key(exam.id, ["A"], key["id"])
+    room_id = application.exams.list_rooms(exam.id)[0].id
+    for path in original_paths:
+        path.write_bytes(b"preserve-me")
+        importer.record_failure(exam.id, path, "student", "ภาพนี้ถูกนำเข้าในห้องอื่นแล้ว", room_id)
+
+    dialog = ExamDialog(application, exam)
+    question = Mock(return_value=QMessageBox.StandardButton.Yes)
+    info = Mock()
+    warning = Mock()
+    monkeypatch.setattr(QMessageBox, "question", question)
+    monkeypatch.setattr(QMessageBox, "information", info)
+    monkeypatch.setattr(QMessageBox, "warning", warning)
+    try:
+        dialog.select_all_issues()
+        dialog.bulk_combo.setCurrentIndex(dialog.bulk_combo.findData("dismiss"))
+        dialog.apply_bulk_edit()
+        assert question.call_count == 1
+        assert info.call_count == 1
+        assert warning.call_count == 0
+        assert importer.list_failures(exam.id, room_id) == []
+        assert all(path.read_bytes() == b"preserve-me" for path in original_paths)
+    finally:
+        dialog.close()
+
+
+def test_bulk_dismiss_reports_partial_failure_once(tmp_path, monkeypatch):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("bulk-partial", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    issues = [
+        {"kind": "import", "label": "นำเข้าไม่ได้ 1", "failure": {"id": "one"}},
+        {"kind": "import", "label": "นำเข้าไม่ได้ 2", "failure": {"id": "two"}},
+    ]
+    dialog.issue_rows = issues
+    dialog.selected_issue_keys = {dialog._issue_key(issue) for issue in issues}
+    dialog.review_service.bulk_dismiss = Mock(
+        return_value={
+            "applied": 1,
+            "total": 2,
+            "applied_indexes": [0],
+            "errors": ["นำเข้าไม่ได้ 2: รายการถูกแก้ไขไปแล้ว"],
+        }
+    )
+    dialog.refresh = Mock()
+    question = Mock(return_value=QMessageBox.StandardButton.Yes)
+    info = Mock()
+    warning = Mock()
+    monkeypatch.setattr(QMessageBox, "question", question)
+    monkeypatch.setattr(QMessageBox, "information", info)
+    monkeypatch.setattr(QMessageBox, "warning", warning)
+    try:
+        dialog.bulk_combo.setCurrentIndex(dialog.bulk_combo.findData("dismiss"))
+        dialog.apply_bulk_edit()
+        assert question.call_count == 1
+        assert warning.call_count == 1
+        assert info.call_count == 0
+        assert dialog._issue_key(issues[0]) not in dialog.selected_issue_keys
+        assert dialog._issue_key(issues[1]) in dialog.selected_issue_keys
+    finally:
+        dialog.close()
 
 
 def test_import_filters_system_artifacts_before_batch_start(tmp_path):
