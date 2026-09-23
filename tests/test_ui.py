@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from unittest.mock import Mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -26,7 +27,7 @@ from exam_grader.identity import STUDENT_NUMBER_PIPELINE_VERSION
 from exam_grader.imaging import OMR_PIPELINE_VERSION
 from exam_grader.imports import ImportService
 from exam_grader.preferences import apply_appearance_theme
-from exam_grader.review_ui import ReviewDialog
+from exam_grader.review_ui import ReviewDialog, _review_failure_text, _template_mismatch_failure
 from exam_grader.ui import EXAM_GRADER_DONATION_URL, MainWindow, NewExamDialog
 from exam_grader.workflow import Workflow
 
@@ -1003,6 +1004,81 @@ def test_student_batch_focuses_review_only_at_completion_boundary(tmp_path):
     dialog._maybe_focus_review_after_batch()
     assert dialog.tabs.currentIndex() == 2
     assert dialog._review_focus_pending is False
+
+    dialog._review_focus_pending = True
+    dialog.issue_rows = []
+    dialog._maybe_focus_review_after_batch()
+    assert dialog.tabs.currentIndex() == 3
+    dialog.close()
+
+
+def test_qr_batch_progress_stays_open_ended_until_session_closes(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("qr", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    dialog.mobile_upload_session = Mock()
+    dialog.mobile_upload_purpose = "student"
+    dialog._mobile_upload_received_count = 2
+    dialog._mobile_upload_completed_count = 1
+    dialog.worker = Mock()
+    dialog.worker.isRunning.return_value = True
+
+    dialog._update_qr_batch_progress()
+
+    assert dialog.progress.minimum() == 0
+    assert dialog.progress.maximum() == 0
+    assert "QR: รับแล้ว 2 ภาพ" in dialog.progress_label.text()
+    assert "100%" not in dialog.progress_label.text()
+
+    dialog.mobile_upload_session = None
+    dialog.worker.isRunning.return_value = False
+    dialog._finish_qr_progress_if_closed()
+    assert dialog.progress.maximum() == 1
+    assert "ปิด QR session แล้ว" in dialog.progress_label.text()
+    dialog.close()
+
+
+def test_import_filters_system_artifacts_before_batch_start(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+
+    assert ExamDialog._filter_system_import_artifacts(
+        [Path("answer.jpg"), Path(".DS_Store"), Path("Thumbs.db"), Path("sheet.png")]
+    ) == [Path("answer.jpg"), Path("sheet.png")]
+
+
+def test_template_mismatch_failure_guides_user_to_change_template(tmp_path):
+    detection = {
+        "failure": "answer ROI overlaps question-number strip",
+        "alignment_diagnostics": {
+            "geometry_error": "answer ROI overlaps question-number strip"
+        },
+    }
+
+    assert _template_mismatch_failure(detection)
+    message = _review_failure_text(detection, "no crop")
+    assert "แม่แบบไม่ตรงกับกระดาษ" in message
+    assert "no crop" in message
+
+
+def test_batch_failures_do_not_open_blocking_error_dialog(tmp_path, monkeypatch):
+    from exam_grader.exam_ui import BatchWorker, ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("errors", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    dialog.worker = BatchWorker(application.exams.path, exam.id, [], "student", None, dialog)
+    monkeypatch.setattr(dialog, "refresh", lambda: None)
+    warning = Mock()
+    monkeypatch.setattr(QMessageBox, "warning", warning)
+
+    dialog.import_done([".DS_Store: รุ่นนี้รับเฉพาะ JPEG และ PNG"])
+
+    warning.assert_not_called()
+    assert "รายละเอียดอยู่ในแท็บตรวจทาน" in dialog.progress_label.text()
     dialog.close()
 
 
@@ -1022,6 +1098,8 @@ def test_exam_tabs_expose_distinct_semantic_active_styles(tmp_path):
     stylesheet = QApplication.instance().styleSheet()
     assert 'QTabBar#examSemanticTabs[activeTab="0"]::tab:selected' in stylesheet
     assert 'QTabBar#examSemanticTabs[activeTab="3"]::tab:selected' in stylesheet
+    for color in ("#F58220", "#FFDD00", "#0072BC", "#009B77"):
+        assert color in stylesheet
     dialog.close()
 
 

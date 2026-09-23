@@ -34,6 +34,19 @@ def test_import_is_immutable_idempotent_and_survives_restart(tmp_path):
     assert records[0]["sha256"] == hashlib.sha256(before).hexdigest()
 
 
+def test_extensionless_stored_original_can_be_reprocessed(tmp_path):
+    app, exam, source = setup_exam(tmp_path)
+    service = ImportService(app.exams.path)
+    first = service.import_file(exam.id, source)
+
+    stored_original = service.original_path(first)
+    assert stored_original.suffix == ""
+    replay = service.import_file(exam.id, stored_original)
+
+    assert replay["id"] == first["id"]
+    assert service.verified_bytes(replay) == source.read_bytes()
+
+
 def test_invalid_file_does_not_create_record(tmp_path):
     app, exam, source = setup_exam(tmp_path)
     source.write_bytes(b"corrupt")

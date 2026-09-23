@@ -192,6 +192,27 @@ def _paper_overlay(image: np.ndarray, corners: np.ndarray) -> np.ndarray:
     return preview
 
 
+def _template_mismatch_failure(detection: dict | None) -> bool:
+    detection = detection or {}
+    diagnostics = detection.get("alignment_diagnostics") or {}
+    text = " ".join(
+        str(value)
+        for value in (detection.get("failure"), diagnostics.get("geometry_error"))
+        if value
+    ).casefold()
+    return "question-number strip" in text or "ทับแถบเลขข้อ" in text
+
+
+def _review_failure_text(detection: dict | None, template_name: str) -> str:
+    if _template_mismatch_failure(detection):
+        return (
+            "อ่านตามแม่แบบปัจจุบันไม่ได้ เพราะพื้นที่คำตอบทับแถบเลขข้อ "
+            f"(แม่แบบ: {template_name}) · น่าจะเลือกแม่แบบไม่ตรงกับกระดาษ "
+            "เช่น จำนวนข้อหรือจำนวนตัวเลือกต่างกัน"
+        )
+    return str((detection or {}).get("failure") or "จัดแนวภาพไม่ได้")
+
+
 class ReviewDialog(QDialog):
     def __init__(self, database, source: dict, parent=None):
         super().__init__(parent)
@@ -285,6 +306,14 @@ class ReviewDialog(QDialog):
             "ใช้เมื่อกรอบอัตโนมัติไม่ตรง: ให้เห็นกระดาษครบ 4 มุม ถ่ายเหนือกระดาษ และหลีกเลี่ยงเงา/แสงสะท้อน"
         )
         self.adjust_corners_button.clicked.connect(self._adjust_document_corners)
+        if _template_mismatch_failure(self.detection):
+            self.normalization_status.setText(
+                "แม่แบบไม่ตรงกับภาพ · เปลี่ยนแม่แบบก่อนปรับมุมกระดาษ"
+            )
+            self.adjust_corners_button.setEnabled(False)
+            self.adjust_corners_button.setToolTip(
+                "กรณีนี้เป็นปัญหาแม่แบบ ไม่ใช่ตำแหน่งมุมภาพ · กดเปลี่ยนแม่แบบของข้อสอบ"
+            )
         normalization_actions.addWidget(self.adjust_corners_button)
         layout.addLayout(normalization_actions)
         matrix = (
@@ -305,7 +334,7 @@ class ReviewDialog(QDialog):
         else:
             tabs.addTab(image_widget(_paper_overlay(original, self.boundary_corners)), "ขอบที่พบ")
             tabs.addTab(image_widget(original), "ต้นฉบับ · จัดแนวไม่ได้")
-            reg_fail_msg = (detection or {}).get("failure") or "จัดแนวภาพไม่ได้"
+            reg_fail_msg = _review_failure_text(detection, self.template_def.name)
             warning_box = QFrame()
             warning_box.setProperty("role", "warning")
             w_layout = QHBoxLayout(warning_box)
@@ -621,11 +650,13 @@ class ReviewDialog(QDialog):
         except (RegistrationError, ValueError, OSError, cv2.error) as error:
             diagnostics = getattr(error, "diagnostics", {}) or {}
             stage = diagnostics.get("stage")
-            stage_text = f"\\nขั้นที่ล้มเหลว: {stage}" if stage else ""
+            stage_text = f"\nขั้นที่ล้มเหลว: {stage}" if stage else ""
             QMessageBox.warning(
                 self,
                 "จัดแนวจากกรอบนี้ไม่ได้",
-                f"{error}{stage_text}\\nลองปรับมุมใหม่ หรือยกเลิกแล้วถ่ายกระดาษให้เห็นครบทั้ง 4 มุม",
+                f"{_review_failure_text({'failure': str(error), 'alignment_diagnostics': diagnostics}, self.template_def.name)}"
+                f"{stage_text}\n"
+                "ถ้าเป็นแม่แบบไม่ตรง ให้เปลี่ยนแม่แบบก่อน; ถ้าเป็นมุมภาพ ให้ลากให้ตรงขอบกระดาษทั้ง 4 มุม",
             )
             self.boundary_corners = corners
             return

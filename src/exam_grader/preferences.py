@@ -582,20 +582,20 @@ def get_theme_stylesheet(mode: str) -> str:
                 font-weight: 600;
             }
             QTabBar#examSemanticTabs[activeTab="0"]::tab:selected {
-                background-color: #DBEAFE;
-                color: #1E3A8A;
+                background-color: #F58220;
+                color: #111827;
             }
             QTabBar#examSemanticTabs[activeTab="1"]::tab:selected {
-                background-color: #D1FAE5;
-                color: #065F46;
+                background-color: #FFDD00;
+                color: #111827;
             }
             QTabBar#examSemanticTabs[activeTab="2"]::tab:selected {
-                background-color: #FEF3C7;
-                color: #92400E;
+                background-color: #0072BC;
+                color: #FFFFFF;
             }
             QTabBar#examSemanticTabs[activeTab="3"]::tab:selected {
-                background-color: #EDE9FE;
-                color: #5B21B6;
+                background-color: #009B77;
+                color: #FFFFFF;
             }
             QTabBar::tab:hover:!selected {
                 background-color: #E2E8F0;
@@ -1063,20 +1063,20 @@ def get_theme_stylesheet(mode: str) -> str:
                 font-weight: 600;
             }
             QTabBar#examSemanticTabs[activeTab="0"]::tab:selected {
-                background-color: #1E3A5F;
-                color: #BFDBFE;
+                background-color: #C45F0A;
+                color: #FFFFFF;
             }
             QTabBar#examSemanticTabs[activeTab="1"]::tab:selected {
-                background-color: #164E3B;
-                color: #A7F3D0;
+                background-color: #BFA600;
+                color: #111827;
             }
             QTabBar#examSemanticTabs[activeTab="2"]::tab:selected {
-                background-color: #78350F;
-                color: #FDE68A;
+                background-color: #005A96;
+                color: #FFFFFF;
             }
             QTabBar#examSemanticTabs[activeTab="3"]::tab:selected {
-                background-color: #4C1D95;
-                color: #DDD6FE;
+                background-color: #007A5E;
+                color: #FFFFFF;
             }
             QTabBar::tab:hover:!selected {
                 background-color: #334155;

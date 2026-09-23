@@ -147,9 +147,18 @@ class ImportService:
                     raise ValueError("ห้องไม่ตรงกับข้อสอบ")
             else:
                 room_id = None
-        if source.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
-            raise ValueError("รุ่นนี้รับเฉพาะ JPEG และ PNG")
         data = source.read_bytes()
+        suffix = source.suffix.lower()
+        if suffix not in {".jpg", ".jpeg", ".png"}:
+            # Stored content-addressed originals intentionally have no suffix.
+            # Accept them only when their bytes prove they are JPEG/PNG; this
+            # keeps reprocessing safe without allowing arbitrary files through.
+            if data.startswith(b"\x89PNG\r\n\x1a\n"):
+                suffix = ".png"
+            elif data.startswith(b"\xff\xd8\xff"):
+                suffix = ".jpg"
+            else:
+                raise ValueError("รุ่นนี้รับเฉพาะ JPEG และ PNG")
         image = QImage.fromData(data)
         if image.isNull():
             raise ValueError("อ่านภาพไม่ได้ หรือไฟล์เสีย")

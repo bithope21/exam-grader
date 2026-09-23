@@ -89,6 +89,10 @@ PHOTO_GUIDANCE_TEXT = (
     "• ให้ตัวหนังสือและรอยกากบาทเห็นชัด"
 )
 
+SYSTEM_IMPORT_ARTIFACTS = frozenset(
+    {".ds_store", "thumbs.db", "desktop.ini", ".spotlight-v100", ".trashes"}
+)
+
 
 class QrGlyphButton(QToolButton):
     """Native tool button with a small, locally drawn QR glyph."""
@@ -485,6 +489,15 @@ class MobileUploadDialog(QDialog):
     def set_processing(self, count: int) -> None:
         self.status_label.setText(f"รับแล้ว · กำลังส่งเข้า pipeline เดิม {count} ภาพ")
 
+    def set_batch_status(
+        self, received: int, completed: int, pending: int, processing: bool
+    ) -> None:
+        state = "กำลังอ่าน" if processing else "พร้อมรับภาพถัดไป"
+        queue = f" · รอคิว {pending}" if pending else ""
+        self.status_label.setText(
+            f"QR: รับแล้ว {received} ภาพ · อ่านเสร็จ {completed} ภาพ · {state}{queue}"
+        )
+
     def copy_url(self) -> None:
         QApplication.clipboard().setText(self.session.url)
         self.status_label.setText("คัดลอก URL แล้ว · เปิดจากมือถือที่อยู่เครือข่ายเดียวกัน")
@@ -602,6 +615,8 @@ class ExamDialog(QDialog):
         self.mobile_upload_queue: list[Path] = []
         self.mobile_upload_purpose: str | None = None
         self._review_focus_pending = False
+        self._mobile_upload_received_count = 0
+        self._mobile_upload_completed_count = 0
         self.output_root = application.exams.output_root(exam.id) or default_output_root()
         self.template_def = load_exam_template_def(application.exams.path, exam.id)
         self.student_sort_desc = False
@@ -2121,6 +2136,8 @@ class ExamDialog(QDialog):
 
         self.mobile_upload_session = session
         self.mobile_upload_purpose = purpose
+        self._mobile_upload_received_count = 0
+        self._mobile_upload_completed_count = 0
         session.files_received.connect(self._on_mobile_upload_files)
         dialog = MobileUploadDialog(session, self)
         self.mobile_upload_dialog = dialog
@@ -2128,16 +2145,23 @@ class ExamDialog(QDialog):
         self.mobile_upload_dialog = None
         self._cleanup_mobile_upload_session_if_idle()
         self._maybe_focus_review_after_batch()
+        self._finish_qr_progress_if_closed()
 
     def _on_mobile_upload_files(self, paths: list[str]) -> None:
         if self.mobile_upload_session is None:
             for value in paths:
                 Path(value).unlink(missing_ok=True)
             return
+        paths = [str(path) for path in self._filter_system_import_artifacts(paths)]
+        if not paths:
+            self._update_qr_batch_progress()
+            return
         self.mobile_upload_queue.extend(Path(value) for value in paths)
+        self._mobile_upload_received_count += len(paths)
         if self.mobile_upload_dialog is not None:
             self.mobile_upload_dialog.set_processing(len(self.mobile_upload_queue))
         self._drain_mobile_upload_queue()
+        self._update_qr_batch_progress()
         if (
             self.mobile_upload_purpose == "key"
             and self.mobile_upload_session is not None
@@ -2163,10 +2187,19 @@ class ExamDialog(QDialog):
         self.start_import(paths, purpose)
 
     def _batch_worker_finished(self) -> None:
+        finished_worker = self.worker
+        if (
+            isinstance(finished_worker, BatchWorker)
+            and finished_worker.purpose == "student"
+            and self.mobile_upload_session is not None
+        ):
+            self._mobile_upload_completed_count += len(finished_worker.paths)
         self.busy(False)
         self._drain_mobile_upload_queue()
         self._cleanup_mobile_upload_session_if_idle()
+        self._update_qr_batch_progress()
         self._maybe_focus_review_after_batch()
+        self._finish_qr_progress_if_closed()
 
     def _maybe_focus_review_after_batch(self) -> None:
         """Move to Review once a student batch has a stable completion boundary."""
@@ -2179,8 +2212,40 @@ class ExamDialog(QDialog):
             # session. Closing it is the user's clear batch boundary.
             return
         self._review_focus_pending = False
-        if self.issue_rows:
-            self.tabs.setCurrentIndex(2)
+        self.tabs.setCurrentIndex(2 if self.issue_rows else 3)
+
+    def _update_qr_batch_progress(self) -> None:
+        if not (
+            self.mobile_upload_session is not None
+            and self.mobile_upload_purpose == "student"
+        ):
+            return
+        processing = bool(self.worker and self.worker.isRunning())
+        pending = len(self.mobile_upload_queue)
+        self.progress.setRange(0, 0)
+        self.progress_label.setText(
+            f"QR: รับแล้ว {self._mobile_upload_received_count} ภาพ · "
+            f"อ่านเสร็จ {self._mobile_upload_completed_count} ภาพ"
+            f" · {'กำลังอ่าน' if processing else 'รอภาพถัดไป'}"
+            + (f" · รอคิว {pending}" if pending else "")
+        )
+        if self.mobile_upload_dialog is not None:
+            self.mobile_upload_dialog.set_batch_status(
+                self._mobile_upload_received_count,
+                self._mobile_upload_completed_count,
+                pending,
+                processing,
+            )
+
+    def _finish_qr_progress_if_closed(self) -> None:
+        if self.mobile_upload_session is not None or not self._mobile_upload_received_count:
+            return
+        self.progress.setRange(0, 1)
+        self.progress.setValue(1)
+        self.progress_label.setText(
+            f"ปิด QR session แล้ว · อ่านเสร็จ {self._mobile_upload_completed_count} "
+            f"จาก {self._mobile_upload_received_count} ภาพ"
+        )
 
     def _cleanup_mobile_upload_session_if_idle(self) -> None:
         session = self.mobile_upload_session
@@ -2217,7 +2282,16 @@ class ExamDialog(QDialog):
                 "student",
             )
 
+    @staticmethod
+    def _filter_system_import_artifacts(paths):
+        return [
+            Path(path)
+            for path in paths
+            if Path(path).name.casefold() not in SYSTEM_IMPORT_ARTIFACTS
+        ]
+
     def start_import(self, paths, purpose):
+        paths = self._filter_system_import_artifacts(paths)
         if not paths or (self.worker and self.worker.isRunning()):
             return
         if purpose == "student":
@@ -2235,12 +2309,18 @@ class ExamDialog(QDialog):
         self.worker.completed.connect(self.import_done)
         self.worker.finished.connect(self._batch_worker_finished)
         self.busy(True)
-        self.progress.setRange(0, len(paths))
-        self.progress.setValue(0)
-        self.progress_label.setText(f"กำลังอ่าน 0 จาก {len(paths)}")
+        if purpose == "student" and self.mobile_upload_session is not None:
+            self._update_qr_batch_progress()
+        else:
+            self.progress.setRange(0, len(paths))
+            self.progress.setValue(0)
+            self.progress_label.setText(f"กำลังอ่าน 0 จาก {len(paths)}")
         self.worker.start()
 
     def on_progress(self, done, total, filename):
+        if self.mobile_upload_session is not None and self.mobile_upload_purpose == "student":
+            self._update_qr_batch_progress()
+            return
         self.progress.setMaximum(total)
         self.progress.setValue(done)
         self.progress_label.setText(f"กำลังอ่าน {done} จาก {total} · {filename}")
@@ -2253,7 +2333,10 @@ class ExamDialog(QDialog):
         # check one event-loop turn so a key refresh can be followed by students.
         QTimer.singleShot(0, self._ensure_current_pipeline)
         if failures:
-            QMessageBox.warning(self, "บางภาพนำเข้าไม่ได้", "\n".join(failures))
+            self.progress_label.setText(
+                f"นำเข้าเสร็จ · มี {len(failures)} ไฟล์ที่ต้องตรวจทาน "
+                "รายละเอียดอยู่ในแท็บตรวจทาน"
+            )
         if isinstance(self.worker, BatchWorker) and self.worker.purpose == "key" and not failures:
             self.review_key()
 
@@ -2301,6 +2384,8 @@ class ExamDialog(QDialog):
                 self.update_key_gate()
                 if self.tabs.isTabEnabled(1):
                     self.tabs.setCurrentIndex(1)
+            elif source["purpose"] == "student" and accepted and not self.issue_rows:
+                self.tabs.setCurrentIndex(3)
         except Exception as error:
             QMessageBox.warning(self, "เปิดภาพไม่ได้", str(error))
 
