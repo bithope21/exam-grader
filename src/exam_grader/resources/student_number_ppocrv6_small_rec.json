@@ -1,11 +1,11 @@
 {
-  "version": "student-number-ppocrv6-small-onnx-v3",
+  "version": "student-number-ppocrv6-small-onnx-v4",
   "source_model": "PaddlePaddle/PP-OCRv6_small_rec_onnx",
   "license": "Apache-2.0",
   "model_sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634",
   "model_size_bytes": 21159378,
   "calibration": {
-    "status": "regression_screening_gate_v3",
+    "status": "regression_screening_gate_v4",
     "scope": "Vol.8-Vol.11 Student Number regression corpus",
     "records": 74,
     "wrong_auto_accept": 0,

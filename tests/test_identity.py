@@ -301,6 +301,27 @@ def test_sequence_variant_selector_does_not_shorten_legitimate_two_digit_read():
     assert diagnostics["length_consistency"]["applied"] is False
 
 
+def test_sequence_variant_selector_uses_strong_reference_cleaned_focus_against_gray_false_prefix():
+    processed = {"candidate": "18", "confidence": 0.61}
+    gray = {"candidate": "18", "confidence": 0.78}
+    handwriting = {
+        "candidate": "8",
+        "confidence": 0.986,
+        "confidence_margin": 0.93,
+    }
+
+    selected, diagnostics = _select_sequence_variant_observation(
+        processed,
+        gray,
+        handwriting_observation=handwriting,
+        static_print_suppression={"reference_applied": True},
+    )
+
+    assert selected is handwriting
+    assert diagnostics["length_consistency"]["applied"] is True
+    assert diagnostics["length_consistency"]["reference_suppressed"] is True
+
+
 def test_handwriting_focus_crop_keeps_vertical_margin_and_limits_static_left_form():
     crop = np.zeros((40, 200, 3), dtype=np.uint8)
     focused, bounds = _handwriting_focus_crop(

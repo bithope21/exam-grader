@@ -31,7 +31,7 @@ from exam_grader.template_manager import TemplateDefinition
 
 # Student Number has its own version because it can be refreshed in-place on a
 # persisted detection without rerunning the OMR/answer pipeline.
-STUDENT_NUMBER_PIPELINE_VERSION = "student-number-ppocrv6-small-onnx-v3"
+STUDENT_NUMBER_PIPELINE_VERSION = "student-number-ppocrv6-small-onnx-v4"
 # Compatibility alias for diagnostics and older callers that imported this name.
 IDENTITY_PIPELINE_VERSION = STUDENT_NUMBER_PIPELINE_VERSION
 NUMBER_SEARCH_X_FRACTION = 0.25
@@ -342,6 +342,7 @@ def _select_sequence_variant_observation(
     gray_disagreement_min_confidence: float = 0.25,
     prefer_processed_on_confidence_dominance: bool = True,
     handwriting_observation: dict[str, Any] | None = None,
+    static_print_suppression: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Choose between form-cleaned and grayscale views without hiding disagreement.
 
@@ -410,22 +411,36 @@ def _select_sequence_variant_observation(
         selected_candidate = selected.get("candidate")
         processed_confidence = processed_observation.get("confidence")
         focus_confidence = handwriting_observation.get("confidence")
+        focus_margin = handwriting_observation.get("confidence_margin")
+        reference_suppressed = bool(
+            (static_print_suppression or {}).get("reference_applied")
+        )
+        focus_is_strong = (
+            isinstance(focus_confidence, (int, float))
+            and math.isfinite(float(focus_confidence))
+            and float(focus_confidence) >= 0.85
+            and isinstance(focus_margin, (int, float))
+            and math.isfinite(float(focus_margin))
+            and float(focus_margin) >= 0.40
+        )
         strong_shorter_evidence = (
             isinstance(focus_candidate, str)
-            and isinstance(processed_candidate, str)
-            and focus_candidate == processed_candidate
             and isinstance(selected_candidate, str)
             and len(selected_candidate) == len(focus_candidate) + 1
             and (
                 selected_candidate == "1" + focus_candidate
                 or selected_candidate == focus_candidate + "1"
             )
-            and isinstance(processed_confidence, (int, float))
-            and math.isfinite(float(processed_confidence))
-            and float(processed_confidence) >= 0.55
-            and isinstance(focus_confidence, (int, float))
-            and math.isfinite(float(focus_confidence))
-            and float(focus_confidence) >= 0.55
+            and (
+                (
+                    isinstance(processed_candidate, str)
+                    and focus_candidate == processed_candidate
+                    and isinstance(processed_confidence, (int, float))
+                    and math.isfinite(float(processed_confidence))
+                    and float(processed_confidence) >= 0.55
+                )
+                or (reference_suppressed and focus_is_strong)
+            )
         )
         if strong_shorter_evidence:
             return handwriting_observation, {
@@ -442,6 +457,9 @@ def _select_sequence_variant_observation(
                     else "trailing-1",
                     "processed_candidate": processed_candidate,
                     "handwriting_candidate": focus_candidate,
+                    "reference_suppressed": reference_suppressed,
+                    "focus_confidence": focus_confidence,
+                    "focus_margin": focus_margin,
                     "requires_review": True,
                 },
             }
@@ -452,6 +470,7 @@ def _select_sequence_variant_observation(
                 "broad_candidate": selected_candidate,
                 "processed_candidate": processed_candidate,
                 "handwriting_candidate": focus_candidate,
+                "reference_suppressed": reference_suppressed,
             },
         }
     return selected, diagnostics
@@ -632,6 +651,54 @@ def _handwriting_focus_crop(
     if x2 <= x1:
         return crop, {"x1": 0, "x2": int(crop.shape[1])}
     return crop[:, x1:x2], {"x1": x1, "x2": x2}
+
+
+def _suppress_static_print_gray(
+    crop: np.ndarray,
+    reference_crop: np.ndarray | None = None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Remove known form ink from a grayscale sequence-evidence view.
+
+    This is intentionally limited to the secondary handwriting view. The
+    broad ROI, original grayscale view, and existing processed mask remain
+    available for diagnostics and fallback. A template reference is the
+    strongest static-print signal; green chroma is a safe fallback when a
+    reference is unavailable.
+    """
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY).astype(np.uint8)
+    static_mask = np.zeros_like(gray)
+    reference_applied = False
+    if crop.ndim == 3 and crop.shape[2] >= 3:
+        blue, green, red = cv2.split(crop)
+        chroma = green.astype(np.int16) - (
+            blue.astype(np.int16) + red.astype(np.int16)
+        ) // 2
+        green_mask = ((chroma >= 10) & (green >= 55)).astype(np.uint8) * 255
+        static_mask = cv2.bitwise_or(static_mask, cv2.dilate(
+            green_mask,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+        ))
+    if reference_crop is not None and reference_crop.size > 0:
+        scaled_reference = cv2.resize(
+            reference_crop, (crop.shape[1], crop.shape[0]), interpolation=cv2.INTER_LINEAR
+        )
+        reference_gray = cv2.cvtColor(scaled_reference, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        reference_darkness = cv2.GaussianBlur(reference_gray, (0, 0), 2) - reference_gray
+        reference_mask = (reference_darkness > 25).astype(np.uint8) * 255
+        static_mask = cv2.bitwise_or(
+            static_mask,
+            cv2.dilate(
+                reference_mask,
+                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+            ),
+        )
+        reference_applied = True
+    cleaned = gray.copy()
+    cleaned[static_mask > 0] = 255
+    return cleaned, {
+        "reference_applied": reference_applied,
+        "static_pixels_suppressed": int(np.count_nonzero(static_mask)),
+    }
 
 
 def number_roi(
@@ -1282,8 +1349,12 @@ def observe(
             )
             processed_sequence_crop = cleaned_sequence_crop(processed)
             gray_sequence_crop = cleaned_sequence_crop(gray)
+            static_suppressed_gray, static_suppression = _suppress_static_print_gray(
+                crop,
+                reference_crop=ref_crop,
+            )
             handwriting_gray, handwriting_bounds = _handwriting_focus_crop(
-                gray,
+                static_suppressed_gray,
                 configured_roi=configured_roi,
                 search_roi=search_roi,
                 scale=scale,
@@ -1311,6 +1382,7 @@ def observe(
                     configured_roi[2] - configured_roi[0] >= 200
                 ),
                 handwriting_observation=handwriting_observation,
+                static_print_suppression=static_suppression,
             )
             variant_observations = {
                 "processed-tight": processed_observation,
@@ -1379,6 +1451,7 @@ def observe(
                 **variant_selection,
                 "gray_disagreement_min_confidence": gray_disagreement_min_confidence,
                 "handwriting_focus_bounds": handwriting_bounds,
+                "static_print_suppression": static_suppression,
             }
             diagnostics["recognizer_runs"] = [
                 {
