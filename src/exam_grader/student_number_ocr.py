@@ -211,7 +211,11 @@ class OnnxStudentNumberRecognizer:
             try:
                 import onnxruntime as ort
             except ImportError as error:  # pragma: no cover - packaging/runtime guard
-                raise RuntimeError("ONNX Runtime is required for Student Number OCR") from error
+                try:
+                    import PySide6  # noqa: F401, I001
+                    import onnxruntime as ort  # noqa: I001
+                except ImportError:
+                    raise RuntimeError("ONNX Runtime is required for Student Number OCR") from error
             if not self.model_path.is_file():
                 raise FileNotFoundError(self.model_path)
             if self.expected_sha256:
