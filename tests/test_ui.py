@@ -1025,6 +1025,7 @@ def test_qr_batch_progress_stays_open_ended_until_session_closes(tmp_path):
     dialog._mobile_upload_completed_count = 1
     dialog._qr_batch_total = 2
     dialog._qr_batch_completed = 0
+    dialog._qr_batch_filename = "IMG_001.jpg"
     dialog.worker = Mock()
     dialog.worker.isRunning.return_value = True
 
@@ -1034,6 +1035,9 @@ def test_qr_batch_progress_stays_open_ended_until_session_closes(tmp_path):
     assert dialog.progress.maximum() == 2
     assert dialog.progress.value() == 0
     assert "อ่านชุดปัจจุบัน 0 จาก 2" in dialog.progress_label.text()
+    dialog.on_progress(1, 2, "IMG_001.jpg")
+    assert dialog.progress.value() == 1
+    assert "IMG_001.jpg" in dialog.progress_label.text()
     assert "100%" not in dialog.progress_label.text()
 
     dialog.mobile_upload_session = None
@@ -1066,6 +1070,39 @@ def test_qr_queue_uses_callback_delta_and_deduplicates_repeated_event(tmp_path):
         dialog.worker.isRunning.return_value = False
         dialog._batch_worker_finished()
         dialog.start_import.assert_called_once_with([Path("/tmp/qr/new-a.jpg")], "student")
+    finally:
+        dialog.close()
+
+
+def test_qr_next_batch_keeps_active_denominator_fixed(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("qr-batches", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    dialog.mobile_upload_session = Mock()
+    dialog.mobile_upload_purpose = "student"
+    dialog.mobile_upload_dialog = Mock()
+    dialog.mobile_upload_queue = []
+    dialog._qr_batch_total = 30
+    dialog._qr_batch_completed = 19
+    dialog.worker = Mock()
+    dialog.worker.isRunning.return_value = True
+    dialog.start_import = Mock()
+    try:
+        dialog._on_mobile_upload_files(["/tmp/qr/next-a.jpg", "/tmp/qr/next-b.jpg"])
+        assert dialog._qr_batch_total == 30
+        assert dialog._qr_batch_completed == 19
+        assert len(dialog.mobile_upload_queue) == 2
+
+        dialog.worker.isRunning.return_value = False
+        dialog._drain_mobile_upload_queue()
+        assert dialog._qr_batch_total == 2
+        assert dialog._qr_batch_completed == 0
+        dialog.start_import.assert_called_once_with(
+            [Path("/tmp/qr/next-a.jpg"), Path("/tmp/qr/next-b.jpg")], "student"
+        )
     finally:
         dialog.close()
 
@@ -1202,6 +1239,46 @@ def test_bulk_dismiss_reports_partial_failure_once(tmp_path, monkeypatch):
         assert info.call_count == 0
         assert dialog._issue_key(issues[0]) not in dialog.selected_issue_keys
         assert dialog._issue_key(issues[1]) in dialog.selected_issue_keys
+    finally:
+        dialog.close()
+
+
+def test_bulk_confirm_reports_selected_rows_that_cannot_be_confirmed(tmp_path, monkeypatch):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("bulk-confirm-summary", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    valid = {
+        "kind": "answer",
+        "source": {"id": "valid"},
+        "question": 1,
+        "key_id": "key",
+        "detection_id": "det-valid",
+        "prefill": "A",
+    }
+    invalid = {
+        "kind": "attendance",
+        "source": None,
+        "number": "2",
+        "status": "missing",
+    }
+    dialog.issue_rows = [valid, invalid]
+    dialog.selected_issue_keys = {dialog._issue_key(valid), dialog._issue_key(invalid)}
+    dialog.review_service.confirm_prefilled = Mock(
+        return_value={"applied": [valid], "skipped": [{"issue": invalid}], "total": 2}
+    )
+    dialog.refresh = Mock()
+    info = Mock()
+    monkeypatch.setattr(QMessageBox, "information", info)
+    try:
+        dialog.confirm_bulk_prefilled()
+        dialog.review_service.confirm_prefilled.assert_called_once_with(exam.id, [valid, invalid])
+        assert info.call_count == 1
+        assert "คงค้าง 1 รายการ" in info.call_args.args[2]
+        assert dialog._issue_key(valid) not in dialog.selected_issue_keys
+        assert dialog._issue_key(invalid) in dialog.selected_issue_keys
     finally:
         dialog.close()
 

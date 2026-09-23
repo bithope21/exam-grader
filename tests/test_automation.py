@@ -358,3 +358,49 @@ def test_confirm_prefilled_uses_each_row_value_and_keeps_uncertain_rows(tmp_path
     assert [(issue["kind"], issue.get("question")) for issue in remaining] == [
         ("answer", 3)
     ]
+
+
+def test_confirm_prefilled_existing_room_and_incremental_sheet_uses_current_candidates(
+    tmp_path,
+):
+    flow, exam, existing, service = setup_auto(tmp_path)
+    service.adopt_numbers(exam.id)
+    new_source = another_student(flow, exam, tmp_path, "incremental.png")
+    detected = observation(number="2")
+    detected["answers"][0] = {
+        "classification": "single_mark",
+        "selected": ["A"],
+        "auto_resolved": False,
+    }
+    flow.save_detection(new_source["id"], detected)
+
+    issues = service.issues(exam.id)
+    new_issues = [issue for issue in issues if issue.get("source", {}).get("id") == new_source["id"]]
+    assert {issue["kind"] for issue in new_issues} == {"number", "answer"}
+    assert service.prefilled_value(next(issue for issue in new_issues if issue["kind"] == "answer")) == "A"
+
+    result = service.confirm_prefilled(exam.id, new_issues)
+
+    assert len(result["applied"]) == 2
+    assert not result["skipped"]
+    assert service.issues(exam.id) == []
+    assert service.state(existing)["number"] == "1"
+    assert service.state(new_source)["number"] == "2"
+
+
+def test_confirm_prefilled_never_overwrites_existing_identity(tmp_path):
+    flow, exam, source, service = setup_auto(tmp_path)
+    service.set_number(source, "1", expected_detection=service.state(source)["detection_id"])
+    issue = {
+        "kind": "number",
+        "source": source,
+        "detection_id": service.state(source)["detection_id"],
+        "prefill": "2",
+        "label": "เลขที่ซ้ำ",
+    }
+
+    result = service.confirm_prefilled(exam.id, [issue])
+
+    assert result["applied"] == []
+    assert result["skipped"]
+    assert service.state(source)["number"] == "1"

@@ -452,8 +452,16 @@ class ReviewService:
     def prefilled_value(issue: dict) -> str | None:
         """Return only a measured value or known status for this review row."""
         value = issue.get("prefill")
-        if isinstance(value, str) and value:
-            return value
+        if value is not None and str(value):
+            return str(value)
+        # A single-mark candidate can be structurally readable while still
+        # carrying a geometry/review flag.  The bulk action is an explicit
+        # teacher confirmation, so preserve that current candidate instead of
+        # requiring a redundant per-row edit.
+        if issue.get("kind") == "answer" and issue.get("status") == "single_mark":
+            candidate = issue.get("candidate")
+            if candidate is not None and str(candidate):
+                return str(candidate)
         if issue.get("kind") == "answer" and issue.get("status") in {
             "blank",
             "multiple",
@@ -502,6 +510,10 @@ class ReviewService:
                     continue
                 sid = source["id"]
                 detection_id = issue.get("detection_id")
+                state = states[sid]
+                if state["detection_id"] != detection_id:
+                    skipped.append({"issue": issue, "reason": "ผลอ่านเปลี่ยนแล้ว"})
+                    continue
                 if issue.get("kind") == "answer":
                     if value not in RESOLVED or not issue.get("question"):
                         skipped.append({"issue": issue, "reason": "ค่าคำตอบไม่ถูกต้อง"})
@@ -520,6 +532,9 @@ class ReviewService:
                     )
                     applied.append(issue)
                 elif issue.get("kind") == "number":
+                    if state.get("number"):
+                        skipped.append({"issue": issue, "reason": "มีเลขที่ยืนยันแล้ว"})
+                        continue
                     try:
                         number = int(normalize_number(value))
                     except ValueError:
