@@ -545,7 +545,12 @@ class ReviewService:
                         or number in pending_numbers
                         or (maximum is not None and number > maximum)
                     ):
-                        skipped.append({"issue": issue, "reason": "เลขที่ซ้ำหรือเกินช่วง"})
+                        reason = (
+                            "เลขที่ซ้ำกับกระดาษเดิม"
+                            if number in used_numbers or number in pending_numbers
+                            else "เลขที่เกินช่วง"
+                        )
+                        skipped.append({"issue": issue, "reason": reason})
                         continue
                     con.execute(
                         "INSERT INTO identities VALUES (?,?,?,?,?,?)",

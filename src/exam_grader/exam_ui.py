@@ -623,7 +623,9 @@ class ExamDialog(QDialog):
         self._qr_batch_total = 0
         self._qr_batch_completed = 0
         self._qr_batch_filename = ""
+        self._qr_batch_worker_base = 0
         self._qr_stop_requested = False
+        self._qr_processing_view_active = False
         self.output_root = application.exams.output_root(exam.id) or default_output_root()
         self.template_def = load_exam_template_def(application.exams.path, exam.id)
         self.student_sort_desc = False
@@ -718,10 +720,10 @@ class ExamDialog(QDialog):
         student_page = QVBoxLayout()
         student_actions = QHBoxLayout()
         self.student_button = QPushButton("เพิ่มกระดาษคำตอบ")
-        student_menu = QMenu(self.student_button)
-        student_menu.addAction("เลือกไฟล์…", self.pick_student_files)
-        student_menu.addAction("เลือกโฟลเดอร์…", self.pick_folder)
-        self.student_button.setMenu(student_menu)
+        self.student_import_menu = QMenu(self)
+        self.student_import_menu.addAction("เลือกไฟล์…", self.pick_student_files)
+        self.student_import_menu.addAction("เลือกโฟลเดอร์…", self.pick_folder)
+        self.student_button.clicked.connect(self._show_student_import_menu)
         student_actions.addWidget(self.student_button)
         self.student_mobile_button = self._make_qr_button("เพิ่มกระดาษคำตอบผ่านมือถือ")
         self.student_mobile_button.clicked.connect(lambda: self.open_mobile_upload("student"))
@@ -2171,8 +2173,20 @@ class ExamDialog(QDialog):
                 self.issue_dirty.discard(key)
                 self.issue_drafts.pop(key, None)
             self.refresh()
-            skipped = len(result.get("skipped", []))
-            suffix = f" · คงค้าง {skipped} รายการให้ตรวจเอง" if skipped else ""
+            skipped_rows = result.get("skipped", [])
+            reason_counts = {}
+            for skipped_row in skipped_rows:
+                reason = skipped_row.get("reason", "ต้องตรวจเอง")
+                reason_counts[reason] = reason_counts.get(reason, 0) + 1
+            reason_text = " · ".join(
+                f"{reason} {count}" for reason, count in reason_counts.items()
+            )
+            suffix = (
+                f" · คงค้าง {len(skipped_rows)} รายการให้ตรวจเอง"
+                + (f"\n{reason_text}" if reason_text else "")
+                if skipped_rows
+                else ""
+            )
             QMessageBox.information(
                 self,
                 "ยืนยันข้อมูลเรียบร้อย",
@@ -2266,7 +2280,9 @@ class ExamDialog(QDialog):
         self._qr_batch_total = 0
         self._qr_batch_completed = 0
         self._qr_batch_filename = ""
+        self._qr_batch_worker_base = 0
         self._qr_stop_requested = False
+        self._qr_processing_view_active = False
         session.files_received.connect(self._on_mobile_upload_files)
         dialog = MobileUploadDialog(session, self)
         self.mobile_upload_dialog = dialog
@@ -2294,8 +2310,12 @@ class ExamDialog(QDialog):
             self._update_qr_batch_progress()
             return
         self._qr_stop_requested = False
+        if self.mobile_upload_purpose == "student":
+            self._begin_qr_processing_view()
         self.mobile_upload_queue.extend(Path(value) for value in paths)
         self._mobile_upload_received_count += len(paths)
+        if self.worker and self.worker.isRunning():
+            self._qr_batch_total += len(paths)
         if self.mobile_upload_dialog is not None:
             self.mobile_upload_dialog.set_processing(len(self.mobile_upload_queue))
         self._drain_mobile_upload_queue()
@@ -2312,7 +2332,7 @@ class ExamDialog(QDialog):
             # session there.
             self.mobile_upload_dialog.close()
 
-    def _drain_mobile_upload_queue(self) -> None:
+    def _drain_mobile_upload_queue(self, *, continuation: bool = False) -> None:
         if (
             self._qr_stop_requested
             or not self.mobile_upload_queue
@@ -2324,8 +2344,13 @@ class ExamDialog(QDialog):
             return
         paths = list(self.mobile_upload_queue)
         self.mobile_upload_queue.clear()
-        self._qr_batch_total = len(paths)
-        self._qr_batch_completed = 0
+        if not continuation:
+            self._qr_batch_total = len(paths)
+            self._qr_batch_completed = 0
+            self._qr_batch_worker_base = 0
+        elif self._qr_batch_total <= self._qr_batch_completed:
+            self._qr_batch_total = self._qr_batch_completed + len(paths)
+        self._qr_batch_worker_base = self._qr_batch_completed
         self._qr_batch_filename = ""
         if self.mobile_upload_dialog is not None:
             self.mobile_upload_dialog.set_processing(len(paths))
@@ -2339,7 +2364,9 @@ class ExamDialog(QDialog):
             and self.mobile_upload_session is not None
         ):
             self._mobile_upload_completed_count += finished_worker.processed_count
-            self._qr_batch_completed = finished_worker.processed_count
+            self._qr_batch_completed = (
+                self._qr_batch_worker_base + finished_worker.processed_count
+            )
         self.busy(False)
         cancelled = self._qr_stop_requested or (
             isinstance(finished_worker, BatchWorker)
@@ -2350,12 +2377,21 @@ class ExamDialog(QDialog):
             self._qr_batch_total = 0
             self._qr_batch_completed = 0
             self._qr_batch_filename = ""
+            self._qr_batch_worker_base = 0
         else:
-            self._drain_mobile_upload_queue()
+            self._drain_mobile_upload_queue(continuation=True)
             if not self.mobile_upload_queue and not (self.worker and self.worker.isRunning()):
                 self._qr_batch_total = 0
                 self._qr_batch_completed = 0
                 self._qr_batch_filename = ""
+                self._qr_batch_worker_base = 0
+        if (
+            self.mobile_upload_purpose == "student"
+            and not self.mobile_upload_queue
+            and not (self.worker and self.worker.isRunning())
+        ):
+            self.refresh()
+            self._qr_processing_view_active = False
         self._cleanup_mobile_upload_session_if_idle()
         self._update_qr_batch_progress()
         self._maybe_focus_review_after_batch()
@@ -2394,7 +2430,11 @@ class ExamDialog(QDialog):
             )
         else:
             self.progress.setRange(0, 1)
-            self.progress.setValue(0)
+            complete = (
+                self._mobile_upload_received_count > 0
+                and self._mobile_upload_completed_count >= self._mobile_upload_received_count
+            )
+            self.progress.setValue(1 if complete else 0)
             state = "หยุดแล้ว" if self._qr_stop_requested else "พร้อมรับภาพถัดไป"
             self.progress_label.setText(
                 f"QR: รับแล้ว {self._mobile_upload_received_count} ภาพ · "
@@ -2412,7 +2452,9 @@ class ExamDialog(QDialog):
         if self.mobile_upload_session is not None or not self._mobile_upload_received_count:
             return
         self.progress.setRange(0, 1)
-        self.progress.setValue(1)
+        self.progress.setValue(
+            1 if self._mobile_upload_completed_count >= self._mobile_upload_received_count else 0
+        )
         self.progress_label.setText(
             f"ปิด QR session แล้ว · อ่านเสร็จ {self._mobile_upload_completed_count} "
             f"จาก {self._mobile_upload_received_count} ภาพ"
@@ -2432,12 +2474,23 @@ class ExamDialog(QDialog):
         self.mobile_upload_session = None
         self.mobile_upload_purpose = None
 
+    def _begin_qr_processing_view(self) -> None:
+        if self._qr_processing_view_active:
+            return
+        self._qr_processing_view_active = True
+        self.student_list.clear()
+        self.review_list.clear()
+
     def pick_key(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "เลือกภาพเฉลย", "", "Images (*.png *.jpg *.jpeg)"
         )
         if path:
             self.start_import([Path(path)], "key")
+
+    def _show_student_import_menu(self) -> None:
+        point = self.student_button.mapToGlobal(self.student_button.rect().bottomLeft())
+        self.student_import_menu.exec(point)
 
     def pick_student_files(self):
         paths, _ = QFileDialog.getOpenFileNames(
@@ -2494,7 +2547,7 @@ class ExamDialog(QDialog):
 
     def on_progress(self, done, total, filename):
         if self.mobile_upload_session is not None and self.mobile_upload_purpose == "student":
-            self._qr_batch_completed = done
+            self._qr_batch_completed = self._qr_batch_worker_base + done
             self._qr_batch_filename = filename
             self._update_qr_batch_progress()
             return
@@ -2503,16 +2556,22 @@ class ExamDialog(QDialog):
         self.progress_label.setText(f"กำลังอ่าน {done} จาก {total} · {filename}")
 
     def import_done(self, failures):
-        self.refresh()
         worker = self.worker
         cancelled = isinstance(worker, BatchWorker) and worker.isInterruptionRequested()
+        qr_student = (
+            isinstance(worker, BatchWorker)
+            and worker.purpose == "student"
+            and self.mobile_upload_session is not None
+        )
+        if not qr_student:
+            self.refresh()
         if isinstance(worker, BatchWorker) and worker.purpose == "student":
             self._review_focus_pending = True
         # The worker emits completed before QThread.finished. Defer the stale
         # check one event-loop turn so a key refresh can be followed by students.
         if isinstance(worker, BatchWorker) and worker.purpose == "key" and not cancelled:
             QTimer.singleShot(0, self._ensure_current_pipeline)
-        if failures:
+        if failures and not qr_student:
             self.progress_label.setText(
                 f"นำเข้าเสร็จ · มี {len(failures)} ไฟล์ที่ต้องตรวจทาน "
                 "รายละเอียดอยู่ในแท็บตรวจทาน"

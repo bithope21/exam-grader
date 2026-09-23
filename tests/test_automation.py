@@ -404,3 +404,21 @@ def test_confirm_prefilled_never_overwrites_existing_identity(tmp_path):
     assert result["applied"] == []
     assert result["skipped"]
     assert service.state(source)["number"] == "1"
+
+
+def test_confirm_prefilled_reports_duplicate_candidate_against_existing_sheet(tmp_path):
+    flow, exam, source, service = setup_auto(tmp_path)
+    service.adopt_numbers(exam.id)
+    duplicate = another_student(flow, exam, tmp_path, "duplicate.png")
+    detected = observation(number="1")
+    flow.save_detection(duplicate["id"], detected)
+    issue = next(
+        item
+        for item in service.issues(exam.id)
+        if item.get("source", {}).get("id") == duplicate["id"] and item["kind"] == "number"
+    )
+
+    result = service.confirm_prefilled(exam.id, [issue])
+
+    assert result["applied"] == []
+    assert result["skipped"][0]["reason"] == "เลขที่ซ้ำกับกระดาษเดิม"

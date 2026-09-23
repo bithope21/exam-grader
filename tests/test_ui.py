@@ -495,8 +495,8 @@ def test_student_list_action_is_compact_and_unclipped(tmp_path):
     from exam_grader.exam_ui import ExamDialog
 
     dialog = ExamDialog(application, exam)
-    assert dialog.student_button.menu() is not None
-    assert [action.text() for action in dialog.student_button.menu().actions()] == [
+    assert dialog.student_button.menu() is None
+    assert [action.text() for action in dialog.student_import_menu.actions()] == [
         "เลือกไฟล์…",
         "เลือกโฟลเดอร์…",
     ]
@@ -1074,7 +1074,35 @@ def test_qr_queue_uses_callback_delta_and_deduplicates_repeated_event(tmp_path):
         dialog.close()
 
 
-def test_qr_next_batch_keeps_active_denominator_fixed(tmp_path):
+def test_qr_processing_hides_lists_until_worker_boundary(tmp_path):
+    from exam_grader.exam_ui import ExamDialog
+
+    QApplication.instance() or QApplication([])
+    application = initialize(tmp_path / "data")
+    exam = application.exams.create(ExamDetails("qr-clean-view", "2569", "ป.1", "1", "วิชา"))
+    dialog = ExamDialog(application, exam)
+    dialog.mobile_upload_session = Mock()
+    dialog.mobile_upload_purpose = "student"
+    dialog.mobile_upload_dialog = Mock()
+    dialog.student_list.addItem("existing sheet")
+    dialog.worker = Mock()
+    dialog.worker.isRunning.return_value = True
+    dialog.start_import = Mock()
+    dialog.refresh = Mock()
+    try:
+        dialog._on_mobile_upload_files(["/tmp/qr/clean-view.jpg"])
+        assert dialog.student_list.count() == 0
+        assert dialog.refresh.call_count == 0
+
+        dialog.worker.isRunning.return_value = False
+        dialog._batch_worker_finished()
+        assert dialog.refresh.call_count == 1
+        assert dialog._qr_processing_view_active is False
+    finally:
+        dialog.close()
+
+
+def test_qr_new_files_extend_active_denominator_and_continue_progress(tmp_path):
     from exam_grader.exam_ui import ExamDialog
 
     QApplication.instance() or QApplication([])
@@ -1092,14 +1120,16 @@ def test_qr_next_batch_keeps_active_denominator_fixed(tmp_path):
     dialog.start_import = Mock()
     try:
         dialog._on_mobile_upload_files(["/tmp/qr/next-a.jpg", "/tmp/qr/next-b.jpg"])
-        assert dialog._qr_batch_total == 30
+        assert dialog._qr_batch_total == 32
         assert dialog._qr_batch_completed == 19
         assert len(dialog.mobile_upload_queue) == 2
 
         dialog.worker.isRunning.return_value = False
-        dialog._drain_mobile_upload_queue()
-        assert dialog._qr_batch_total == 2
-        assert dialog._qr_batch_completed == 0
+        dialog._drain_mobile_upload_queue(continuation=True)
+        assert dialog._qr_batch_total == 32
+        assert dialog._qr_batch_completed == 19
+        dialog.on_progress(1, 2, "next-a.jpg")
+        assert dialog._qr_batch_completed == 20
         dialog.start_import.assert_called_once_with(
             [Path("/tmp/qr/next-a.jpg"), Path("/tmp/qr/next-b.jpg")], "student"
         )
