@@ -402,9 +402,26 @@ class ReviewService:
 
     @staticmethod
     def prefilled_value(issue: dict) -> str | None:
-        """Return only a value already measured for this exact review row."""
+        """Return only a measured value or known status for this review row."""
         value = issue.get("prefill")
-        return value if isinstance(value, str) and value else None
+        if isinstance(value, str) and value:
+            return value
+        if issue.get("kind") == "answer" and issue.get("status") in {
+            "blank",
+            "multiple",
+            "boundary_cross",
+        }:
+            return issue["status"]
+        return None
+
+    @staticmethod
+    def student_number_recommendation(state: dict) -> str | None:
+        """Return the pipeline's best unconfirmed number recommendation only."""
+        if state.get("number"):
+            return None
+        observation = (state.get("detection") or {}).get("student_number_observation") or {}
+        candidate = observation.get("candidate")
+        return str(candidate) if candidate else None
 
     def confirm_prefilled(self, exam_id: str, issues: list[dict]) -> dict:
         """Teacher-confirm measured row values without forcing one value on all rows.

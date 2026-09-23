@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,
+    QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
@@ -892,7 +893,7 @@ def test_confirmed_student_number_refreshes_students_without_answer_confirmation
         "student_number_observation": {
             "pipeline_version": STUDENT_NUMBER_PIPELINE_VERSION,
             "candidate": "7",
-            "candidates": ["7"],
+            "candidates": ["7", "17", "19"],
             "requires_review": True,
         },
         "answers": [
@@ -910,7 +911,18 @@ def test_confirmed_student_number_refreshes_students_without_answer_confirmation
     dialog.tabs.setCurrentIndex(1)
     before = dialog.student_list.item(0).text()
     assert "ต้องตรวจทาน" in before
+    assert "เลขที่ 7 · ต้องตรวจทาน" in before
+    assert "17" not in before
+    assert "เลขที่อาจเป็น" not in before
     assert [issue["kind"] for issue in dialog.issue_rows] == ["number"]
+
+    paper_review = ReviewDialog(application.exams.path, student_source)
+    assert paper_review.number.text() == "7"
+    assert not any(
+        "ผู้ช่วยอ่านได้หลายแบบ" in label.text()
+        for label in paper_review.findChildren(QLabel)
+    )
+    paper_review.close()
 
     editor = dialog.issue_table.cellWidget(0, 4)
     assert isinstance(editor, QLineEdit)
@@ -957,7 +969,7 @@ def test_review_tab_checkbox_delegate_ux_and_state_preservation(tmp_path):
             "candidates": ["1"],
         },
         "answers": [
-            {"classification": "uncertain", "selected": [], "auto_resolved": False},
+            {"classification": "multiple", "selected": ["A", "E"], "auto_resolved": False},
             {"classification": "uncertain", "selected": [], "auto_resolved": False},
             {"classification": "uncertain", "selected": [], "auto_resolved": False},
             {"classification": "single_mark", "selected": ["D"], "auto_resolved": True},
@@ -979,6 +991,11 @@ def test_review_tab_checkbox_delegate_ux_and_state_preservation(tmp_path):
     QApplication.processEvents()
 
     assert dialog.issue_table.rowCount() == 3
+    multiple_editor = dialog.issue_table.cellWidget(0, 4)
+    assert isinstance(multiple_editor, QComboBox)
+    assert multiple_editor.currentData() == "multiple"
+    assert multiple_editor.currentText() == "หลายคำตอบ"
+    assert "อ่านหลายคำตอบ (A, E)" in dialog.issue_table.item(0, 2).text()
     assert dialog.issue_table.columnWidth(0) == 52
 
     from PySide6.QtCore import QPoint, Qt

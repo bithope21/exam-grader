@@ -1180,10 +1180,10 @@ class ExamDialog(QDialog):
             identity_state = identity_states.get(candidate["id"], {})
             if identity_state.get("number"):
                 candidate["student_number"] = identity_state["number"]
-            elif identity_state:
+            else:
                 candidate["student_number"] = (
-                    identity_state["detection"].get("student_number_observation") or {}
-                ).get("candidate", "")
+                    ReviewService.student_number_recommendation(identity_state) or ""
+                )
         records.sort(key=self._student_sort_key, reverse=self.student_sort_desc)
         for source in records:
             review = self.flow.latest_review(source["id"])
@@ -1231,15 +1231,16 @@ class ExamDialog(QDialog):
                 review_count += 1
             if detection and "failure" in detection:
                 state = f"อ่านไม่ได้ · {detection['failure']}"
-            number_observation = (detection or {}).get("student_number_observation", {})
-            if not review and number_observation.get("candidate"):
-                candidates = number_observation.get("candidates") or []
-                if candidates == [number_observation["candidate"]]:
-                    state += f" · ผู้ช่วยอ่านเลขที่ {number_observation['candidate']} (ต้องตรวจทาน)"
-                else:
-                    state += f" · เลขที่อาจเป็น {' / '.join(candidates)} (ต้องตรวจทาน)"
-            elif not review and source.get("student_number"):
-                state += f" · เลขที่ {source['student_number']} (ต้องตรวจทาน)"
+            identity_state = identity_states.get(source["id"], {})
+            if not review and identity_state.get("number"):
+                state += f" · เลขที่ {identity_state['number']} · ต้องตรวจทาน"
+            elif not review:
+                recommendation = ReviewService.student_number_recommendation(identity_state)
+                state += (
+                    f" · เลขที่ {recommendation} · ต้องตรวจทาน"
+                    if recommendation
+                    else " · ยังไม่ยืนยันเลขที่ · ต้องตรวจทาน"
+                )
             if review and reviewed_numbers.get(int(review["student_number"]), 0) > 1:
                 state = f"เลขที่ซ้ำ · {review['student_number']} · {state}"
             self._add_student_item(f"{source['original_name']}\n{state}", source)
@@ -1664,9 +1665,10 @@ class ExamDialog(QDialog):
                 except (ValueError, OSError, KeyError, TypeError):
                     pass
             editor: QLineEdit | QComboBox
+            prefill = self.review_service.prefilled_value(issue)
             if issue["kind"] == "number":
                 editor = QLineEdit(
-                    issue.get("prefill") or issue.get("candidate") or issue["number"] or ""
+                    prefill or issue["number"] or ""
                 )
                 editor.setPlaceholderText("เลขที่")
                 attach_digit_normalizer(editor, digits_only=True)
@@ -1692,7 +1694,7 @@ class ExamDialog(QDialog):
                 for label, value in options:
                     editor.addItem(label, value)
                 editor.setCurrentIndex(
-                    max(0, editor.findData(issue.get("prefill") or issue.get("candidate")))
+                    max(0, editor.findData(prefill))
                 )
             issue_key = self._issue_key(issue)
             if issue_key in self.issue_drafts:

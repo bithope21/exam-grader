@@ -337,13 +337,10 @@ class ReviewDialog(QDialog):
             ) or {}
             candidate = number_observation.get("candidate")
             candidates = number_observation.get("candidates") or []
+            if candidate:
+                suggested_candidate = str(candidate)
             if candidate and candidates == [candidate]:
-                suggested_candidate = candidate
                 hint = QLabel(f"ผู้ช่วยอ่านได้: {candidate} · ยังไม่ยืนยัน")
-                hint.setProperty("role", "warning")
-                controls.addWidget(hint)
-            elif candidates:
-                hint = QLabel(f"ผู้ช่วยอ่านได้หลายแบบ: {' / '.join(candidates)} · ต้องตรวจทาน")
                 hint.setProperty("role", "warning")
                 controls.addWidget(hint)
             suggestions = number_observation.get("review_suggestions") or []
