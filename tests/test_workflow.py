@@ -3,7 +3,10 @@ from PySide6.QtGui import QImage
 
 from exam_grader.app import initialize
 from exam_grader.domain import ExamDetails
+from exam_grader.identity import STUDENT_NUMBER_PIPELINE_VERSION
+from exam_grader.imaging import OMR_PIPELINE_VERSION
 from exam_grader.imports import ImportService
+from exam_grader.review_service import ReviewService
 from exam_grader.workflow import Workflow
 
 
@@ -79,6 +82,47 @@ def test_review_keeps_the_detection_that_was_seen(tmp_path):
     flow.save_detection(source["id"], {"version": "B"})
     snapshot = flow.snapshot(exam.id)
     assert snapshot["results"][0]["detection"]["version"] == "A"
+
+
+def test_student_number_refresh_preserves_detection_and_teacher_identity(tmp_path):
+    flow, exam, key_source, source = prepare(tmp_path)
+    key = flow.approve_key(exam.id, ["A", "A", "A"], key_source["id"])
+    flow.save_detection(
+        source["id"],
+        {
+            "pipeline_version": OMR_PIPELINE_VERSION,
+            "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
+            "answers": [{"classification": "single_mark", "selected": ["A"]}],
+            "student_number_observation": {
+                "pipeline_version": "legacy-student-number",
+                "candidate": "111",
+            },
+        },
+    )
+    service = ReviewService(flow.database)
+    flow.review(source["id"], "17", ["A", "A", "A"], key["id"])
+    before = service.state(source)
+    old_detection = before["detection_id"]
+    old_payload = flow.latest_detection(source["id"])
+
+    flow.update_student_number_observation(
+        source["id"],
+        {
+            "pipeline_version": STUDENT_NUMBER_PIPELINE_VERSION,
+            "candidate": "18",
+            "raw_prediction": "18",
+            "review_reason": "test refresh",
+        },
+    )
+
+    after = service.state(source)
+    new_payload = flow.latest_detection(source["id"])
+    assert after["detection_id"] == old_detection
+    assert after["number"] == "17"
+    assert new_payload["pipeline_version"] == old_payload["pipeline_version"]
+    assert new_payload["registration"] == old_payload["registration"]
+    assert new_payload["answers"] == old_payload["answers"]
+    assert new_payload["student_number_observation"]["candidate"] == "18"
 
 
 def test_key_requires_one_choice_per_active_question(tmp_path):

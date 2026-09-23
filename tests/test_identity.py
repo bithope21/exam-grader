@@ -239,7 +239,7 @@ def test_sequence_variant_selector_prefers_cleaned_view_when_gray_evidence_is_we
     assert diagnostics == {
         "selected_variant": "processed-tight",
         "variant_agreement": False,
-        "selection_reason": "gray_disagreement_evidence_weak",
+        "selection_reason": "processed_confidence_dominates",
     }
 
 
@@ -249,8 +249,9 @@ def test_sequence_variant_selector_keeps_gray_view_when_disagreement_has_evidenc
 
     selected, diagnostics = _select_sequence_variant_observation(processed, gray)
 
-    assert selected is gray
-    assert diagnostics["selected_variant"] == "gray-tight"
+    assert selected is processed
+    assert diagnostics["selected_variant"] == "processed-tight"
+    assert diagnostics["selection_reason"] == "processed_confidence_dominates"
     assert diagnostics["variant_agreement"] is False
 
 

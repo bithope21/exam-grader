@@ -20,6 +20,7 @@ import exam_grader.imaging as imaging
 import exam_grader.review_ui as review_ui
 from exam_grader.app import initialize
 from exam_grader.domain import ExamDetails
+from exam_grader.identity import STUDENT_NUMBER_PIPELINE_VERSION
 from exam_grader.imaging import OMR_PIPELINE_VERSION
 from exam_grader.imports import ImportService
 from exam_grader.preferences import apply_appearance_theme
@@ -296,7 +297,11 @@ def test_skip_remaining_review_button_confirms_partial_results(tmp_path, monkeyp
         {
             "pipeline_version": OMR_PIPELINE_VERSION,
             "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]]},
-            "student_number_observation": {"candidate": None, "candidates": []},
+            "student_number_observation": {
+                "pipeline_version": STUDENT_NUMBER_PIPELINE_VERSION,
+                "candidate": None,
+                "candidates": [],
+            },
             "answers": [
                 {"classification": "single_mark", "selected": ["A"], "auto_resolved": True},
                 {"classification": "uncertain", "selected": ["B"], "auto_resolved": False},
@@ -752,7 +757,11 @@ def test_review_tab_bulk_edit_ui(tmp_path):
     det = {
         "pipeline_version": OMR_PIPELINE_VERSION,
         "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "inliers": 100},
-        "student_number_observation": {"candidate": "1", "candidates": ["1"]},
+        "student_number_observation": {
+            "pipeline_version": STUDENT_NUMBER_PIPELINE_VERSION,
+            "candidate": "1",
+            "candidates": ["1"],
+        },
         "answers": [
             {"classification": "uncertain", "selected": [], "auto_resolved": False},
             {"classification": "uncertain", "selected": [], "auto_resolved": False},
@@ -881,6 +890,7 @@ def test_confirmed_student_number_refreshes_students_without_answer_confirmation
             "inverse_matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
         },
         "student_number_observation": {
+            "pipeline_version": STUDENT_NUMBER_PIPELINE_VERSION,
             "candidate": "7",
             "candidates": ["7"],
             "requires_review": True,
@@ -941,7 +951,11 @@ def test_review_tab_checkbox_delegate_ux_and_state_preservation(tmp_path):
     det = {
         "pipeline_version": OMR_PIPELINE_VERSION,
         "registration": {"matrix": [[1, 0, 0], [0, 1, 0], [0, 0, 1]], "inliers": 100},
-        "student_number_observation": {"candidate": "1", "candidates": ["1"]},
+        "student_number_observation": {
+            "pipeline_version": STUDENT_NUMBER_PIPELINE_VERSION,
+            "candidate": "1",
+            "candidates": ["1"],
+        },
         "answers": [
             {"classification": "uncertain", "selected": [], "auto_resolved": False},
             {"classification": "uncertain", "selected": [], "auto_resolved": False},

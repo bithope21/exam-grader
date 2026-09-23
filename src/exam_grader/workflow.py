@@ -278,6 +278,32 @@ class Workflow:
             ).fetchone()
             return json.loads(row[0]) if row else None
 
+    def update_student_number_observation(self, source_id: str, observation: dict) -> None:
+        """Refresh only Student Number data on the current detection row.
+
+        Keeping the detection id stable is important: answer reviews reference
+        it, while the separate identity record remains the durable teacher
+        decision.  A failed refresh is handled by the caller before this
+        method is invoked, so this update cannot partially replace OMR data.
+        """
+        if not isinstance(observation, dict):
+            raise ValueError("Student Number observation is invalid")
+        with self.connection() as connection:
+            row = connection.execute(
+                "SELECT id,payload FROM detections WHERE source_id=? ORDER BY rowid DESC LIMIT 1",
+                (source_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("ไม่พบผลการอ่านกระดาษสำหรับ refresh เลขที่")
+            payload = json.loads(row[1])
+            if not isinstance(payload, dict):
+                raise ValueError("ผลการอ่านกระดาษเดิมไม่ถูกต้อง")
+            payload["student_number_observation"] = observation
+            connection.execute(
+                "UPDATE detections SET payload=? WHERE id=?",
+                (json.dumps(payload), row[0]),
+            )
+
     def review(
         self,
         source_id: str,

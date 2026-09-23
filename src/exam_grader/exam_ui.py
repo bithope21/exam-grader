@@ -53,7 +53,12 @@ from PySide6.QtWidgets import (
 
 from exam_grader.exporting import export_results
 from exam_grader.geometry_resolution import geometry_from_detection
-from exam_grader.identity import observe as observe_student_number
+from exam_grader.identity import (
+    observe as observe_student_number,
+)
+from exam_grader.identity import (
+    student_number_observation_is_current,
+)
 from exam_grader.imaging import OMR_PIPELINE_VERSION, RegistrationError, analyze, decode
 from exam_grader.imports import ImportService
 from exam_grader.local_upload import (
@@ -277,6 +282,7 @@ class BatchWorker(QThread):
 
     def run(self):
         failures = []
+        full_pipeline_processed = False
         importer = ImportService(self.database)
         flow = Workflow(self.database)
         if self.purpose == "student":
@@ -303,11 +309,20 @@ class BatchWorker(QThread):
                     self.exam_id, path, self.purpose, room_id=self.room_id
                 )
                 existing = flow.latest_detection(source["id"])
-                if (
+                omr_needs_refresh = (
                     existing is None
                     or existing.get("pipeline_version") != OMR_PIPELINE_VERSION
                     or existing.get("alignment_needs_review")
-                ):
+                )
+                student_number_needs_refresh = (
+                    self.purpose == "student"
+                    and existing is not None
+                    and not student_number_observation_is_current(
+                        existing.get("student_number_observation")
+                    )
+                )
+                if omr_needs_refresh:
+                    full_pipeline_processed = True
                     source_bytes = importer.verified_bytes(source)
                     decoded = decode(source_bytes)
                     try:
@@ -348,6 +363,28 @@ class BatchWorker(QThread):
                                 "review_reason": "student-number observation unavailable",
                             }
                     flow.save_detection(source["id"], observation)
+                elif student_number_needs_refresh:
+                    # Preserve the current detection row and its answer-review
+                    # identity.  Only the stale Student Number observation is
+                    # replaced, and only after a complete successful OCR run.
+                    source_bytes = importer.verified_bytes(source)
+                    decoded = decode(source_bytes)
+                    matrix = existing.get("registration", {}).get("matrix")
+                    if matrix is None:
+                        raise ValueError(
+                            "ไม่สามารถ refresh เลขที่ได้: ไม่พบ registration matrix"
+                        )
+                    student_observation = observe_student_number(
+                        source_bytes,
+                        matrix,
+                        template_def=template_def,
+                        app_data_dir=getattr(self.database, "parent", None),
+                        image=decoded,
+                        student_number_max=student_number_max,
+                    )
+                    flow.update_student_number_observation(
+                        source["id"], student_observation
+                    )
                 importer.clear_failure(self.exam_id, path, self.purpose, room_id=self.room_id)
             except Exception as error:
                 importer.record_failure(
@@ -355,11 +392,12 @@ class BatchWorker(QThread):
                 )
                 failures.append(f"{path.name}: {error}")
             self.progress.emit(index + 1, len(self.paths), path.name)
-        try:
-            service = ReviewService(self.database, room_id=self.room_id)
-            service.finalize(self.exam_id)
-        except Exception as error:
-            failures.append(f"ประมวลผลอัตโนมัติไม่สำเร็จ: {error}")
+        if full_pipeline_processed:
+            try:
+                service = ReviewService(self.database, room_id=self.room_id)
+                service.finalize(self.exam_id)
+            except Exception as error:
+                failures.append(f"ประมวลผลอัตโนมัติไม่สำเร็จ: {error}")
         self.completed.emit(failures)
 
 
@@ -1455,7 +1493,18 @@ class ExamDialog(QDialog):
             if source["purpose"] not in stale_by_purpose:
                 continue
             detection = self.flow.latest_detection(source["id"])
-            if not detection or detection.get("pipeline_version") == OMR_PIPELINE_VERSION:
+            omr_stale = (
+                not detection
+                or detection.get("pipeline_version") != OMR_PIPELINE_VERSION
+            )
+            student_number_stale = (
+                source["purpose"] == "student"
+                and detection is not None
+                and not student_number_observation_is_current(
+                    detection.get("student_number_observation")
+                )
+            )
+            if not omr_stale and not detection.get("alignment_needs_review") and not student_number_stale:
                 continue
             stale_by_purpose[source["purpose"]].append(
                 self.application.exams.path.parent / source["relative_path"]

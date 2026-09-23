@@ -29,9 +29,25 @@ from exam_grader.imaging import decode, template
 from exam_grader.student_number_constraints import StudentNumberConstraint
 from exam_grader.template_manager import TemplateDefinition
 
-IDENTITY_PIPELINE_VERSION = "student-number-ppocrv6-small-onnx-v1"
+# Student Number has its own version because it can be refreshed in-place on a
+# persisted detection without rerunning the OMR/answer pipeline.
+STUDENT_NUMBER_PIPELINE_VERSION = "student-number-ppocrv6-small-onnx-v2"
+# Compatibility alias for diagnostics and older callers that imported this name.
+IDENTITY_PIPELINE_VERSION = STUDENT_NUMBER_PIPELINE_VERSION
 NUMBER_SEARCH_X_FRACTION = 0.25
 NUMBER_SEARCH_Y_FRACTION = 0.40
+
+
+def student_number_observation_is_current(observation: dict | None) -> bool:
+    """Return whether a persisted Student Number observation is safe to reuse.
+
+    Missing, malformed, and legacy observations are deliberately treated as
+    stale.  Callers can then attempt a fail-safe Student Number-only refresh.
+    """
+    return (
+        isinstance(observation, dict)
+        and observation.get("pipeline_version") == STUDENT_NUMBER_PIPELINE_VERSION
+    )
 
 
 def _supported_segmented_number(
@@ -324,14 +340,17 @@ def _select_sequence_variant_observation(
     gray_observation: dict[str, Any],
     *,
     gray_disagreement_min_confidence: float = 0.25,
+    prefer_processed_on_confidence_dominance: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Choose between form-cleaned and grayscale views without hiding disagreement.
 
     The form-cleaned view removes printed rules and labels; the grayscale view
     preserves stroke intensity that can distinguish similar handwritten digits.
     Grayscale is the primary view when both agree, or when it has enough
-    evidence during a disagreement. A weak grayscale result falls back to the
-    form-cleaned view, while diagnostics retain both complete observations.
+    evidence during a disagreement. A clearly stronger processed view wins even
+    when grayscale has evidence: this protects older layouts where grayscale
+    can stitch nearby printed strokes into a longer number. Diagnostics retain
+    both complete observations.
     """
     processed_candidate = processed_observation.get("candidate")
     gray_candidate = gray_observation.get("candidate")
@@ -342,11 +361,28 @@ def _select_sequence_variant_observation(
         and math.isfinite(float(gray_confidence))
         and float(gray_confidence) >= gray_disagreement_min_confidence
     )
+    processed_confidence = processed_observation.get("confidence")
+    processed_dominates = (
+        prefer_processed_on_confidence_dominance
+        and
+        isinstance(processed_confidence, (int, float))
+        and math.isfinite(float(processed_confidence))
+        and float(processed_confidence) >= 0.9
+        and isinstance(gray_confidence, (int, float))
+        and math.isfinite(float(gray_confidence))
+        and float(processed_confidence) - float(gray_confidence) >= 0.1
+    )
     if agreement:
         return gray_observation, {
             "selected_variant": "gray-tight",
             "variant_agreement": True,
             "selection_reason": "views_agree",
+        }
+    if processed_dominates:
+        return processed_observation, {
+            "selected_variant": "processed-tight",
+            "variant_agreement": False,
+            "selection_reason": "processed_confidence_dominates",
         }
     if gray_is_strong_enough or not processed_candidate:
         return gray_observation, {
@@ -1173,6 +1209,9 @@ def observe(
                 processed_observation,
                 gray_observation,
                 gray_disagreement_min_confidence=gray_disagreement_min_confidence,
+                prefer_processed_on_confidence_dominance=(
+                    configured_roi[2] - configured_roi[0] >= 200
+                ),
             )
             variant_observations = {
                 "processed-tight": processed_observation,
@@ -1255,7 +1294,29 @@ def observe(
                 }
                 if candidate
             }
-            sequence_segmentation_complete = bool(boxes) and len(boxes) <= 6
+            sequence_segmentation_complete = (
+                bool(boxes)
+                and len(boxes) <= 6
+                and isinstance(sequence_observation.get("candidate"), str)
+                and len(sequence_observation["candidate"]) == len(boxes)
+            )
+            # When the sequence view has stitched printed/adjacent strokes
+            # into a number longer than the measured glyph count, prefer the
+            # already-computed segmented digit-model result if it is shape
+            # compatible. This is a generalized safety fallback for older
+            # layouts, not a volume-specific correction.
+            if (
+                not sequence_segmentation_complete
+                and len(boxes) == 2
+                and model_observation is not None
+                and isinstance(model_observation.get("candidate"), str)
+                and len(model_observation["candidate"]) == len(boxes)
+            ):
+                sequence_observation = _constrain_sequence_observation(
+                    model_observation, constraint
+                )
+                diagnostics["sequence_digit_model_fallback"] = True
+                sequence_segmentation_complete = True
             selective_auto_accept = _selective_auto_accept_allowed(
                 sequence_model,
                 sequence_observation["candidate"],
@@ -1268,6 +1329,21 @@ def observe(
                 independent_agreement=True,
                 merged_component_suspected=merged_geometry_suspected,
             )
+            calibrated_template_ids = sequence_model.calibration.get(
+                "auto_accept_template_ids"
+            )
+            effective_template_id = (
+                template_def.template_id if template_def is not None else template()["id"]
+            )
+            if (
+                isinstance(calibrated_template_ids, list)
+                and calibrated_template_ids
+                and effective_template_id not in calibrated_template_ids
+            ):
+                selective_auto_accept = False
+                diagnostics["selective_auto_accept_blocked"] = (
+                    "template-outside-calibration-scope"
+                )
             diagnostics["merged_component_suspected"] = merged_geometry_suspected
             diagnostics["segmentation_complete"] = sequence_segmentation_complete
             diagnostics["sequence_variant_agreement"] = variant_selection["variant_agreement"]

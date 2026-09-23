@@ -1,5 +1,5 @@
 {
-  "version": "student-number-ppocrv6-small-onnx-v1",
+  "version": "student-number-ppocrv6-small-onnx-v2",
   "source_model": "PaddlePaddle/PP-OCRv6_small_rec_onnx",
   "license": "Apache-2.0",
   "model_sha256": "5435fd747c9e0efe15a96d0b378d5bd157e9492ed8fd80edf08f30d02fa24634",
@@ -11,6 +11,12 @@
     "wrong_auto_accept": 0,
     "generalization_claim_allowed": false,
     "auto_accept_enabled": true,
+    "auto_accept_template_ids": [
+      "default-1",
+      "template-f12316df",
+      "template-84a0bdde",
+      "template-314e5481"
+    ],
     "auto_accept_min_confidence": 0.9,
     "auto_accept_min_margin": 0.45,
     "ensemble_gray_disagreement_min_confidence": 0.25,
