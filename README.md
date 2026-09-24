@@ -1,4 +1,4 @@
-# Exam Grader (v1.0.1)
+# Exam Grader (v1.3.0)
 
 โปรแกรมตรวจข้อสอบจากภาพถ่ายกระดาษคำตอบ ทำงานแบบ **ออฟไลน์ 100%** สำหรับคุณครูและสถานศึกษา รองรับทั้ง **macOS (Apple Silicon)** และ **Windows (64-bit)**
 
@@ -36,12 +36,12 @@
 ดาวน์โหลดตัวติดตั้งเวอร์ชันล่าสุดได้จาก [GitHub Releases](https://github.com/bithope21/exam-grader/releases) หรือที่หน้าเว็บ [bithope.app/exam-grader](https://bithope.app/exam-grader)
 
 ### macOS (Apple Silicon: M1/M2/M3/M4)
-1. ดาวน์โหลดไฟล์ `Exam-Grader-v1.0.0-macOS-Apple-Silicon.dmg`
+1. ดาวน์โหลดไฟล์ `Exam-Grader-v1.3.0-macOS-Apple-Silicon.dmg`
 2. ดับเบิลคลิกไฟล์ `.dmg` แล้วลากไอคอน **Exam Grader** ไปยังโฟลเดอร์ **Applications**
 3. **การเปิดใช้งานครั้งแรก:** เนื่องจากเป็นซอฟต์แวร์ Open Source อิสระที่ไม่ได้ผ่าน Mac App Store หาก macOS Gatekeeper ขึ้นแจ้งเตือน ให้ไปที่ **System Settings** → **Privacy & Security** แล้วกด **Open Anyway**
 
 ### Windows (10 / 11 64-bit)
-1. ดาวน์โหลดไฟล์ `Exam-Grader-v1.0.0-Windows-Setup.exe`
+1. ดาวน์โหลดไฟล์ `Exam-Grader-v1.3.0-Windows-Setup.exe`
 2. ดับเบิลคลิกเปิดตัวติดตั้งและทำตามขั้นตอนบนหน้าจอ
 3. เปิดใช้งานโปรแกรมได้จาก Start Menu หรือ Desktop Shortcut
 
